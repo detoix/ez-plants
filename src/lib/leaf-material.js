@@ -55,5 +55,5 @@ export function createLeafMaterialSet({
     variant: shadowWindVariant,
   });
 
-  return { surface, depth, distance, wind };
+  return { surface, depth, distance };
 }

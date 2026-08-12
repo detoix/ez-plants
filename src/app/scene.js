@@ -123,13 +123,15 @@ function instantiatePlant(initialState) {
     ageYears: initialState.age,
     dayOfYear: initialState.day,
     scenario: initialState.scenario,
-    autoLOD: true,
-    bark,
-    leaf: {
-      map: getLeafMap(LeafType.BlackcurrantTisel),
-      tint: 0xffffff,
-      alphaTest: 0.5,
-      roundedNormals: true,
+    lod: true,
+    assets: {
+      bark,
+      leaf: {
+        map: getLeafMap(LeafType.BlackcurrantTisel),
+        tint: 0xffffff,
+        alphaTest: 0.5,
+        roundedNormals: true,
+      },
     },
   };
 
@@ -154,7 +156,7 @@ export async function createScene(renderer, initialState) {
 
   const plant = instantiatePlant(initialState);
   plant.name = "Blackcurrant 'Tisel'";
-  plant.traverse?.((object) => {
+  plant.traverse((object) => {
     if (object.isMesh) {
       object.castShadow = true;
       object.receiveShadow = true;

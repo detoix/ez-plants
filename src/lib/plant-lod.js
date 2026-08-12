@@ -69,19 +69,21 @@ export function normalizePlantLODLevels(levels, baseDetail = {}) {
  * Lazily remesh one procedural plant as camera distance crosses LOD bands.
  *
  * Unlike THREE.LOD, this controller does not retain several complete plants.
- * It drives the target's existing deterministic setDetail() implementation,
- * so the biological graph and non-detail organs remain single and persistent.
+ * It invokes an injected private detail sink, so the biological graph and
+ * non-detail organs remain single and persistent without exposing renderer
+ * internals on the plant object.
  */
 export class PlantLODController {
-  constructor(target, levels) {
-    if (!target?.isObject3D || typeof target.setDetail !== 'function') {
+  constructor({ target, detail, levels, applyDetail } = {}) {
+    if (!target?.isObject3D || typeof applyDetail !== 'function') {
       throw new TypeError(
-        'PlantLODController target must be a THREE.Object3D with setDetail().',
+        'PlantLODController requires a THREE.Object3D and applyDetail().',
       );
     }
 
     this.target = target;
-    this.baseDetail = Object.freeze(normalizePlantDetail(target.detail));
+    this.applyDetail = applyDetail;
+    this.baseDetail = Object.freeze(normalizePlantDetail(detail));
     this.levels = normalizePlantLODLevels(levels, this.baseDetail);
     this.currentLevel = null;
     this.currentDistance = null;
@@ -124,7 +126,7 @@ export class PlantLODController {
     this.currentDistance = distance;
     if (nextLevel === this.currentLevel) return false;
 
-    this.target.setDetail(this.levels[nextLevel].detail);
+    this.applyDetail(this.levels[nextLevel].detail);
     this.currentLevel = nextLevel;
     return true;
   }
@@ -146,10 +148,9 @@ export class PlantLODController {
   /** Stop automatic switching and optionally restore the original detail. */
   dispose({ restore = true } = {}) {
     if (this.disposed) return;
-    if (restore) this.target.setDetail(this.baseDetail);
+    if (restore) this.applyDetail(this.baseDetail);
     this.disposed = true;
     this.target = null;
+    this.applyDetail = null;
   }
 }
-
-export default PlantLODController;

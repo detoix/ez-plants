@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 import * as THREE from 'three';
 
@@ -7,24 +8,6 @@ import {
   PlantLODController,
 } from '../src/lib/plant-lod.js';
 import { Blackcurrant } from '../src/lib/plants/blackcurrant/blackcurrant.js';
-
-function detailTarget() {
-  const target = new THREE.Group();
-  target.detail = Object.freeze({
-    sectionStride: 1,
-    segmentFactor: 1,
-    leafStride: 1,
-    leafScale: 1,
-    billboard: null,
-  });
-  target.applied = [];
-  target.setDetail = (detail) => {
-    target.detail = Object.freeze({ ...detail });
-    target.applied.push({ ...detail });
-    return target;
-  };
-  return target;
-}
 
 function levels() {
   return [
@@ -38,50 +21,56 @@ function levels() {
   ];
 }
 
-function captureInstances(mesh) {
-  return {
-    count: mesh.count,
-    matrices: Array.from(mesh.instanceMatrix.array.slice(0, mesh.count * 16)),
-    colors: mesh.instanceColor
-      ? Array.from(mesh.instanceColor.array.slice(0, mesh.count * 3))
-      : null,
-  };
+function hashView(view, elementCount = view?.length ?? 0) {
+  if (!view || elementCount === 0) return null;
+  return createHash('sha256')
+    .update(
+      Buffer.from(
+        view.buffer,
+        view.byteOffset,
+        elementCount * view.BYTES_PER_ELEMENT,
+      ),
+    )
+    .digest('hex');
 }
 
-function captureGeometry(geometry) {
+function meshes(plant) {
+  const result = [];
+  plant.traverse((object) => {
+    if (object.isMesh) result.push(object);
+  });
+  return result;
+}
+
+function meshNamed(plant, name) {
+  const result = meshes(plant).find((mesh) => mesh.name === name);
+  assert.ok(result, `missing scene mesh ${name}`);
+  return result;
+}
+
+function captureMesh(mesh) {
   return {
-    positions: Array.from(geometry.getAttribute('position').array),
-    normals: Array.from(geometry.getAttribute('normal').array),
-    uvs: Array.from(geometry.getAttribute('uv').array),
-    indices: Array.from(geometry.index.array),
+    name: mesh.name,
+    visible: mesh.visible,
+    count: mesh.isInstancedMesh ? mesh.count : null,
+    positions: hashView(mesh.geometry.getAttribute('position')?.array),
+    normals: hashView(mesh.geometry.getAttribute('normal')?.array),
+    uvs: hashView(mesh.geometry.getAttribute('uv')?.array),
+    indices: hashView(mesh.geometry.index?.array),
+    matrices: mesh.isInstancedMesh
+      ? hashView(mesh.instanceMatrix.array, mesh.count * 16)
+      : null,
+    colors:
+      mesh.isInstancedMesh && mesh.instanceColor
+        ? hashView(mesh.instanceColor.array, mesh.count * 3)
+        : null,
   };
 }
 
 function capturePlant(plant) {
-  return {
-    detail: { ...plant.detail },
-    leaves: {
-      ids: structuredClone(plant._activeLeafIds),
-      instances: captureInstances(plant.instances.leaves),
-    },
-    wood: Object.fromEntries(
-      Object.entries(plant.woodMeshes).map(([band, mesh]) => [
-        band,
-        captureGeometry(mesh.geometry),
-      ]),
-    ),
-    unaffectedOrgans: Object.fromEntries(
-      [
-        'buds',
-        'racemeAxes',
-        'pedicels',
-        'flowerBuds',
-        'flowers',
-        'berries',
-        'calyces',
-      ].map((kind) => [kind, captureInstances(plant.instances[kind])]),
-    ),
-  };
+  return meshes(plant)
+    .map(captureMesh)
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 test('Plant LOD levels normalize deterministically and reject ambiguous bands', () => {
@@ -113,149 +102,135 @@ test('Plant LOD levels normalize deterministically and reject ambiguous bands', 
   );
 });
 
-test('PlantLODController uses Three.js thresholds, hysteresis and stable A-B-A', () => {
-  const target = detailTarget();
-  const controller = new PlantLODController(target, levels());
+test('PlantLODController uses Three.js distance, hysteresis and stable A-B-A detail', () => {
+  const target = new THREE.Group();
+  const applied = [];
+  const controller = new PlantLODController({
+    target,
+    detail: {
+      sectionStride: 1,
+      segmentFactor: 1,
+      leafStride: 1,
+      leafScale: 1,
+      billboard: null,
+    },
+    levels: levels(),
+    applyDetail: (detail) => applied.push({ ...detail }),
+  });
 
   assert.equal(controller.updateDistance(0), true);
   assert.equal(controller.currentLevel, 0);
   assert.equal(controller.updateDistance(9.99), false);
   assert.equal(controller.updateDistance(10), true);
-  const detailB = { ...target.detail };
+  const detailB = { ...applied.at(-1) };
   assert.equal(controller.currentLevel, 1);
   assert.equal(controller.updateDistance(9.5), false);
-  assert.equal(controller.currentLevel, 1);
   assert.equal(controller.updateDistance(8.99), true);
   assert.equal(controller.currentLevel, 0);
   assert.equal(controller.updateDistance(10), true);
-  assert.deepEqual(target.detail, detailB);
+  assert.deepEqual(applied.at(-1), detailB);
 
   assert.equal(controller.updateDistance(25), true);
   assert.equal(controller.currentLevel, 2);
   assert.equal(controller.updateDistance(17), false);
-  assert.equal(controller.currentLevel, 2);
   assert.equal(controller.updateDistance(15.99), true);
   assert.equal(controller.currentLevel, 1);
 
   const camera = new THREE.PerspectiveCamera();
   camera.position.set(20, 0, 0);
   camera.zoom = 2;
-  target.position.set(0, 0, 0);
   assert.equal(controller.update(camera), false);
   assert.equal(controller.currentDistance, 10);
-  assert.equal(controller.currentLevel, 1);
 
   controller.dispose();
   assert.equal(controller.disposed, true);
+  assert.deepEqual(applied.at(-1), controller.baseDetail);
   assert.equal(controller.updateDistance(25), false);
-  assert.deepEqual(target.detail, controller.baseDetail);
   controller.dispose();
 });
 
-test('Blackcurrant automatic LOD preserves biology, berries and exact A-B-A state', () => {
+test('constructor LOD changes only visual detail and returns exact A-B-A output', () => {
   const plant = new Blackcurrant({
-    seed: 'blackcurrant-auto-lod',
+    seed: 'blackcurrant-lod',
     maxYears: 8,
     ageYears: 5,
     dayOfYear: 175,
+    lod: true,
   });
-  const snapshot = plant._snapshot;
-  const events = plant.events;
-  const full = capturePlant(plant);
+  const camera = new THREE.PerspectiveCamera();
+  const near = capturePlant(plant);
+  const biology = {
+    leaves: plant.stats().leaves,
+    ripeBerries: plant.stats().ripeBerries,
+    events: plant.serialize().events,
+  };
+  const nearWoodPositions = meshNamed(
+    plant,
+    'Blackcurrant_Wood',
+  ).geometry.getAttribute('position').count;
+  const nearLeafCount = meshNamed(plant, 'Blackcurrant_Leaves').count;
+  const berries = captureMesh(meshNamed(plant, 'Blackcurrant_Berries'));
 
-  plant.enableAutoLOD([
-    { distance: 0, detail: {} },
-    {
-      distance: 2,
-      hysteresis: 0.1,
-      detail: {
-        sectionStride: 2,
-        segmentFactor: 0.75,
-        leafStride: 2,
-        leafScale: 1.18,
-      },
-    },
-    {
-      distance: 4,
-      hysteresis: 0.1,
-      detail: {
-        sectionStride: 3,
-        segmentFactor: 0.55,
-        leafStride: 3,
-        leafScale: 1.32,
-      },
-    },
-  ]);
-
-  assert.equal(plant.autoLOD.updateDistance(5), true);
+  camera.position.set(8, 0, 0);
+  plant.update(0, 0, camera);
   const far = capturePlant(plant);
-  assert.ok(far.wood.young.positions.length < full.wood.young.positions.length);
-  assert.ok(far.leaves.instances.count < full.leaves.instances.count);
-  assert.strictEqual(plant._snapshot, snapshot);
-  assert.strictEqual(plant.events, events);
-  assert.deepEqual(far.unaffectedOrgans, full.unaffectedOrgans);
+  assert.ok(
+    meshNamed(plant, 'Blackcurrant_Wood').geometry.getAttribute('position')
+      .count < nearWoodPositions,
+  );
+  assert.ok(meshNamed(plant, 'Blackcurrant_Leaves').count < nearLeafCount);
+  assert.deepEqual(
+    captureMesh(meshNamed(plant, 'Blackcurrant_Berries')),
+    berries,
+  );
+  assert.deepEqual(
+    {
+      leaves: plant.stats().leaves,
+      ripeBerries: plant.stats().ripeBerries,
+      events: plant.serialize().events,
+    },
+    biology,
+  );
 
-  assert.equal(plant.autoLOD.updateDistance(0), true);
-  assert.deepEqual(capturePlant(plant), full);
-  assert.equal(plant.autoLOD.updateDistance(5), true);
+  camera.position.set(0, 0, 0);
+  plant.update(0, 0, camera);
+  assert.deepEqual(capturePlant(plant), near);
+  camera.position.set(8, 0, 0);
+  plant.update(0, 0, camera);
   assert.deepEqual(capturePlant(plant), far);
-  assert.equal(plant.autoLOD.updateDistance(0), true);
-  assert.deepEqual(capturePlant(plant), full);
+  camera.position.set(0, 0, 0);
+  plant.update(0, 0, camera);
+  assert.deepEqual(capturePlant(plant), near);
 
+  assert.equal('detail' in plant, false);
+  assert.equal('autoLOD' in plant, false);
   plant.dispose();
-  assert.equal(plant.autoLOD, null);
 });
 
-test('Blackcurrant automatic LOD disposes replaced and live wood exactly once', () => {
+test('camera-driven LOD disposes replaced and live wood geometry exactly once', () => {
   const plant = new Blackcurrant({
-    seed: 'blackcurrant-auto-lod-disposal',
+    seed: 'blackcurrant-lod-disposal',
     maxYears: 8,
     ageYears: 5,
     dayOfYear: 175,
+    lod: true,
   });
-  const levelsForDisposal = [
-    { distance: 0, detail: {} },
-    {
-      distance: 2,
-      detail: { sectionStride: 3, segmentFactor: 0.55, leafStride: 3 },
-    },
-  ];
-  plant.enableAutoLOD(levelsForDisposal);
+  const camera = new THREE.PerspectiveCamera();
+  const initialGeometry = meshNamed(plant, 'Blackcurrant_Wood').geometry;
+  let initialDisposals = 0;
+  initialGeometry.addEventListener('dispose', () => initialDisposals++);
 
-  // Capture exact geometry references separately because each mesh is swapped.
-  const initialGeometries = Object.values(plant.woodMeshes).map(
-    (mesh) => mesh.geometry,
-  );
-  const initialCounts = new Map(
-    initialGeometries.map((geometry) => [geometry, 0]),
-  );
-  for (const geometry of initialGeometries) {
-    geometry.addEventListener('dispose', () => {
-      initialCounts.set(geometry, initialCounts.get(geometry) + 1);
-    });
-  }
+  camera.position.set(8, 0, 0);
+  plant.update(0, 0, camera);
+  assert.equal(initialDisposals, 1);
 
-  plant.autoLOD.updateDistance(3);
-  for (const geometry of initialGeometries) {
-    assert.equal(initialCounts.get(geometry), 1);
-  }
-
-  const liveGeometries = Object.values(plant.woodMeshes).map(
-    (mesh) => mesh.geometry,
-  );
-  const liveCounts = new Map(liveGeometries.map((geometry) => [geometry, 0]));
-  for (const geometry of liveGeometries) {
-    geometry.addEventListener('dispose', () => {
-      liveCounts.set(geometry, liveCounts.get(geometry) + 1);
-    });
-  }
+  const liveGeometry = meshNamed(plant, 'Blackcurrant_Wood').geometry;
+  assert.notStrictEqual(liveGeometry, initialGeometry);
+  let liveDisposals = 0;
+  liveGeometry.addEventListener('dispose', () => liveDisposals++);
 
   plant.dispose();
-  for (const geometry of liveGeometries) {
-    assert.equal(liveCounts.get(geometry), 1);
-  }
   plant.dispose();
-  for (const geometry of liveGeometries) {
-    assert.equal(liveCounts.get(geometry), 1);
-  }
+  assert.equal(initialDisposals, 1);
+  assert.equal(liveDisposals, 1);
 });

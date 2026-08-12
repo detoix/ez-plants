@@ -56,11 +56,9 @@ export function createBarkMaterial({
     );
   }
 
-  if (material.roughnessMap) {
-    // Matching the slots prevents GLTFExporter from synthesizing a redundant
-    // metal/rough texture. The zero metalness factor still keeps bark dielectric.
-    material.metalnessMap = material.roughnessMap;
-  }
+  // Retain EZ-Tree v2's exact bark-slot contract. With metalness fixed at zero
+  // this does not make bark metallic, and keeps the material exporter-friendly.
+  if (material.roughnessMap) material.metalnessMap = material.roughnessMap;
 
   return material;
 }

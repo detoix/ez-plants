@@ -115,7 +115,6 @@ export const TISEL_PROFILE = Object.freeze({
   }),
   leaf: Object.freeze({
     arrangement: 'alternate',
-    lobes: Object.freeze([3, 5]),
     widthM: Object.freeze([0.06, 0.11]),
     petioleLengthM: Object.freeze([0.025, 0.065]),
     serrated: true,
@@ -129,8 +128,6 @@ export const TISEL_PROFILE = Object.freeze({
   berry: Object.freeze({
     massG: Object.freeze([0.9, 1.08]),
     diameterM: Object.freeze([0.0095, 0.013]),
-    ripeColour: '#14131b',
-    unripeColour: '#90a85f',
     retainsCalyx: true,
   }),
   yield: Object.freeze({
@@ -139,26 +136,10 @@ export const TISEL_PROFILE = Object.freeze({
     renderedFruitIsRepresentative: true,
     note: 'The visible berry instances are a performance sample. Yield is a source-calibrated planning estimate, not a count of rendered spheres or a weather forecast.',
   }),
-  phenology: Object.freeze({
-    flowering: Object.freeze({
-      earliest: '04-02',
-      latest: '04-23',
-    }),
-    colouring: Object.freeze({
-      earliest: '05-27',
-      latest: '06-17',
-    }),
-    harvest: Object.freeze({
-      earliest: '06-11',
-      latest: '07-01',
-    }),
-  }),
   management: Object.freeze({
     dormantPlantingMonths: Object.freeze([10, 11, 12, 1, 2, 3]),
     renewalPruningMinimumAgeYears: 4,
     oldestCaneRemovalFraction: 1 / 3,
     pruningMethod: 'remove the oldest complete canes at crown level',
-    replacementCycleYears: 15,
   }),
-  sources: TISEL_SOURCES,
 });

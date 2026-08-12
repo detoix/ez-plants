@@ -1,4 +1,4 @@
-import { dayOfYear, getTiselCareHints } from '@dgreenheck/ez-tree';
+import { dayOfYear } from '@dgreenheck/ez-tree';
 
 const DEFAULT_STATE = Object.freeze({
   age: 4,
@@ -46,80 +46,18 @@ function dateForDay(day) {
   }).format(date);
 }
 
-function inferredPhenology(day) {
-  if (day <= 64 || day >= 321) return { bbch: '00–09', stage: 'Dormant buds' };
-  if (day <= 100) return { bbch: '10–19', stage: 'Leaf development' };
-  if (day <= 125) return { bbch: '51–69', stage: 'Flowering' };
-  if (day <= 164) return { bbch: '71–79', stage: 'Green fruit' };
-  if (day <= 190) return { bbch: '81–89', stage: 'Fruit ripening' };
-  if (day <= 267) return { bbch: '91', stage: 'Post-harvest growth' };
-  return { bbch: '91–97', stage: 'Senescence and leaf fall' };
-}
-
-function readValue(source, keys, fallback = 0) {
-  for (const key of keys) {
-    if (source?.[key] !== undefined) return source[key];
-  }
-  return fallback;
-}
-
-function plantSnapshot(plant, day, age) {
-  const raw =
-    typeof plant.stats === 'function'
-      ? plant.stats()
-      : (plant.stats ?? plant.getStats?.() ?? {});
-  const phenology = raw.phenology ?? raw.stage ?? inferredPhenology(day);
-  const fallback = inferredPhenology(day);
-  let careHints = Array.isArray(raw.careHints) ? raw.careHints : null;
-  if (careHints === null) {
-    try {
-      careHints = getTiselCareHints(day, { plantAgeYears: age });
-    } catch {
-      careHints = [];
-    }
-  }
-
+function plantSnapshot(plant) {
+  const stats = plant.stats();
   return {
-    bbch: String(
-      readValue(
-        phenology,
-        ['bbch', 'bbchCode', 'code'],
-        raw.bbch ?? fallback.bbch,
-      ),
-    ),
-    stage: String(
-      readValue(
-        phenology,
-        ['label', 'stage', 'name'],
-        raw.stageName ?? fallback.stage,
-      ),
-    ),
-    canes: Number(
-      readValue(raw, ['visibleCanes', 'activeCanes', 'caneCount', 'canes'], 0),
-    ),
-    leaves: Number(readValue(raw, ['visibleLeaves', 'leafCount', 'leaves'], 0)),
-    flowers: Number(
-      readValue(raw, ['visibleFlowers', 'flowerCount', 'flowers'], 0),
-    ),
-    greenBerries: Number(
-      readValue(
-        raw,
-        ['visibleGreenBerries', 'greenBerryCount', 'greenBerries'],
-        0,
-      ),
-    ),
-    ripeBerries: Number(
-      readValue(
-        raw,
-        ['visibleRipeBerries', 'ripeBerryCount', 'ripeBerries'],
-        0,
-      ),
-    ),
-    estimatedYieldKg: Number(
-      readValue(raw, ['estimatedYieldKg', 'yieldKg'], 0),
-    ),
-    cycleAgeYears: Number(readValue(raw, ['cycleAgeYears'], age)),
-    careHints,
+    bbch: stats.phenology.bbch,
+    stage: stats.phenology.stage,
+    canes: stats.visibleCanes,
+    leaves: stats.visibleLeaves,
+    flowers: stats.visibleFlowers,
+    greenBerries: stats.visibleGreenBerries,
+    ripeBerries: stats.visibleRipeBerries,
+    estimatedYieldKg: stats.estimatedYieldKg,
+    careHints: stats.careHints,
   };
 }
 
@@ -131,7 +69,7 @@ function careSourceLabel(source = '') {
   return 'Cultivar guidance';
 }
 
-function careGuidance(snapshot, age) {
+function careGuidance(snapshot) {
   const priority = { important: 30, recommended: 20, notice: 10 };
   const hints = [...snapshot.careHints].sort((a, b) => {
     const categoryA =
@@ -156,10 +94,7 @@ function careGuidance(snapshot, age) {
 
   return {
     title: 'Observe before acting',
-    text:
-      age < 4
-        ? 'Let the young framework establish and verify moisture, damage and vigour on the real plant.'
-        : 'No calendar action is flagged for this stage. Weather, soil, site and the actual plant should override the simulation.',
+    text: 'No calendar action is flagged for this stage. Weather, soil, site and the actual plant should override the simulation.',
     source: 'RHS blackcurrant guide',
     href: 'https://www.rhs.org.uk/fruit/blackcurrants/grow-your-own?type=f',
   };
@@ -194,72 +129,12 @@ export function readBlackcurrantStateFromUrl() {
   };
 }
 
-function eventDescription(kind, result, state) {
-  if (kind === 'prune') {
-    const event = result?.event ?? result;
-    const id = event?.caneId ?? event?.removedCaneId ?? event?.id;
-    return id !== undefined
-      ? `Pruned oldest eligible cane ${id}`
-      : (event?.reason ?? 'No eligible cane was removed');
-  }
-  if (Number.isFinite(result?.amountKg) && result.amountKg > 0) {
-    return `Recorded ${result.amountKg.toFixed(2)} kg ripe-fruit harvest`;
-  }
-  const count =
-    result?.count ??
-    result?.harvestedCount ??
-    result?.harvested ??
-    result?.ripeBerryCount ??
-    result?.berries ??
-    0;
-  return count > 0
-    ? `Harvested ${count} ripe ${count === 1 ? 'berry' : 'berries'}`
-    : `No ripe berries to harvest on day ${state.day}`;
+function pruningEventDescription(event) {
+  return `Pruned oldest eligible cane ${event.caneId}`;
 }
 
-function pruningAvailability(plant, state, snapshot) {
-  if (snapshot.cycleAgeYears < 4) {
-    return { allowed: false, reason: 'Renewal pruning starts from age 4.' };
-  }
-
-  const inPruningWindow = snapshot.careHints.some(
-    (hint) => hint.category === 'pruning',
-  );
-  if (!inPruningWindow) {
-    return {
-      allowed: false,
-      reason: 'Renewal pruning is available during dormancy.',
-    };
-  }
-
-  const simulationYear = Math.floor(state.age);
-  const prunesThisYear = (plant.events ?? []).filter(
-    (event) =>
-      event.type === 'prune' && Math.floor(event.ageYears) === simulationYear,
-  ).length;
-  const startingCanes = snapshot.canes + prunesThisYear;
-  const seasonalLimit = Math.max(
-    0,
-    Math.min(Math.floor(startingCanes / 3), startingCanes - 6),
-  );
-
-  if (snapshot.canes <= 6 || seasonalLimit === 0) {
-    return {
-      allowed: false,
-      reason: 'The maintained model keeps at least six living canes.',
-    };
-  }
-  if (prunesThisYear >= seasonalLimit) {
-    return {
-      allowed: false,
-      reason: `Seasonal renewal limit reached (${seasonalLimit} ${seasonalLimit === 1 ? 'cane' : 'canes'}).`,
-    };
-  }
-
-  return {
-    allowed: true,
-    reason: `Remove oldest cane (${prunesThisYear + 1} of ${seasonalLimit} this season).`,
-  };
+function harvestEventDescription(result) {
+  return `Recorded ${result.amountKg.toFixed(2)} kg ripe-fruit harvest`;
 }
 
 /**
@@ -380,19 +255,14 @@ export function setupBlackcurrantUI({ plant, initialState, setReviewView }) {
   const pruneButton = container.querySelector('[data-action="prune"]');
   const harvestButton = container.querySelector('[data-action="harvest"]');
 
-  function setMeshShadows() {
-    plant.traverse?.((object) => {
-      if (object.isMesh) {
-        object.castShadow = true;
-        object.receiveShadow = true;
-      }
-    });
-  }
-
   function applyPlantState({ time = true, scenario = true } = {}) {
-    if (time) plant.setTime?.({ ageYears: state.age, dayOfYear: state.day });
-    if (scenario) plant.setScenario?.(state.scenario);
-    setMeshShadows();
+    if (time || scenario) {
+      plant.setState({
+        ageYears: state.age,
+        dayOfYear: state.day,
+        scenario: state.scenario,
+      });
+    }
   }
 
   function renderLog() {
@@ -404,9 +274,8 @@ export function setupBlackcurrantUI({ plant, initialState, setReviewView }) {
   }
 
   function render() {
-    const snapshot = plantSnapshot(plant, state.day, state.age);
-    const guidance = careGuidance(snapshot, state.age);
-    const pruning = pruningAvailability(plant, state, snapshot);
+    const snapshot = plantSnapshot(plant);
+    const guidance = careGuidance(snapshot);
     ageInput.value = state.age;
     dayInput.value = state.day;
     container.querySelector('[data-age-output]').value = `${state.age} yr`;
@@ -426,8 +295,8 @@ export function setupBlackcurrantUI({ plant, initialState, setReviewView }) {
     )
       ? `${Math.max(0, snapshot.estimatedYieldKg).toFixed(2)} kg`
       : '—';
-    pruneButton.disabled = !pruning.allowed;
-    pruneButton.title = pruning.reason;
+    pruneButton.title =
+      'Attempt renewal pruning; the plant model validates the selected twin state.';
     harvestButton.disabled = snapshot.ripeBerries <= 0;
     harvestButton.title = harvestButton.disabled
       ? 'No ripe berries are available at this time.'
@@ -528,43 +397,36 @@ export function setupBlackcurrantUI({ plant, initialState, setReviewView }) {
     render();
   });
   pruneButton.addEventListener('click', () => {
-    const result = plant.pruneOldestCane?.({
+    const event = plant.pruneOldestCane({
       ageYears: state.age,
       dayOfYear: state.day,
     });
-    if (result?.type === 'prune' || result?.event?.type === 'prune') {
+    if (event.type === 'prune') {
       eventEntries.unshift({
         when: `Year ${state.age} · ${dateForDay(state.day)}`,
-        text: eventDescription('prune', result, state),
+        text: pruningEventDescription(event),
       });
     }
-    setMeshShadows();
     render();
   });
   harvestButton.addEventListener('click', () => {
-    const result = plant.harvest?.({
-      ageYears: state.age,
-      dayOfYear: state.day,
-    });
-    if (result?.event) {
+    const result = plant.harvest();
+    if (result.event) {
       eventEntries.unshift({
         when: `Year ${state.age} · ${dateForDay(state.day)}`,
-        text: eventDescription('harvest', result, state),
+        text: harvestEventDescription(result),
       });
     }
-    setMeshShadows();
     render();
   });
   container
     .querySelector('[data-action="reset"]')
     .addEventListener('click', () => {
-      plant.resetEvents?.();
+      plant.resetEvents();
       eventEntries.length = 0;
-      setMeshShadows();
       render();
     });
 
-  setMeshShadows();
   render();
 
   return {

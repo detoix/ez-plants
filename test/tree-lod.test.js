@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
 
-import { Tree } from '../src/lib/tree.js';
+import { Branch } from '../src/lib/branch.js';
 import { Billboard, TreeType } from '../src/lib/enums.js';
 import TreeOptions from '../src/lib/options.js';
+import { Tree } from '../src/lib/tree.js';
 
 function createSmallOptions({ levels = 0 } = {}) {
   const options = new TreeOptions();
@@ -39,15 +40,6 @@ function createSmallOptions({ levels = 0 } = {}) {
   return options;
 }
 
-function geometryState(geometry) {
-  return {
-    position: Array.from(geometry.getAttribute('position').array),
-    normal: Array.from(geometry.getAttribute('normal').array),
-    uv: Array.from(geometry.getAttribute('uv').array),
-    index: Array.from(geometry.index.array),
-  };
-}
-
 function assertFiniteGeometry(geometry) {
   for (const attributeName of ['position', 'normal', 'uv']) {
     const values = geometry.getAttribute(attributeName).array;
@@ -58,131 +50,111 @@ function assertFiniteGeometry(geometry) {
   }
 }
 
-function ringCenter(position, offset, radialSegments) {
-  const center = new THREE.Vector3();
-  for (let index = 0; index < radialSegments; index++) {
-    center.x += position.getX(offset + index);
-    center.y += position.getY(offset + index);
-    center.z += position.getZ(offset + index);
+test('Tree restores the committed public generation API without LOD residue', () => {
+  const tree = new Tree(createSmallOptions());
+  for (const method of [
+    'generateBranch',
+    'generateChildBranches',
+    'generateLeaves',
+    'generateLeaf',
+    'shuffledIndices',
+    'generateBranchIndices',
+  ]) {
+    assert.equal(typeof tree[method], 'function', method);
   }
-  return center.multiplyScalar(1 / radialSegments);
-}
 
-test('createGeometry reuses one skeleton and consumes no RNG', () => {
+  assert.equal('generateLODs' in tree, false);
+  assert.equal('createGeometry' in tree, false);
+  assert.equal('defaultLODLevels' in Tree, false);
+  assert.equal('lod' in tree, false);
+  assert.equal('skeleton' in tree, false);
+});
+
+test('generate uses shared Uint32-safe buffers with committed Tree topology', () => {
   const tree = new Tree(createSmallOptions());
-  tree.generate();
-  const skeleton = tree.skeleton;
-  const rngState = [tree.rng.m_w, tree.rng.m_z];
-  const detail = {
-    sectionStride: 3,
-    segmentFactor: 0.5,
-    leafStride: 2,
-    leafScale: 1.15,
-    billboard: Billboard.Single,
+  assert.equal(tree.generate(), undefined);
+
+  assert.equal(tree.branchesMesh.geometry.getAttribute('position').count, 63);
+  assert.equal(tree.branchesMesh.geometry.index.count / 3, 96);
+  assert.equal(tree.leavesMesh.geometry.getAttribute('position').count, 40);
+  assert.equal(tree.vertexCount, 103);
+  assert.equal(tree.triangleCount, 116);
+  assertFiniteGeometry(tree.branchesMesh.geometry);
+  assertFiniteGeometry(tree.leavesMesh.geometry);
+});
+
+test('public generation helpers still mutate caller-visible Tree buffers', () => {
+  const options = createSmallOptions();
+  options.leaves.billboard = Billboard.Single;
+  options.leaves.sizeVariance = 0;
+  const tree = new Tree(options);
+  tree.branches = { verts: [], normals: [], indices: [], uvs: [] };
+  tree.leaves = { verts: [], normals: [], indices: [], uvs: [] };
+  tree.rng = { random: (maximum = 1, minimum = 0) => (maximum + minimum) / 2 };
+
+  tree.generateLeaf(new THREE.Vector3(), new THREE.Euler());
+  assert.equal(tree.leaves.verts.length, 12);
+  assert.equal(tree.leaves.indices.length, 6);
+
+  const branch = new Branch(
+    new THREE.Vector3(),
+    new THREE.Euler(),
+    2,
+    0.5,
+    0,
+    2,
+    4,
+  );
+  tree.generateBranch(branch);
+  assert.equal(tree.branches.verts.length, 45);
+  assert.equal(tree.branches.indices.length, 48);
+});
+
+test('Tree retains original Phong bark and shared Phong wind-shadow leaves', () => {
+  const options = createSmallOptions();
+  const maps = {
+    color: new THREE.Texture(),
+    ao: new THREE.Texture(),
+    normal: new THREE.Texture(),
+    roughness: new THREE.Texture(),
   };
-
-  const first = tree.createGeometry(detail);
-  const intervening = tree.createGeometry({ sectionStride: 2, leafStride: 1 });
-  const repeated = tree.createGeometry(detail);
-
-  assert.equal(tree.skeleton, skeleton);
-  assert.deepEqual([tree.rng.m_w, tree.rng.m_z], rngState);
-  assert.deepEqual(
-    geometryState(repeated.branches),
-    geometryState(first.branches),
-  );
-  assert.deepEqual(geometryState(repeated.leaves), geometryState(first.leaves));
-
-  first.branches.dispose();
-  first.leaves.dispose();
-  intervening.branches.dispose();
-  intervening.leaves.dispose();
-  repeated.branches.dispose();
-  repeated.leaves.dispose();
-});
-
-test('LOD meshing keeps branch endpoints while reducing counts', () => {
-  const tree = new Tree(createSmallOptions());
+  options.bark.textured = true;
+  options.bark.maps = maps;
+  options.bark.textureScale.x = 2;
+  options.bark.textureScale.y = 5;
+  const tree = new Tree(options);
   tree.generate();
-  const full = tree.createGeometry();
-  const coarse = tree.createGeometry({
-    sectionStride: 3,
-    segmentFactor: 0.5,
-    leafStride: 2,
-    leafScale: 1,
-    billboard: Billboard.Single,
-  });
 
-  assert.equal(full.branches.getAttribute('position').count, 63);
-  assert.equal(full.branches.index.count / 3, 96);
-  assert.equal(coarse.branches.getAttribute('position').count, 15);
-  assert.equal(coarse.branches.index.count / 3, 16);
-  assert.equal(full.leaves.getAttribute('position').count, 40);
-  assert.equal(coarse.leaves.getAttribute('position').count, 12);
+  assert.ok(tree.branchesMesh.material.isMeshPhongMaterial);
+  assert.equal(tree.branchesMesh.material.isMeshStandardMaterial, undefined);
+  assert.strictEqual(tree.branchesMesh.material.map, maps.color);
+  assert.strictEqual(tree.branchesMesh.material.aoMap, maps.ao);
+  assert.strictEqual(tree.branchesMesh.material.normalMap, maps.normal);
+  assert.strictEqual(tree.branchesMesh.material.roughnessMap, maps.roughness);
+  assert.deepEqual(maps.color.repeat.toArray(), [1, 0.2]);
 
-  const sections = tree.skeleton.branches[0].sections;
-  const coarsePosition = coarse.branches.getAttribute('position');
-  const baseCenter = ringCenter(coarsePosition, 0, 4);
-  const tipCenter = ringCenter(coarsePosition, 10, 4);
-  assert.ok(baseCenter.distanceTo(sections[0].origin) < 1e-6);
-  assert.ok(tipCenter.distanceTo(sections.at(-1).origin) < 1e-6);
-
-  full.branches.dispose();
-  full.leaves.dispose();
-  coarse.branches.dispose();
-  coarse.leaves.dispose();
+  assert.ok(tree.leavesMesh.material.isMeshPhongMaterial);
+  assert.ok(tree.leavesMesh.customDepthMaterial?.isMeshDepthMaterial);
+  assert.ok(tree.leavesMesh.customDistanceMaterial?.isMeshDistanceMaterial);
+  const before = tree._leafWind.time;
+  tree.update(7.5);
+  assert.notEqual(tree._leafWind.time, before);
+  assert.equal(tree._leafWind.time, 7.5);
 });
 
-test('generateLODs shares bark and Phong wind-shadow materials across levels', () => {
-  const tree = new Tree(createSmallOptions());
-  tree.generateLODs([
-    {
-      distance: 20,
-      hysteresis: 0.1,
-      detail: { sectionStride: 3, leafStride: 2 },
-    },
-    { distance: 0, detail: {} },
-  ]);
+test('committed branch length behavior is explicit and finite at all levels', () => {
+  const levelZero = new Tree(createSmallOptions({ levels: 0 }));
+  levelZero.generate();
+  assertFiniteGeometry(levelZero.branchesMesh.geometry);
 
-  assert.ok(tree.lod?.isLOD);
-  assert.deepEqual(
-    tree.lod.levels.map((level) => level.distance),
-    [0, 20],
-  );
-  const [nearBranches, nearLeaves] = tree.lod.levels[0].object.children;
-  const [farBranches, farLeaves] = tree.lod.levels[1].object.children;
-  assert.ok(nearBranches.material.isMeshStandardMaterial);
-  assert.ok(nearLeaves.material.isMeshPhongMaterial);
-  assert.equal(nearBranches.material, farBranches.material);
-  assert.equal(nearLeaves.material, farLeaves.material);
-  assert.equal(nearLeaves.customDepthMaterial, farLeaves.customDepthMaterial);
-  assert.equal(
-    nearLeaves.customDistanceMaterial,
-    farLeaves.customDistanceMaterial,
-  );
-  assert.ok(
-    farBranches.geometry.index.count < nearBranches.geometry.index.count,
-  );
+  const levelOne = new Tree(createSmallOptions({ levels: 1 }));
+  levelOne.generate();
+  assertFiniteGeometry(levelOne.branchesMesh.geometry);
+  assertFiniteGeometry(levelOne.leavesMesh.geometry);
 
-  tree.generate();
-  assert.equal(tree.lod, null);
-  assert.equal(tree.branchesMesh.parent, tree);
-  assert.equal(tree.leavesMesh.parent, tree);
-});
-
-test('deciduous level-one trees never divide section length by zero', () => {
-  const tree = new Tree(createSmallOptions({ levels: 1 }));
-  tree.generate();
-  assert.ok(tree.skeleton.branches.length > 1);
-  assertFiniteGeometry(tree.branchesMesh.geometry);
-  assertFiniteGeometry(tree.leavesMesh.geometry);
-});
-
-test('normal deciduous presets remain finite after the enum-condition fix', () => {
-  const tree = new Tree();
-  tree.loadPreset('Bush 1');
-  assert.equal(tree.options.type, TreeType.Deciduous);
-  assert.ok(tree.skeleton.branches.length > 1);
-  assertFiniteGeometry(tree.branchesMesh.geometry);
-  assertFiniteGeometry(tree.leavesMesh.geometry);
+  const preset = new Tree();
+  preset.loadPreset('Bush 1');
+  assert.equal(preset.options.type, TreeType.Deciduous);
+  assertFiniteGeometry(preset.branchesMesh.geometry);
+  assertFiniteGeometry(preset.leavesMesh.geometry);
 });

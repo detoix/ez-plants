@@ -239,14 +239,6 @@ export class LeafWind {
       Object.assign(shader.uniforms, this.uniforms);
       shader.vertexShader = injectLeafWind(shader.vertexShader);
       afterCompile?.(shader, renderer);
-      // Keep the live renderer shader available for diagnostics without
-      // leaking uniforms/source into GLTFExporter material extras.
-      Object.defineProperty(material.userData, 'leafWindShader', {
-        value: shader,
-        configurable: true,
-        enumerable: false,
-        writable: true,
-      });
     };
     material.customProgramCacheKey = () =>
       `${previousCacheKey()}|${WIND_SHADER_VERSION}|${variant}`;

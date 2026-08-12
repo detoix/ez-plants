@@ -49,7 +49,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     function animate() {
       const delta = Math.min(clock.getDelta(), 0.05);
       const elapsed = clock.elapsedTime;
-      plant.update?.(delta, elapsed, camera);
+      plant.update(delta, elapsed, camera);
       controls.update();
       renderer.render(scene, camera);
       requestAnimationFrame(animate);

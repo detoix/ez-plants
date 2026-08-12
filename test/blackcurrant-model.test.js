@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { keyedRandom as sharedKeyedRandom } from '../src/lib/keyed-random.js';
+import { keyedRandom } from '../src/lib/keyed-random.js';
 import {
   createHarvestEvent,
   createPruneEvent,
   createTiselModel,
   evaluateTiselModel,
-  keyedRandom,
 } from '../src/lib/plants/blackcurrant/model.js';
 import {
   TISEL_CALENDAR,
@@ -20,6 +19,7 @@ import {
 import {
   METRES_PER_UNIT,
   TISEL_PROFILE,
+  TISEL_SOURCES,
 } from '../src/lib/plants/blackcurrant/tisel.js';
 
 test('Tisel profile uses metres and a trunkless maintained shrub architecture', () => {
@@ -31,11 +31,10 @@ test('Tisel profile uses metres and a trunkless maintained shrub architecture', 
   assert.match(TISEL_PROFILE.management.pruningMethod, /whole|complete/i);
   assert.equal(TISEL_PROFILE.yield.youngSecondYearKg, 1.55);
   assert.equal(TISEL_PROFILE.yield.matureTrialKg, 2.81);
-  assert.match(TISEL_PROFILE.sources.matureYield2015.url, /hortsci/i);
+  assert.match(TISEL_SOURCES.matureYield2015.url, /hortsci/i);
 });
 
 test('keyed random values are deterministic and isolated by organ key', () => {
-  assert.strictEqual(keyedRandom, sharedKeyedRandom);
   const baseline = keyedRandom('garden-42', 'cane:3', 'height');
   assert.equal(baseline, keyedRandom('garden-42', 'cane:3', 'height'));
   assert.notEqual(baseline, keyedRandom('garden-42', 'cane:4', 'height'));
@@ -757,6 +756,10 @@ test('the year and day coordinates cannot describe two different simulation time
         events: [{ id: 'fractional-event', type: 'inspection', ageYears: 3.5 }],
       }),
     /event ageYears.*integer/,
+  );
+  assert.throws(
+    () => evaluateTiselModel(model, { events: [null] }),
+    /event ageYears/,
   );
 
   const replacement = evaluateTiselModel(model, {

@@ -24,24 +24,6 @@ import {
   vector,
 } from '../src/lib/plant-transforms.js';
 import { ResourceTracker } from '../src/lib/resource-tracker.js';
-import * as PublicApi from '../src/lib/index.js';
-
-test('shared plant infrastructure is available from the public library entry', () => {
-  assert.strictEqual(PublicApi.keyedRandom, keyedRandom);
-  assert.strictEqual(PublicApi.keyedRange, keyedRange);
-  assert.strictEqual(PublicApi.keyedInteger, keyedInteger);
-  assert.strictEqual(
-    PublicApi.samplePlantDetailSections,
-    samplePlantDetailSections,
-  );
-  assert.strictEqual(
-    PublicApi.stablePlantOrganDetailScale,
-    stablePlantOrganDetailScale,
-  );
-  assert.strictEqual(PublicApi.PlantInstancePool, PlantInstancePool);
-  assert.strictEqual(PublicApi.composeSegmentMatrix, composeSegmentMatrix);
-  assert.strictEqual(PublicApi.ResourceTracker, ResourceTracker);
-});
 
 test('shared detail sampling preserves endpoints and explicit landmarks', () => {
   const sections = Array.from({ length: 7 }, (_, index) => ({
@@ -98,7 +80,7 @@ test('shared organ detail culling is stable by ID and returns its scale', () => 
   );
 });
 
-test('leaf-wind diagnostics stay out of exportable material userData', () => {
+test('leaf wind does not add diagnostics to material userData', () => {
   const material = new THREE.MeshStandardMaterial();
   const wind = new LeafWind();
   wind.apply(material);
@@ -110,13 +92,7 @@ test('leaf-wind diagnostics stay out of exportable material userData', () => {
 
   material.onBeforeCompile(shader, null);
 
-  assert.strictEqual(material.userData.leafWindShader, shader);
-  assert.equal(
-    Object.getOwnPropertyDescriptor(material.userData, 'leafWindShader')
-      .enumerable,
-    false,
-  );
-  assert.equal(JSON.stringify(material.userData), '{}');
+  assert.deepEqual(material.userData, {});
   material.dispose();
 });
 
@@ -323,14 +299,12 @@ test('plant instance pools preserve compact cursors and dirty active prefixes', 
     name: 'Leaves',
     geometry,
     material,
-    organCount: 11,
     group,
   });
   const empty = pool.add('empty', {
     name: 'Empty',
     geometry,
     material,
-    organCount: 0,
     group,
   });
 
@@ -339,17 +313,38 @@ test('plant instance pools preserve compact cursors and dirty active prefixes', 
   assert.equal(leaves.castShadow, true);
   assert.equal(leaves.receiveShadow, true);
   assert.equal(leaves.count, 0);
-  assert.equal(leaves.userData.organCount, 11);
-  assert.equal(leaves.userData.capacity, 2);
   assert.equal(leaves.instanceMatrix.array.length, 32);
-  assert.equal(empty.userData.capacity, 0);
   assert.equal(empty.instanceMatrix.array.length, 16);
   assert.deepEqual(group.children, [leaves, empty]);
 
   pool.beginFrame();
-  const first = pool.allocate('leaves');
-  const second = pool.allocate('leaves');
+  const firstIdentity = Object.freeze({
+    plantId: 'plant-a',
+    organId: 'leaf-a',
+    kind: 'leaf',
+  });
+  const secondIdentity = Object.freeze({
+    plantId: 'plant-b',
+    organId: 'leaf-a',
+    kind: 'leaf',
+  });
+  const first = pool.write(
+    'leaves',
+    firstIdentity,
+    new THREE.Matrix4().makeTranslation(1, 2, 3),
+    new THREE.Color(0xff0000),
+  );
+  const second = pool.write(
+    'leaves',
+    secondIdentity,
+    new THREE.Matrix4().makeTranslation(4, 5, 6),
+    new THREE.Color(0x00ff00),
+  );
   assert.deepEqual([first, second], [0, 1]);
+  assert.strictEqual(pool.identityFor(leaves, first), firstIdentity);
+  assert.strictEqual(pool.identityFor(leaves, second), secondIdentity);
+  assert.equal(pool.identityFor(empty, first), null);
+  assert.equal(pool.identityFor(new THREE.Object3D(), first), null);
   assert.throws(
     () => pool.allocate('leaves'),
     /Leaves active instance capacity exceeded \(2\)/,
@@ -359,26 +354,24 @@ test('plant instance pools preserve compact cursors and dirty active prefixes', 
     /Empty active instance capacity exceeded \(0\)/,
   );
 
-  leaves.setMatrixAt(first, new THREE.Matrix4().makeTranslation(1, 2, 3));
-  leaves.setMatrixAt(second, new THREE.Matrix4().makeTranslation(4, 5, 6));
-  leaves.setColorAt(first, new THREE.Color(0xff0000));
-  leaves.setColorAt(second, new THREE.Color(0x00ff00));
   pool.commitFrame();
 
   assert.equal(leaves.count, 2);
-  assert.equal(leaves.userData.activeOrganCount, 2);
   assert.deepEqual(leaves.instanceMatrix.updateRanges, [
     { start: 0, count: 32 },
   ]);
   assert.deepEqual(leaves.instanceColor.updateRanges, [{ start: 0, count: 6 }]);
 
   pool.beginFrame();
-  const only = pool.allocate('leaves');
-  leaves.setMatrixAt(only, new THREE.Matrix4().makeTranslation(7, 8, 9));
-  leaves.setColorAt(only, new THREE.Color(0x0000ff));
+  assert.equal(pool.identityFor(leaves, first), null);
+  const only = pool.write(
+    'leaves',
+    null,
+    new THREE.Matrix4().makeTranslation(7, 8, 9),
+    new THREE.Color(0x0000ff),
+  );
   pool.commitFrame();
   assert.equal(leaves.count, 1);
-  assert.equal(leaves.userData.activeOrganCount, 1);
   assert.deepEqual(leaves.instanceMatrix.updateRanges, [
     { start: 0, count: 16 },
   ]);
@@ -398,10 +391,6 @@ test('resource tracker disposes every unique renderer allocation exactly once', 
   const mesh = tracker.trackInstancedMesh(
     new THREE.InstancedMesh(geometry, material, 2),
   );
-
-  assert.strictEqual(tracker.track(geometry), geometry);
-  assert.strictEqual(tracker.track(material), material);
-  assert.strictEqual(tracker.track(mesh), mesh);
 
   const disposalCounts = { geometry: 0, material: 0, shadow: 0, mesh: 0 };
   geometry.addEventListener('dispose', () => disposalCounts.geometry++);

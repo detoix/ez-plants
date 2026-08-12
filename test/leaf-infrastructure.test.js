@@ -12,7 +12,6 @@ import {
 } from '../src/lib/leaf-geometry.js';
 import { createLeafMaterialSet } from '../src/lib/leaf-material.js';
 import { LeafWind } from '../src/lib/leaf-wind.js';
-import * as PublicApi from '../src/lib/index.js';
 
 function compile(material, template) {
   const shader = {
@@ -167,7 +166,6 @@ test('leaf surfaces retain the original EZ-Tree MeshPhong contract', () => {
     dithering: true,
   });
 
-  assert.strictEqual(materials.wind, wind);
   assert.ok(materials.surface.isMeshPhongMaterial);
   assert.equal(materials.surface.isMeshStandardMaterial, undefined);
   assert.strictEqual(materials.surface.map, map);
@@ -220,15 +218,4 @@ test('leaf surfaces retain the original EZ-Tree MeshPhong contract', () => {
   materials.distance.dispose();
   original.dispose();
   map.dispose();
-});
-
-test('shared leaf infrastructure is exported by the library entry', () => {
-  assert.strictEqual(PublicApi.appendLeafCard, appendLeafCard);
-  assert.strictEqual(
-    PublicApi.createLeafBufferGeometry,
-    createLeafBufferGeometry,
-  );
-  assert.strictEqual(PublicApi.createLeafCardGeometry, createLeafCardGeometry);
-  assert.strictEqual(PublicApi.createLeafGeometryData, createLeafGeometryData);
-  assert.strictEqual(PublicApi.createLeafMaterialSet, createLeafMaterialSet);
 });

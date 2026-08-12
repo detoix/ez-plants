@@ -75,13 +75,6 @@ export class ResourceTracker {
     return material;
   }
 
-  track(resource) {
-    if (resource?.isInstancedMesh) return this.trackInstancedMesh(resource);
-    if (resource?.isBufferGeometry) return this.trackGeometry(resource);
-    if (resource?.isMaterial) return this.trackMaterial(resource);
-    throw new TypeError('Unsupported tracked resource.');
-  }
-
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
@@ -95,5 +88,3 @@ export class ResourceTracker {
     this.materials.clear();
   }
 }
-
-export default ResourceTracker;

@@ -10,8 +10,6 @@ import {
   keyedRange as randomRange,
 } from '../../keyed-random.js';
 
-export { keyedRandom };
-
 const TAU = Math.PI * 2;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const vector = (x = 0, y = 0, z = 0) => ({ x, y, z });
@@ -212,10 +210,8 @@ function makeLeaf(seed, node, year, leafIndex = 0) {
       ),
     ),
     azimuth,
-    rotation: randomRange(seed, [id, 'rotation'], -0.22, 0.22),
     widthM,
     lengthM: widthM * randomRange(seed, [id, 'aspect'], 0.82, 1.04),
-    scale: widthM,
   };
 }
 
@@ -258,8 +254,6 @@ function makeRaceme(seed, node, fruitingYear) {
       index,
       position: berryPosition,
       diameterM,
-      radiusM: diameterM / 2,
-      scale: diameterM,
       massG: randomRange(
         seed,
         [berryId, 'mass'],
@@ -551,7 +545,6 @@ export function createTiselModel({ seed = 'tisel-demo', maxYears = 50 } = {}) {
     seed: String(seed),
     maxYears,
     metresPerUnit: TISEL_PROFILE.metresPerUnit,
-    profile: TISEL_PROFILE,
     canes,
   };
 }
@@ -602,7 +595,7 @@ export function createHarvestEvent({
   });
 }
 
-const eventTime = (event) => {
+export const tiselEventTime = (event) => {
   if (!Number.isInteger(event?.ageYears) || event.ageYears < 0) {
     throw new TypeError('event ageYears must be a non-negative integer');
   }
@@ -770,12 +763,8 @@ function evaluateCane(
             visible:
               phenology.leafOpacity > seasonalThreshold &&
               unfoldProgress > 0.01,
-            opacity: phenology.leafOpacity,
             unfoldProgress,
-            scale:
-              leaf.scale *
-              clamp(phenology.leafProgress, 0.12, 1) *
-              unfoldProgress,
+            scale: leaf.widthM * phenology.leafProgress * unfoldProgress,
           };
         });
       const racemes = node.racemes
@@ -1031,11 +1020,12 @@ export function evaluateTiselModel(
   const now = ageYears + (phenology.dayOfYear - 1) / 365;
   const currentYear = Math.floor(ageYears);
   const appliedEvents = events
-    .filter((event) => event && eventTime(event) <= now)
+    .filter((event) => tiselEventTime(event) <= now)
     .slice()
     .sort(
       (a, b) =>
-        eventTime(a) - eventTime(b) || String(a.id).localeCompare(String(b.id)),
+        tiselEventTime(a) - tiselEventTime(b) ||
+        String(a.id).localeCompare(String(b.id)),
     );
   const prunedCanes = new Set(
     appliedEvents

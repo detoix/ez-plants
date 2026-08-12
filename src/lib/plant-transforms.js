@@ -12,8 +12,6 @@ export function vector(value, fallback = new THREE.Vector3()) {
   return fallback.clone();
 }
 
-export const toVector3 = vector;
-
 /**
  * Orient local +Y along forward while keeping local +Z as close as possible
  * to the preferred normal.
