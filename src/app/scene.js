@@ -27,6 +27,10 @@ const REVIEW_VIEWS = Object.freeze({
   },
 });
 
+// EZ-Tree v2 expresses textureScale.x per unit of branch radius. Blackcurrant
+// geometry uses metres, so this is the Bark001 calibration in metre units.
+const BLACKCURRANT_BARK_WRAPS_PER_METRE_RADIUS = 250;
+
 function addGardenGround(scene) {
   const ground = new THREE.Mesh(
     new THREE.CircleGeometry(5.5, 96),
@@ -112,9 +116,11 @@ function addNeutralLighting(scene) {
 }
 
 function instantiatePlant(initialState) {
-  // Use EZ-Tree's shrub bark contract directly: the Bush 1 preset selects
-  // Bark001 and supplies its tint, shading and UV scale.
+  // Use EZ-Tree's shrub bark contract directly: Bush 1 selects Bark001 and
+  // supplies its tint, shading and longitudinal UV scale. Its circumferential
+  // scale is converted below from generic Tree units to metres.
   const bark = structuredClone(TreePreset['Bush 1'].bark);
+  bark.textureScale.x = BLACKCURRANT_BARK_WRAPS_PER_METRE_RADIUS;
   bark.maps = getBarkMaps(bark.type);
 
   const options = {

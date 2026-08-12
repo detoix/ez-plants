@@ -1,6 +1,20 @@
 import * as THREE from 'three';
 
 /**
+ * Resolve EZ-Tree v2's radius-based number of bark wraps for one branch.
+ * textureScale.x is expressed as wraps per unit of branch radius.
+ */
+export function calculateBarkTextureWraps(baseRadius, textureScaleX = 1) {
+  if (!Number.isFinite(baseRadius) || baseRadius < 0) {
+    throw new RangeError('Branch base radius must be finite and non-negative.');
+  }
+  if (!Number.isFinite(textureScaleX) || textureScaleX <= 0) {
+    throw new RangeError('Bark textureScale.x must be a positive number.');
+  }
+  return Math.max(1, Math.round(baseRadius * textureScaleX));
+}
+
+/**
  * Apply the texture wrapping contract used by EZ-Tree's bark material.
  * Circumference tiling is baked into woody geometry UVs, so only the
  * longitudinal repeat is applied to the texture itself.

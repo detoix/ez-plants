@@ -22,7 +22,10 @@ import {
   createBranchBufferGeometry,
   createBranchGeometryData,
 } from './woody-geometry.js';
-import { createBarkMaterial } from './woody-material.js';
+import {
+  calculateBarkTextureWraps,
+  createBarkMaterial,
+} from './woody-material.js';
 
 export class Tree extends THREE.Group {
   /**
@@ -715,9 +718,9 @@ export class Tree extends THREE.Group {
   #meshBranch(buffers, skeletonBranch, sectionStride, segmentFactor) {
     const { sections, segmentCount, baseRadius } = skeletonBranch;
     const segments = Math.max(3, Math.round(segmentCount * segmentFactor));
-    const wrapsX = Math.max(
-      1,
-      Math.round(baseRadius * this.options.bark.textureScale.x),
+    const wrapsX = calculateBarkTextureWraps(
+      baseRadius,
+      this.options.bark.textureScale.x,
     );
     const sampled = samplePlantDetailSections(sections, sectionStride).sections;
 

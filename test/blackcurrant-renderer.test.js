@@ -57,6 +57,15 @@ function captureGeometry(geometry) {
   };
 }
 
+function maximumGeometryU(geometry) {
+  const uv = geometry.getAttribute('uv');
+  let maximum = 0;
+  for (let index = 0; index < uv.count; index++) {
+    maximum = Math.max(maximum, uv.getX(index));
+  }
+  return maximum;
+}
+
 function captureMesh(mesh) {
   const count = mesh.isInstancedMesh ? mesh.count : null;
   return {
@@ -225,6 +234,33 @@ test('assets feed the shared EZ leaf and bark workflows without transferring tex
     assert.equal(disposals.get(texture), 0);
     texture.dispose();
   }
+});
+
+test('Blackcurrant applies EZ-Tree v2 radius-based bark wraps while growing', () => {
+  const plant = new Blackcurrant({
+    seed: 24051987,
+    maxYears: 8,
+    ageYears: 0,
+    dayOfYear: 190,
+    assets: {
+      bark: {
+        textured: false,
+        textureScale: { x: 250, y: 5 },
+      },
+    },
+  });
+  const wood = meshNamed(plant, MESH_NAMES.wood);
+  const youngUV = hashView(wood.geometry.getAttribute('uv').array);
+
+  assert.equal(maximumGeometryU(wood.geometry), 2);
+  plant.setTime({ ageYears: 3, dayOfYear: 190 });
+  assert.equal(maximumGeometryU(wood.geometry), 3);
+
+  plant.setTime({ ageYears: 0, dayOfYear: 190 });
+  assert.equal(maximumGeometryU(wood.geometry), 2);
+  assert.equal(hashView(wood.geometry.getAttribute('uv').array), youngUV);
+
+  plant.dispose();
 });
 
 test('seasonal leaf tint changes one shared material and returns exactly A-B-A', () => {

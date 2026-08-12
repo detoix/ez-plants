@@ -38,7 +38,10 @@ import {
   createCurveBranchSections,
   sampleBranchSection,
 } from '../../woody-geometry.js';
-import { createBarkMaterial } from '../../woody-material.js';
+import {
+  calculateBarkTextureWraps,
+  createBarkMaterial,
+} from '../../woody-material.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const GREEN_BERRY = new THREE.Color(0x91a862);
@@ -1031,8 +1034,13 @@ export class Blackcurrant extends THREE.Group {
           resolved.sectionStride,
           transformedLandmarks,
         );
+        const textureWraps = calculateBarkTextureWraps(
+          transformedSections[0].radius,
+          this.#assets.bark?.textureScale?.x ?? 1,
+        );
         appendBranchTube(data, sampled.sections, {
           radialSegments,
+          textureWraps,
           caps: runtime.caps,
         });
       }

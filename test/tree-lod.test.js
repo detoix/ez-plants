@@ -211,6 +211,10 @@ test('generateLODs shares v2 PBR surfaces and synchronized wind shadows', () => 
   assert.strictEqual(branchMeshes[0].material.normalMap, maps.normal);
   assert.strictEqual(branchMeshes[0].material.roughnessMap, maps.roughness);
   assert.deepEqual(maps.color.repeat.toArray(), [1, 0.2]);
+  assert.equal(
+    Math.max(...branchMeshes[0].geometry.getAttribute('uv').array),
+    2,
+  );
   assert.ok(leafMeshes[0].customDepthMaterial.isMeshDepthMaterial);
   assert.ok(leafMeshes[0].customDistanceMaterial.isMeshDistanceMaterial);
 

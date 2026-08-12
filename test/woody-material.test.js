@@ -3,9 +3,25 @@ import test from 'node:test';
 import * as THREE from 'three';
 
 import {
+  calculateBarkTextureWraps,
   configureBarkTexture,
   createBarkMaterial,
 } from '../src/lib/woody-material.js';
+
+test('bark wrap count follows EZ-Tree v2 radius scaling', () => {
+  assert.equal(calculateBarkTextureWraps(0, 250), 1);
+  assert.equal(calculateBarkTextureWraps(0.0059, 250), 1);
+  assert.equal(calculateBarkTextureWraps(0.006, 250), 2);
+  assert.equal(calculateBarkTextureWraps(0.01, 250), 3);
+  assert.throws(
+    () => calculateBarkTextureWraps(-0.01, 250),
+    /base radius must be finite and non-negative/i,
+  );
+  assert.throws(
+    () => calculateBarkTextureWraps(0.01, 0),
+    /textureScale\.x must be a positive number/i,
+  );
+});
 
 test('shared EZ-Tree bark material uses PBR maps and repeat wrapping', () => {
   const maps = {
