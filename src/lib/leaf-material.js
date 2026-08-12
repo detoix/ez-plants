@@ -22,12 +22,14 @@ export function createLeafMaterialSet({
     throw new TypeError('A LeafWind controller is required.');
   }
 
-  const surface = new THREE.MeshPhongMaterial({
+  const surface = new THREE.MeshStandardMaterial({
     name,
     map,
     color: new THREE.Color(tint),
     side: THREE.DoubleSide,
     alphaTest,
+    metalness: 0,
+    roughness: 1,
     dithering: true,
   });
 

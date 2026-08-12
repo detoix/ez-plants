@@ -40,6 +40,40 @@ scene.add(tree);
 
 Any time the tree parameters are changed, you must call `generate()` to regenerate the geometry.
 
+## Levels of Detail (LODs)
+
+For scenes with many trees, `generateLODs()` builds the tree at multiple levels of detail hosted in a `THREE.LOD` object inside the tree group. The renderer automatically switches levels based on camera distance. All levels are meshed from the same skeleton, so the tree's silhouette stays consistent across switches — distant levels just use fewer ring segments and fewer (but larger) leaves.
+
+```js
+const tree = new Tree();
+tree.loadPreset('Ash Medium');
+tree.generateLODs(); // instead of generate()
+scene.add(tree);
+```
+
+The default levels (`Tree.defaultLODLevels`) switch at 100 and 250 units, reducing to roughly 40% and 20% of the full triangle count. You can pass custom levels:
+
+```js
+tree.generateLODs([
+  { distance: 0, detail: {} }, // full detail
+  {
+    distance: 80,
+    hysteresis: 0.05,
+    detail: {
+      sectionStride: 3,    // sample every 3rd ring along each branch
+      segmentFactor: 0.75, // reduce radial segments to 75% (min 3)
+      leafStride: 2,       // keep every 2nd leaf...
+      leafScale: 1.4,      // ...enlarged to preserve canopy coverage
+      billboard: 'single', // drop the second crossed leaf quad
+    },
+  },
+]);
+```
+
+All LOD levels share one bark material and one leaf material, so `tree.update(time)` animates wind at every level. Calling `generate()` afterwards tears the LOD down and restores the single full-detail mesh pair (note that exporting a tree generated with `generateLODs()` to GLB will include every level).
+
+If you have your own LOD or instancing system, `tree.createGeometry(detail)` returns raw `{ branches, leaves }` `BufferGeometry` pairs at any detail level without touching the tree's own meshes.
+
 # Running Standalone App Locally
 
 To run the standalone app locally, you first need to build the EZ-Tree library before running the app.
@@ -69,10 +103,11 @@ The `TreeOptions` class defines an options object that controls various paramete
 
 The `bark` object controls the appearance and properties of the tree trunk.
 
-- **`type`**: Specifies the type of bark texture to use, selected from the `BarkType` enumeration (e.g., `BarkType.Oak`).
+- **`type`**: Optional informational identifier for the bark asset. The core library does not resolve texture names.
 - **`tint`**: Determines the color tint applied to the bark, defined as a hexadecimal color value (e.g., `0xffffff` for white).
 - **`flatShading`**: Boolean property indicating whether to use flat shading (`true`) or smooth shading (`false`) for the bark.
 - **`textured`**: Boolean value that indicates if a texture is applied to the bark (`true` or `false`).
+- **`maps`**: Caller-supplied `THREE.Texture` objects in `{ color, ao, normal, roughness }`. No textures are bundled with the library.
 - **`textureScale`**: Controls the scale of the bark texture in both the `x` and `y` axes. It is an object with properties `x` and `y` to define the scaling factors.
 
 ## Branch Parameters
@@ -96,7 +131,8 @@ The `branch` object defines parameters for the trunk and branch levels of the tr
 
 The `leaves` object defines properties that control the appearance and placement of leaves.
 
-- **`type`**: Specifies the type of leaf texture, selected from the `LeafType` enumeration (e.g., `LeafType.Oak`).
+- **`type`**: Optional informational identifier for the leaf asset. The core library does not resolve texture names.
+- **`map`**: Caller-supplied leaf `THREE.Texture`. No leaf textures are bundled with the library.
 - **`billboard`**: Defines how leaves are rendered. The `Billboard` enumeration can be set to `Single` or `Double` to indicate single or perpendicular double-sided leaves.
 - **`angle`**: Defines the angle of the leaves relative to the parent branch, in degrees.
 - **`count`**: Number of leaves to generate.

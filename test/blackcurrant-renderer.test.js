@@ -138,7 +138,7 @@ test('scene output is one woody batch plus compact instanced organ batches', () 
     Array.from(leaves.geometry.getAttribute('uv').array),
     [0, 1, 0, 0, 1, 0, 1, 1],
   );
-  assert.equal(leaves.material.isMeshPhongMaterial, true);
+  assert.equal(leaves.material.isMeshStandardMaterial, true);
   assert.equal(leaves.material.side, THREE.DoubleSide);
   assert.equal(leaves.instanceColor, null);
   assert.equal(leaves.count, stats.visibleLeaves);

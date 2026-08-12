@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
 
-import { Branch } from '../src/lib/branch.js';
 import { Billboard, TreeType } from '../src/lib/enums.js';
 import TreeOptions from '../src/lib/options.js';
 import { Tree } from '../src/lib/tree.js';
@@ -50,30 +49,73 @@ function assertFiniteGeometry(geometry) {
   }
 }
 
-test('Tree restores the committed public generation API without LOD residue', () => {
+function compile(material, template) {
+  const shader = {
+    uniforms: THREE.UniformsUtils.clone(template.uniforms),
+    vertexShader: template.vertexShader,
+    fragmentShader: template.fragmentShader,
+  };
+  material.onBeforeCompile(shader, null);
+  return shader;
+}
+
+test('Tree exposes the v2 skeleton and LOD API', () => {
   const tree = new Tree(createSmallOptions());
+
   for (const method of [
-    'generateBranch',
+    'generate',
+    'generateLODs',
+    'createGeometry',
     'generateChildBranches',
     'generateLeaves',
-    'generateLeaf',
     'shuffledIndices',
-    'generateBranchIndices',
   ]) {
     assert.equal(typeof tree[method], 'function', method);
   }
+  for (const removed of [
+    'generateBranch',
+    'generateLeaf',
+    'generateBranchIndices',
+  ]) {
+    assert.equal(removed in tree, false, removed);
+  }
 
-  assert.equal('generateLODs' in tree, false);
-  assert.equal('createGeometry' in tree, false);
-  assert.equal('defaultLODLevels' in Tree, false);
-  assert.equal('lod' in tree, false);
-  assert.equal('skeleton' in tree, false);
+  assert.deepEqual(Tree.defaultLODLevels, [
+    { distance: 0, detail: {} },
+    {
+      distance: 100,
+      hysteresis: 0.05,
+      detail: {
+        sectionStride: 3,
+        segmentFactor: 0.75,
+        leafStride: 2,
+        leafScale: 1.25,
+      },
+    },
+    {
+      distance: 250,
+      hysteresis: 0.05,
+      detail: {
+        sectionStride: 6,
+        segmentFactor: 0.4,
+        leafStride: 2,
+        leafScale: 1.3,
+        billboard: Billboard.Single,
+      },
+    },
+  ]);
+  assert.equal(tree.lod, null);
+  assert.equal(tree.skeleton, null);
 });
 
-test('generate uses shared Uint32-safe buffers with committed Tree topology', () => {
+test('generate builds one deterministic v2 skeleton and mesh pair', () => {
   const tree = new Tree(createSmallOptions());
   assert.equal(tree.generate(), undefined);
 
+  assert.ok(tree.skeleton);
+  assert.equal(tree.children.length, 2);
+  assert.strictEqual(tree.children[0], tree.branchesMesh);
+  assert.strictEqual(tree.children[1], tree.leavesMesh);
   assert.equal(tree.branchesMesh.geometry.getAttribute('position').count, 63);
   assert.equal(tree.branchesMesh.geometry.index.count / 3, 96);
   assert.equal(tree.leavesMesh.geometry.getAttribute('position').count, 40);
@@ -81,36 +123,55 @@ test('generate uses shared Uint32-safe buffers with committed Tree topology', ()
   assert.equal(tree.triangleCount, 116);
   assertFiniteGeometry(tree.branchesMesh.geometry);
   assertFiniteGeometry(tree.leavesMesh.geometry);
-});
 
-test('public generation helpers still mutate caller-visible Tree buffers', () => {
-  const options = createSmallOptions();
-  options.leaves.billboard = Billboard.Single;
-  options.leaves.sizeVariance = 0;
-  const tree = new Tree(options);
-  tree.branches = { verts: [], normals: [], indices: [], uvs: [] };
-  tree.leaves = { verts: [], normals: [], indices: [], uvs: [] };
-  tree.rng = { random: (maximum = 1, minimum = 0) => (maximum + minimum) / 2 };
-
-  tree.generateLeaf(new THREE.Vector3(), new THREE.Euler());
-  assert.equal(tree.leaves.verts.length, 12);
-  assert.equal(tree.leaves.indices.length, 6);
-
-  const branch = new Branch(
-    new THREE.Vector3(),
-    new THREE.Euler(),
-    2,
-    0.5,
-    0,
-    2,
-    4,
+  const positions = Array.from(
+    tree.branchesMesh.geometry.getAttribute('position').array,
   );
-  tree.generateBranch(branch);
-  assert.equal(tree.branches.verts.length, 45);
-  assert.equal(tree.branches.indices.length, 48);
+  tree.generate();
+  assert.deepEqual(
+    Array.from(tree.branchesMesh.geometry.getAttribute('position').array),
+    positions,
+  );
 });
 
-test('Tree retains original Phong bark and shared Phong wind-shadow leaves', () => {
+test('createGeometry remeshes the existing skeleton without mutating Tree meshes', () => {
+  const tree = new Tree(createSmallOptions());
+  tree.generate();
+  const originalBranches = tree.branchesMesh.geometry;
+  const originalLeaves = tree.leavesMesh.geometry;
+  const skeleton = tree.skeleton;
+
+  const geometry = tree.createGeometry({
+    sectionStride: 3,
+    segmentFactor: 0.5,
+    leafStride: 2,
+    leafScale: 1.2,
+    billboard: Billboard.Single,
+  });
+
+  assert.strictEqual(tree.skeleton, skeleton);
+  assert.strictEqual(tree.branchesMesh.geometry, originalBranches);
+  assert.strictEqual(tree.leavesMesh.geometry, originalLeaves);
+  assert.equal(geometry.branches.getAttribute('position').count, 15);
+  assert.equal(geometry.leaves.getAttribute('position').count, 12);
+  assert.ok(geometry.branches.index.count < originalBranches.index.count);
+  assert.ok(geometry.leaves.index.count < originalLeaves.index.count);
+  assertFiniteGeometry(geometry.branches);
+  assertFiniteGeometry(geometry.leaves);
+  geometry.branches.dispose();
+  geometry.leaves.dispose();
+
+  assert.throws(
+    () => tree.createGeometry({ segmentFactor: 0 }),
+    /segmentFactor must be a positive finite number/,
+  );
+  assert.throws(
+    () => tree.createGeometry({ billboard: 'triple' }),
+    /Unknown leaf billboard mode/,
+  );
+});
+
+test('generateLODs shares v2 PBR surfaces and synchronized wind shadows', () => {
   const options = createSmallOptions();
   const maps = {
     color: new THREE.Texture(),
@@ -123,26 +184,62 @@ test('Tree retains original Phong bark and shared Phong wind-shadow leaves', () 
   options.bark.textureScale.x = 2;
   options.bark.textureScale.y = 5;
   const tree = new Tree(options);
-  tree.generate();
+  tree.generateLODs();
 
-  assert.ok(tree.branchesMesh.material.isMeshPhongMaterial);
-  assert.equal(tree.branchesMesh.material.isMeshStandardMaterial, undefined);
-  assert.strictEqual(tree.branchesMesh.material.map, maps.color);
-  assert.strictEqual(tree.branchesMesh.material.aoMap, maps.ao);
-  assert.strictEqual(tree.branchesMesh.material.normalMap, maps.normal);
-  assert.strictEqual(tree.branchesMesh.material.roughnessMap, maps.roughness);
+  assert.ok(tree.lod.isLOD);
+  assert.equal(tree.lod.levels.length, 3);
+  const branchMeshes = tree.lod.levels.map(({ object }) => object.children[0]);
+  const leafMeshes = tree.lod.levels.map(({ object }) => object.children[1]);
+  assert.ok(branchMeshes[0].material.isMeshStandardMaterial);
+  assert.ok(leafMeshes[0].material.isMeshStandardMaterial);
+  for (const mesh of branchMeshes) {
+    assert.strictEqual(mesh.material, branchMeshes[0].material);
+  }
+  for (const mesh of leafMeshes) {
+    assert.strictEqual(mesh.material, leafMeshes[0].material);
+    assert.strictEqual(
+      mesh.customDepthMaterial,
+      leafMeshes[0].customDepthMaterial,
+    );
+    assert.strictEqual(
+      mesh.customDistanceMaterial,
+      leafMeshes[0].customDistanceMaterial,
+    );
+  }
+  assert.strictEqual(branchMeshes[0].material.map, maps.color);
+  assert.strictEqual(branchMeshes[0].material.aoMap, maps.ao);
+  assert.strictEqual(branchMeshes[0].material.normalMap, maps.normal);
+  assert.strictEqual(branchMeshes[0].material.roughnessMap, maps.roughness);
   assert.deepEqual(maps.color.repeat.toArray(), [1, 0.2]);
+  assert.ok(leafMeshes[0].customDepthMaterial.isMeshDepthMaterial);
+  assert.ok(leafMeshes[0].customDistanceMaterial.isMeshDistanceMaterial);
 
-  assert.ok(tree.leavesMesh.material.isMeshPhongMaterial);
-  assert.ok(tree.leavesMesh.customDepthMaterial?.isMeshDepthMaterial);
-  assert.ok(tree.leavesMesh.customDistanceMaterial?.isMeshDistanceMaterial);
-  const before = tree._leafWind.time;
+  const surfaceShader = compile(
+    leafMeshes[0].material,
+    THREE.ShaderLib.standard,
+  );
+  const depthShader = compile(
+    leafMeshes[0].customDepthMaterial,
+    THREE.ShaderLib.depth,
+  );
+  const distanceShader = compile(
+    leafMeshes[0].customDistanceMaterial,
+    THREE.ShaderLib.distanceRGBA,
+  );
   tree.update(7.5);
-  assert.notEqual(tree._leafWind.time, before);
-  assert.equal(tree._leafWind.time, 7.5);
+  for (const shader of [surfaceShader, depthShader, distanceShader]) {
+    assert.equal(shader.uniforms.uTime.value, 7.5);
+    assert.match(shader.vertexShader, /leafWindSimplex3/);
+  }
+
+  tree.generate();
+  assert.equal(tree.lod, null);
+  assert.equal(tree.children.length, 2);
+  assert.strictEqual(tree.children[0], tree.branchesMesh);
+  assert.strictEqual(tree.children[1], tree.leavesMesh);
 });
 
-test('committed branch length behavior is explicit and finite at all levels', () => {
+test('branch growth remains finite at every level and for a preset', () => {
   const levelZero = new Tree(createSmallOptions({ levels: 0 }));
   levelZero.generate();
   assertFiniteGeometry(levelZero.branchesMesh.geometry);

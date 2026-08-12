@@ -45,13 +45,22 @@
   </head>
 
   <body>
-    <div id="loading-screen" role="status" aria-live="polite">
+    <div
+      id="loading-screen"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
       <div class="bc-loader-mark" aria-hidden="true">Tisel</div>
       <div id="loading-text">Growing the digital twin…</div>
     </div>
 
     <div id="root">
-      <div id="app" aria-label="Interactive 3D blackcurrant model"></div>
+      <div
+        id="app"
+        role="region"
+        aria-label="Interactive 3D blackcurrant model"
+      ></div>
       <div id="ui-container"></div>
       <button
         id="aboutTrigger"

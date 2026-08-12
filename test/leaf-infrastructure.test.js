@@ -145,7 +145,7 @@ test('the unit card is directly reusable by one InstancedMesh leaf pool', () => 
   material.dispose();
 });
 
-test('leaf surfaces retain the original EZ-Tree MeshPhong contract', () => {
+test('leaf surfaces use the EZ-Tree v2 PBR contract', () => {
   const map = new THREE.Texture();
   const wind = new LeafWind({ time: 4.25 });
   const materials = createLeafMaterialSet({
@@ -157,17 +157,19 @@ test('leaf surfaces retain the original EZ-Tree MeshPhong contract', () => {
     wind,
     windVariant: 'test-leaves',
   });
-  const original = new THREE.MeshPhongMaterial({
+  const original = new THREE.MeshStandardMaterial({
     name: 'leaves',
     map,
     color: new THREE.Color(0x6f913f),
     side: THREE.DoubleSide,
     alphaTest: 0.42,
+    metalness: 0,
+    roughness: 1,
     dithering: true,
   });
 
-  assert.ok(materials.surface.isMeshPhongMaterial);
-  assert.equal(materials.surface.isMeshStandardMaterial, undefined);
+  assert.ok(materials.surface.isMeshStandardMaterial);
+  assert.equal(materials.surface.isMeshPhongMaterial, undefined);
   assert.strictEqual(materials.surface.map, map);
   for (const property of [
     'type',
@@ -176,14 +178,12 @@ test('leaf surfaces retain the original EZ-Tree MeshPhong contract', () => {
     'alphaTest',
     'dithering',
     'vertexColors',
-    'shininess',
+    'metalness',
+    'roughness',
   ]) {
     assert.equal(materials.surface[property], original[property]);
   }
   assert.equal(materials.surface.color.getHex(), original.color.getHex());
-  assert.equal(materials.surface.specular.getHex(), original.specular.getHex());
-  assert.equal('metalness' in materials.surface, false);
-  assert.equal('roughness' in materials.surface, false);
   assert.equal(materials.depth.name, 'test-leaves-wind-depth');
   assert.equal(materials.distance.name, 'test-leaves-wind-distance');
   assert.strictEqual(materials.depth.map, map);
@@ -193,7 +193,7 @@ test('leaf surfaces retain the original EZ-Tree MeshPhong contract', () => {
   assert.equal(materials.depth.side, THREE.DoubleSide);
   assert.equal(materials.distance.side, THREE.DoubleSide);
 
-  const surface = compile(materials.surface, THREE.ShaderLib.phong);
+  const surface = compile(materials.surface, THREE.ShaderLib.standard);
   const depth = compile(materials.depth, THREE.ShaderLib.depth);
   const distance = compile(materials.distance, THREE.ShaderLib.distanceRGBA);
   for (const shader of [surface, depth, distance]) {
