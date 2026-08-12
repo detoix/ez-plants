@@ -1,4 +1,4 @@
-import { Billboard, TreeType } from './enums';
+import { Billboard, TreeType } from './enums.js';
 
 export default class TreeOptions {
   constructor() {
@@ -202,7 +202,7 @@ export default class TreeOptions {
 
   /**
    * Copies the values from source into this object
-   * @param {TreeOptions} source 
+   * @param {TreeOptions} source
    */
   copy(source, target = this) {
     for (let key in source) {
@@ -210,7 +210,11 @@ export default class TreeOptions {
         const value = source[key];
         // Assign THREE.Texture (and any non-plain object) by reference rather
         // than recursing — recursion would walk a Texture's internals.
-        if (value !== null && typeof value === 'object' && value.constructor === Object) {
+        if (
+          value !== null &&
+          typeof value === 'object' &&
+          value.constructor === Object
+        ) {
           this.copy(value, target[key]);
         } else {
           target[key] = value;

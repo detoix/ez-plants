@@ -130,3 +130,7 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+
+# Local img2threejs research, licensed references, derived evidence and review state.
+# These files guide reconstruction but must not ship with the library or demo.
+.img2threejs/

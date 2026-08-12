@@ -20,6 +20,7 @@ export const BarkType = {
 export const LeafType = {
   Ash: 'ash',
   Aspen: 'aspen',
+  BlackcurrantTisel: 'blackcurrant-tisel',
   Oak: 'oak',
   Pine: 'pine',
 };
@@ -51,7 +52,11 @@ export function getBarkMaps(type) {
   const base = `/textures/bark/${dir}/${dir}`;
   const maps = {
     color: loadColor(`${base}_Color.jpg`),
-    ao: loadLinear(`${base}_AmbientOcclusion.jpg`),
+    // ambientCG's Bark001 pack (the EZ-Tree default) has no AO image.
+    ao:
+      type === BarkType.Bark001
+        ? null
+        : loadLinear(`${base}_AmbientOcclusion.jpg`),
     normal: loadLinear(`${base}_NormalGL.jpg`),
     roughness: loadLinear(`${base}_Roughness.jpg`),
   };

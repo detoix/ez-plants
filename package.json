@@ -30,6 +30,8 @@
   "types": "./build/ez-tree.es.d.ts",
   "scripts": {
     "dev": "vite --config vite.app.config.js",
+    "test": "node --test test/woody-geometry.test.js test/woody-material.test.js test/leaf-infrastructure.test.js test/shared-plant-infrastructure.test.js test/tree-lod.test.js test/plant-lod.test.js test/blackcurrant-model.test.js test/blackcurrant-renderer.test.js test/export-glb.test.js",
+    "build": "npm run build:lib && npm run build:app",
     "build:app": "vite build --config vite.app.config.js",
     "build:lib": "vite build --config vite.lib.config.js",
     "build:watch": "vite build --config vite.lib.config.js --watch",

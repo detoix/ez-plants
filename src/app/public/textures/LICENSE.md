@@ -20,5 +20,10 @@ courtesy to the authors and contributors at ambientcg.
 | `Bark014_1K-JPG/`   | https://ambientcg.com/view?id=Bark014   |
 | `Bark015_1K-JPG/`   | https://ambientcg.com/view?id=Bark015   |
 
-The leaf textures in `leaves/` are bundled with the EZ-Tree demo app and are
-licensed under the project's own license (see repository LICENSE).
+The generic ash, aspen, oak, and pine textures in `leaves/` are bundled with
+the EZ-Tree demo app and are licensed under the project's own license (see
+repository LICENSE).
+
+`leaves/blackcurrant-tisel.png` was generated specifically for this
+Blackcurrant prototype from botanical references. It is a project asset, not
+an upstream EZ-Tree texture.
