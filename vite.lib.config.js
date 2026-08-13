@@ -1,5 +1,3 @@
-import dts from "vite-plugin-dts";
-
 /**
  * @type {import('vite').UserConfig}
  */
@@ -21,12 +19,7 @@ export default {
     },
     sourcemap: true,
   },
-  plugins: [
-    dts({
-      outDir: './build',
-      insertTypesEntry: true,
-      rollupTypes: true,
-      tsconfigPath: "./tsconfig.json"
-    }),
-  ],
+  // Declarations are emitted by `tsc -p tsconfig.json` (see build:lib) rather
+  // than vite-plugin-dts. The plugin's bundled api-extractor breaks across
+  // TypeScript releases and rewrites the hand-authored ./types entry.
 };

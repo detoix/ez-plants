@@ -11,7 +11,7 @@
 </p>
 
 # About
-EZ-Tree is a procedural tree generator with dozens of tunable parameters. The standalone tree generation code is published as a library and can be imported into your own application for dynamically generating trees on demand. Additionally, there is a standalone web app which allows you to create trees within the browser and export as .PNG or .GLB files.
+EZ-Tree is a procedural tree generator with dozens of tunable parameters. This repository additionally hosts **EZ-Plants**, a library of botanically specific garden plants for Polish and European gardens (see [Garden Plants](#garden-plants-poland--europe)). The standalone tree generation code is published as a library and can be imported into your own application for dynamically generating trees on demand. Additionally, there is a standalone web app which allows you to create trees within the browser and export as .PNG or .GLB files.
 
 # App
 https://eztree.dev
@@ -73,6 +73,93 @@ tree.generateLODs([
 All LOD levels share one bark material and one leaf material, so `tree.update(time)` animates wind at every level. Calling `generate()` afterwards tears the LOD down and restores the single full-detail mesh pair (note that exporting a tree generated with `generateLODs()` to GLB will include every level).
 
 If you have your own LOD or instancing system, `tree.createGeometry(detail)` returns raw `{ branches, leaves }` `BufferGeometry` pairs at any detail level without touching the tree's own meshes.
+
+# Garden Plants (Poland & Europe)
+
+Alongside the procedural tree generator, this repository hosts a growing library of
+**botanically specific garden plants** for Polish and European gardens. Each plant is a
+cultivar-level digital twin: a persistent cane structure driven by an **age** and a
+**day of year**, with a phenology calendar built from cited real-world sources.
+
+| Plant | Cultivar | Habit | Defining behaviour |
+| --- | --- | --- | --- |
+| Blackcurrant (*Ribes nigrum*) | 'Tisel' | Upright multi-cane stool, ~1.3 m | Fruits on young wood; renewal pruning in dormancy |
+| Forsythia (*Forsythia × intermedia*) | 'Lynwood' | Upright-arching multi-cane, ~2.2 m | **Flowers on bare 1–2 year old wood before any leaf**; prune immediately after flowering |
+
+All plants are modelled in **metres**, share the same EZ-Tree woody geometry, bark
+material, leaf cards and wind shader, and extend a common `PlantRenderer` base.
+
+## Three.js usage
+
+```js
+import { Forsythia } from '@dgreenheck/ez-tree';
+
+const bush = new Forsythia({
+  ageYears: 6,
+  dayOfYear: 96,   // peak bloom in central Poland
+  region: 'central',
+  lod: true,
+});
+scene.add(bush);
+
+// Scrub through time — the plant is updated in place, never rebuilt.
+bush.setTime({ ageYears: 12, dayOfYear: 200 });
+
+// Per frame
+bush.update(delta, elapsed, camera);
+
+// When done
+bush.dispose();
+```
+
+At day 96 the shrub renders **no leaves at all** — that is correct. Forsythia opens its
+display on bare wood, and the leaves follow as the flowers fade.
+
+## React Three Fiber usage
+
+```tsx
+import { Canvas } from '@react-three/fiber';
+import { Forsythia, type ForsythiaStats } from '@dgreenheck/ez-tree/react';
+
+<Canvas>
+  <Forsythia
+    ageYears={6}
+    dayOfYear={96}
+    region="northeast"
+    onStats={(stats: ForsythiaStats) => console.log(stats.phenology.stage)}
+  />
+</Canvas>
+```
+
+`react` and `@react-three/fiber` are optional peer dependencies; importing the root
+package never pulls React into your bundle.
+
+## Care guidance and provenance
+
+Every plant exposes source-cited care hints and its own calendar provenance, so a UI can
+show *why* it is telling you something:
+
+```js
+const { careHints, phenology } = bush.stats();
+careHints[0].message; // "Cut flowered growth back to vigorous ... one fifth of the oldest stems"
+careHints[0].source;  // https://www.rhs.org.uk/plants/types/shrubs/pruning-early-flowering
+phenology.bbch;       // BBCH growth-stage code
+```
+
+Observed values and renderer assumptions are labelled separately in each profile
+(`LYNWOOD_SOURCES`, `LYNWOOD_PHASE_ASSUMPTIONS`). Phase durations shape the animation and
+are **not** claimed as observed station intervals; weather shifts a real plant by weeks.
+
+## Shared demo page
+
+`npm run dev` serves one demo page for the whole library, with a plant selector, an
+**age** slider, a **day of year** slider, seasonal shortcuts, regional phenology
+profiles, care events and review cameras. State is reflected in the URL:
+
+```
+http://localhost:5173/?plant=forsythia&year=6&day=96&view=three-quarter
+```
+
 
 # Running Standalone App Locally
 

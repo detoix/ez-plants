@@ -16,45 +16,72 @@
   "module": "build/ez-tree.es.js",
   "exports": {
     ".": {
+      "types": "./types/index.d.ts",
       "import": "./build/ez-tree.es.js",
       "require": "./build/ez-tree.umd.js"
+    },
+    "./react": {
+      "types": "./build/react/index.d.ts",
+      "import": "./build/react/index.js"
     }
   },
   "files": [
     "build",
     "src",
+    "types",
     "LICENSE",
     "package.json",
     "README.md"
   ],
-  "types": "./build/ez-tree.es.d.ts",
+  "types": "./types/index.d.ts",
   "scripts": {
     "dev": "vite --config vite.app.config.js",
     "test": "node --test",
-    "build": "npm run build:lib && npm run build:app",
+    "build": "npm run build:lib && npm run build:react && npm run build:app",
     "build:app": "vite build --config vite.app.config.js",
-    "build:lib": "vite build --config vite.lib.config.js",
+    "build:lib": "vite build --config vite.lib.config.js && tsc -p tsconfig.json",
     "build:watch": "vite build --config vite.lib.config.js --watch",
     "app": "npm run build:lib && vite --config vite.app.config.js",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:react": "vite build --config vite.react.config.js && tsc -p tsconfig.react.json",
+    "typecheck": "tsc -p tsconfig.react.json --noEmit"
   },
   "devDependencies": {
+    "@react-three/fiber": "^9.7.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
     "@types/three": "^0.169.0",
     "prettier": "3.3.3",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "three": "^0.167.x",
+    "typescript": "5.6.2",
     "vite": "^5.0.0",
-    "vite-plugin-dts": "^3.9.1",
     "vite-plugin-static-copy": "^1.0.5"
   },
   "peerDependencies": {
+    "@react-three/fiber": ">=8",
+    "react": ">=18",
     "three": ">=0.167"
   },
   "keywords": [
     "threejs",
     "three-js",
+    "react-three-fiber",
     "procedural",
     "generation",
-    "tree"
+    "tree",
+    "garden",
+    "phenology",
+    "forsythia",
+    "blackcurrant"
   ],
-  "dependencies": {}
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "@react-three/fiber": {
+      "optional": true
+    }
+  }
 }

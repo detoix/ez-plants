@@ -3,6 +3,38 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Forsythia × intermedia 'Lynwood' — second plant in the garden library
+
+- **`Forsythia`** renderer for *Forsythia × intermedia* 'Lynwood Variety' (sold as 'Lynwood Gold'), modelled in metres for central-Poland conditions.
+  - **Flowers on bare one- and two-year-old wood before any leaf expands.** At peak bloom the renderer draws corollas and zero leaf cards; leaf-out begins as the last flowers fade. This is the behaviour the whole model is organised around.
+  - **Opposite, decussate leaves** (two per node, 90° turn between nodes), narrow ovate-lanceolate blades scaled independently in width.
+  - Four-lobed corolla geometry with oblong, revolute and twisted lobes; closed teardrop flower buds; sparse, non-ornamental two-celled capsules (a thrum-eyed clone sets almost no seed).
+  - Upright-arching cane architecture with a back-loaded arch and tip droop, sized to the RHS 1.5–2.5 m envelope.
+  - **Pruning follows flowering, not dormancy** (RHS pruning group 2): `pruneOldestCane()` refuses cuts before flowering ends, enforces the one-fifth-of-oldest-stems seasonal quota, and refuses cuts after mid-July because that wood carries next spring's display.
+  - Regional phenology profiles: `central`, `northeast` (the reported 10–14 day lag for Mazury/Podlasie/Suwalszczyzna), plus `early`/`late` season brackets.
+  - Every default is traceable: `LYNWOOD_SOURCES` cites RHS, Trees and Shrubs Online, NC State Extension, Atlas Roślin and Polish horticultural sources, and `LYNWOOD_PHASE_ASSUMPTIONS` labels which numbers are renderer assumptions rather than observations.
+
+### Shared plant infrastructure
+
+- **`PlantRenderer`** base class extracts the machinery common to every multi-cane shrub: group layout, tracked materials and geometry, stable-capacity instance pools sized from peak annual concurrency, the combined EZ-Tree woody meshing pass, distance LOD, care-event validation and the atomic validate-evaluate-apply state cycle. `Forsythia` is built on it; organ placement stays species-specific by design.
+
+### React Three Fiber and TypeScript
+
+- New **`@dgreenheck/ez-tree/react`** entry point with `<Forsythia>` and `<Blackcurrant>` components. Plants are built once per seed and mounted with `<primitive>`; `ageYears` and `dayOfYear` are applied to the live object rather than rebuilding it. `react` and `@react-three/fiber` are optional peer dependencies.
+- Hand-authored TypeScript declarations (`types/plants.d.ts`) for the plant API. Generated declarations reduced option bags to `{}` and cultivar unions to `any`; the hand-authored surface types cultivars, regions, trial years, stats, phenology and prune-refusal reasons precisely.
+
+### Shared demo page
+
+- The demo is no longer blackcurrant-specific. A plant registry (`src/app/plants.js`) declares each species' label, defaults, seasonal shortcuts, organ stat rows, phenology control and care actions, and one panel renders any of them. Adding a plant to the library adds it to the page.
+- Plant selector with in-place swapping that disposes the previous plant's GPU resources; camera framing, ground scale, grid and lighting derive from the plant's own size; plant selection and phenology profile are reflected in the URL.
+- Procedural forsythia leaf texture drawn from the botanical description (serrate above, entire toward the base), avoiding a binary asset with no citable provenance.
+
+### Build
+
+- Type declarations are now emitted by `tsc` for both entry points instead of `vite-plugin-dts`, whose bundled api-extractor broke across TypeScript releases and overwrote the hand-authored types entry.
+
 ## [2.0.0] - 2026-07-16
 
 ### Levels of Detail

@@ -1,0 +1,206 @@
+/**
+ * Real-world units used by the forsythia model. One scene unit is one metre.
+ */
+export const METRES_PER_UNIT = 1;
+
+/**
+ * Primary evidence behind the 'Lynwood Variety' defaults. RHS supplies the
+ * garden-managed size envelope and the pruning regime; the botanical monograph
+ * and the Polish floras supply organ morphology and the central-Poland season.
+ */
+export const LYNWOOD_SOURCES = Object.freeze({
+  rhsCultivar: Object.freeze({
+    title:
+      "Forsythia × intermedia 'Lynwood Variety', Royal Horticultural Society",
+    url: 'https://www.rhs.org.uk/plants/214902/forsythia-intermedia-lynwood-variety/details',
+    supports:
+      'Garden-managed ultimate size of 1.5-2.5 m high by 1.5-2.5 m wide reached in 5-10 years, bushy upright habit, hardiness H5 and pruning group 2.',
+  }),
+  rhsPruning: Object.freeze({
+    title: 'Pruning early-flowering shrubs, Royal Horticultural Society',
+    url: 'https://www.rhs.org.uk/plants/types/shrubs/pruning-early-flowering',
+    supports:
+      'Pruning group 2: prune immediately after flowering, cut flowered growth back to vigorous lower shoots and remove up to one fifth of the oldest stems at the base.',
+  }),
+  treesAndShrubsOnline: Object.freeze({
+    title: 'Forsythia × intermedia, Trees and Shrubs Online (Bean, revised)',
+    url: 'https://www.treesandshrubsonline.org/articles/forsythia/forsythia-x-intermedia/',
+    supports:
+      "Erect-to-arching habit, leaves ovate to broad-lanceolate 4-10 x 2-5 cm, corolla to 4 cm wide with oblong often revolute and twisted lobes, 1-6 flowers per leaf-scar, and 'Lynwood Variety' as a 1946 bud-sport of 'Spectabilis' with broader, less curled, lighter yellow lobes.",
+  }),
+  ncStateToolbox: Object.freeze({
+    title: 'Forsythia × intermedia, NC State Extension Gardener Plant Toolbox',
+    url: 'https://plants.ces.ncsu.edu/plants/forsythia-x-intermedia/',
+    supports:
+      'Opposite lanceolate leaves toothed on the upper half, rapid growth, multi-stemmed arching fountain-like form, flowers borne on one- to two-year-old wood, brown four-ridged lenticel-dotted stems with chambered or hollow pith, and a non-ornamental 2-celled dehiscent capsule about 6 mm long.',
+  }),
+  atlasRoslin: Object.freeze({
+    title: 'Forsythia ×intermedia (forsycja pośrednia), Atlas Roślin',
+    url: 'https://www.atlas-roslin.pl/gatunki/Forsythia_xintermedia.htm',
+    supports:
+      'Polish field description: shrub to 3 m with ascending shoots drooping at the tips, dark yellow flowers to 35 mm across densely covering the branches, flowering March to April.',
+  }),
+  polishFlora: Object.freeze({
+    title: 'Forsycja pośrednia, Wikipedia (polska)',
+    url: 'https://pl.wikipedia.org/wiki/Forsycja_po%C5%9Brednia',
+    supports:
+      "Central-European garden description: dense wide shrub to 3 m with upright and partly drooping shoots, chambered pith, opposite ovate-oblong dark green leaves serrate above, four-lobed funnel-shaped flowers opening before the leaves in March-April, capsule fruit, and 'Lynwood' as a dark-yellow cultivar on notably stiff upright shoots.",
+  }),
+  polishSeason: Object.freeze({
+    title: 'Forsycja pośrednia — termin kwitnienia w Polsce, ExoticFactory',
+    url: 'https://www.exoticfactory.pl/forsycja-posrednia-forsythia-intermedia-jak-uprawiac-kiedy-ciac-i-jak-uzyskac-spektakularne-kwitnienie-n-116.html',
+    supports:
+      'Peak flowering of most Forsythia × intermedia cultivars at the turn of March and April in central Poland, with the north-east (Mazury, Podlasie, Suwalszczyzna) running 10-14 days later.',
+  }),
+  bbch: Object.freeze({
+    title: 'BBCH Monograph, growth stages of mono- and dicotyledonous plants',
+    url: 'https://www.masaf.gov.it/flex/AppData/WebLive/Agrometeo/MIEPFY800/BBCHengl2001.pdf',
+    supports:
+      'General BBCH stage codes for woody ornamentals used by the calendar.',
+  }),
+});
+
+/**
+ * Cultivar profile for a maintained garden-grown Forsythia x intermedia
+ * 'Lynwood Variety' (sold in Poland and the UK as 'Lynwood Gold').
+ *
+ * The geometry values are renderer-friendly biological priors, not claims of
+ * millimetre-accurate prediction. Like the blackcurrant stool, this plant is a
+ * multi-cane shrub with no tree-like trunk, but two facts drive the whole
+ * model and separate it from a currant:
+ *
+ *   1. Flowers open on one- and two-year-old wood BEFORE any leaf expands.
+ *   2. Leaves are opposite and decussate, not alternate.
+ */
+export const LYNWOOD_PROFILE = Object.freeze({
+  species: 'Forsythia × intermedia',
+  cultivar: 'Lynwood',
+  cultivarFullName: 'Lynwood Variety',
+  synonyms: Object.freeze(['Lynwood Gold']),
+  commonName: 'Border forsythia',
+  commonNamePl: 'Forsycja pośrednia',
+  locale: 'central Poland',
+  unit: 'metre',
+  metresPerUnit: METRES_PER_UNIT,
+  architecture: Object.freeze({
+    habit: 'upright-arching multi-cane shrub with stiff erect shoots',
+    hasTrunk: false,
+    crownOrigin: 'ground-level stool',
+    // RHS gives 1.5-2.5 m in both axes for a garden-managed plant; the Polish
+    // floras allow 3 m unmanaged. The maintained default sits mid-RHS.
+    matureHeightM: 2.15,
+    matureRadiusM: 1.02,
+    rhsUltimateHeightRangeM: Object.freeze([1.5, 2.5]),
+    rhsUltimateSpreadRangeM: Object.freeze([1.5, 2.5]),
+    rhsYearsToUltimateHeight: Object.freeze([5, 10]),
+    unmanagedHeightM: 3,
+    // No cited source gives a stem count for forsythia the way RHS does for
+    // blackcurrant. This is a renderer prior for a vigorous, rapidly growing
+    // 2 m shrub under annual post-flowering renewal, not a published figure.
+    maintainedCaneRange: Object.freeze([8, 20]),
+    initialCaneCount: 10,
+    renewalStartsAfterYear: 3,
+    replacementCycleYears: 20,
+    modelHorizonYears: 50,
+    // 'Lynwood' is a stiff, upright sport; the arch is real but shallower than
+    // F. suspensa. This is the fraction of cane height expressed as outward
+    // reach at the tip.
+    archFraction: 0.42,
+    tipLayering: true,
+  }),
+  growth: Object.freeze({
+    rate: 'rapid',
+    // Renderer interpolation for one cane, anchored so a maintained plant is
+    // near full height inside the RHS 5-10 year window.
+    caneAgeScaleAnchors: Object.freeze([
+      Object.freeze([0, 0.14]),
+      Object.freeze([0.5, 0.4]),
+      Object.freeze([1, 0.52]),
+      Object.freeze([2, 0.71]),
+      Object.freeze([3, 0.85]),
+      Object.freeze([4, 0.94]),
+      Object.freeze([5, 1]),
+    ]),
+    annualShootExtensionM: Object.freeze([0.3, 0.6]),
+    // Basal renewal shoots break after the flowering flush, once the plant is
+    // in leaf. This is an explicit animation assumption: the cited sources
+    // describe rapid growth but not daily shoot-emergence dates.
+    renewalEmergenceDayRange: Object.freeze([105, 135]),
+  }),
+  cane: Object.freeze({
+    // Stems stay floriferous for a few years, then RHS renewal takes them out.
+    productiveLifeYears: 5,
+    targetHeightM: Object.freeze([1.75, 2.45]),
+    baseRadiusM: Object.freeze([0.008, 0.019]),
+    crownRadiusM: 0.13,
+    mainAxisNodeCount: Object.freeze([16, 22]),
+    // Densely branched: an established cane pushes new laterals every season,
+    // and it is that annual supply of one-year wood that keeps a mature shrub
+    // flowering harder than a young one.
+    lateralAxisCount: Object.freeze([8, 14]),
+    axisRadiusFactors: Object.freeze({
+      primary: 1,
+      lateral: 0.32,
+      higherOrder: 0.19,
+    }),
+    childParentRadiusRatio: 0.55,
+    axisTaperRatios: Object.freeze([1, 0.84, 0.52, 0.18]),
+    wholeCanePruning: true,
+    pruningHeightM: 0.03,
+    barkDescription: 'brown, four-ridged, heavily dotted with lenticels',
+    pith: 'chambered (lamellate), sometimes hollow',
+  }),
+  leaf: Object.freeze({
+    // The single most important structural difference from the blackcurrant.
+    arrangement: 'opposite-decussate',
+    leavesPerNode: 2,
+    decussateTurnRadians: Math.PI / 2,
+    lengthM: Object.freeze([0.04, 0.1]),
+    widthM: Object.freeze([0.02, 0.05]),
+    petioleLengthM: Object.freeze([0.006, 0.016]),
+    shape: 'ovate to broad-lanceolate',
+    serrated: true,
+    serrationNote: 'toothed on the upper half, entire toward the base',
+    occasionallyTrifoliate: true,
+    autumnColours: Object.freeze(['gold', 'yellow-green', 'purple-bronze']),
+  }),
+  flower: Object.freeze({
+    // Borne on one- and two-year-old wood, opening before leaf expansion.
+    bornOnWoodAgeYears: Object.freeze([1, 2]),
+    precedesLeaves: true,
+    perNodeRange: Object.freeze([1, 6]),
+    corollaLobes: 4,
+    corollaWidthM: Object.freeze([0.025, 0.04]),
+    corollaTubeLengthM: Object.freeze([0.008, 0.013]),
+    lobeShape: 'oblong, often revolute and twisted',
+    pedicelLengthM: Object.freeze([0.003, 0.009]),
+    colour: 'bright yellow, lighter and less brassy than Spectabilis',
+    scented: false,
+    // 'Lynwood' is a thrum-eyed (short-styled) clone, so a solitary plant sets
+    // almost no seed. This is why the capsule load below is deliberately tiny.
+    styleMorph: 'thrum',
+    selfFertile: false,
+  }),
+  capsule: Object.freeze({
+    type: '2-celled dehiscent capsule',
+    lengthM: Object.freeze([0.005, 0.008]),
+    ornamental: false,
+    // Pods on an isolated thrum clone are typically empty; only a small
+    // fraction of pollinated nodes carry a visible capsule at all.
+    setFraction: 0.04,
+    note: 'Capsules are modeled as a sparse, non-ornamental presence so the summer canopy is botanically complete without implying a crop.',
+  }),
+  management: Object.freeze({
+    dormantPlantingMonths: Object.freeze([10, 11, 12, 1, 2, 3]),
+    // RHS pruning group 2: the cut follows flowering, it does not wait for
+    // dormancy the way blackcurrant renewal does.
+    pruningWindow: 'immediately after flowering',
+    renewalPruningMinimumAgeYears: 3,
+    oldestCaneRemovalFraction: 1 / 5,
+    pruningMethod:
+      'cut flowered growth back to vigorous lower shoots and remove up to one fifth of the oldest stems at the base',
+    latestSafePruningDay: 196,
+    latestSafePruningNote:
+      'Pruning after mid-July removes the wood that carries next spring flower buds.',
+  }),
+});

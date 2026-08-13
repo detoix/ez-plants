@@ -1,9 +1,7 @@
 import * as THREE from 'three';
 import { createScene } from './scene';
-import {
-  readBlackcurrantStateFromUrl,
-  setupBlackcurrantUI,
-} from './blackcurrant-ui';
+import { readPlantStateFromUrl, setupPlantUI } from './plant-ui';
+import { getPlantDescriptor } from './plants';
 
 window.__ready = false;
 
@@ -13,8 +11,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const loadingText = document.getElementById('loading-text');
 
   try {
-    const initialState = readBlackcurrantStateFromUrl();
-
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
       alpha: false,
@@ -29,30 +25,45 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderer.toneMappingExposure = 1.08;
     container.appendChild(renderer.domElement);
 
-    const { scene, plant, camera, controls, setReviewView } = await createScene(
-      renderer,
-      initialState,
-    );
+    // One live stage that swaps plants in place. Everything the previous
+    // plant owned is disposed before the next one is built, so switching
+    // species repeatedly does not leak GPU memory.
+    let stage = null;
+    let ui = null;
 
-    const ui = setupBlackcurrantUI({
-      plant,
-      initialState,
-      setReviewView,
-    });
+    async function mountPlant(state) {
+      const descriptor = getPlantDescriptor(state.plant);
+      stage = await createScene(renderer, descriptor, state);
+      ui = setupPlantUI({
+        descriptor,
+        plant: stage.plant,
+        initialState: { ...state, plant: descriptor.id },
+        setReviewView: stage.setReviewView,
+        onSelectPlant: (nextPlantId) => selectPlant(nextPlantId),
+      });
+      window.plant = stage.plant;
+      window.setReviewView = (view) => ui.setView(view);
+      resize();
+      window.dispatchEvent(
+        new CustomEvent('plant-ready', { detail: { plant: descriptor.id } }),
+      );
+    }
 
-    // Stable camera hooks make visual regression captures reproducible while
-    // leaving OrbitControls available for normal exploration.
-    window.setReviewView = (view) => ui.setView(view);
-    window.blackcurrant = plant;
-
-    const clock = new THREE.Clock();
-    function animate() {
-      const delta = Math.min(clock.getDelta(), 0.05);
-      const elapsed = clock.elapsedTime;
-      plant.update(delta, elapsed, camera);
-      controls.update();
-      renderer.render(scene, camera);
-      requestAnimationFrame(animate);
+    async function selectPlant(nextPlantId) {
+      const previous = ui.getState();
+      const descriptor = getPlantDescriptor(nextPlantId);
+      ui.destroy();
+      stage.dispose();
+      await mountPlant({
+        ...previous,
+        plant: descriptor.id,
+        // Age and day are per-species meaningful, so fall back to the new
+        // plant's defaults rather than carrying a currant's harvest date
+        // onto a forsythia.
+        age: Math.min(previous.age, descriptor.maxYears),
+        day: descriptor.defaults.day,
+        phenologyProfile: descriptor.profileControl.options[0][0],
+      });
     }
 
     function resize() {
@@ -60,21 +71,34 @@ document.addEventListener('DOMContentLoaded', async () => {
       const height = Math.max(1, container.clientHeight);
       renderer.setSize(width, height);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-      camera.aspect = width / height;
-      camera.updateProjectionMatrix();
+      if (!stage) return;
+      stage.camera.aspect = width / height;
+      stage.camera.updateProjectionMatrix();
+    }
+
+    await mountPlant(readPlantStateFromUrl());
+
+    const clock = new THREE.Clock();
+    function animate() {
+      const delta = Math.min(clock.getDelta(), 0.05);
+      const elapsed = clock.elapsedTime;
+      stage.plant.update(delta, elapsed, stage.camera);
+      stage.controls.update();
+      renderer.render(stage.scene, stage.camera);
+      requestAnimationFrame(animate);
     }
 
     window.addEventListener('resize', resize);
     resize();
-    controls.update();
-    renderer.render(scene, camera);
+    stage.controls.update();
+    renderer.render(stage.scene, stage.camera);
 
     if (loadingScreen) loadingScreen.hidden = true;
     window.__ready = true;
     window.dispatchEvent(new CustomEvent('blackcurrant-ready'));
     animate();
   } catch (error) {
-    console.error('Unable to start the blackcurrant digital twin.', error);
+    console.error('Unable to start the garden digital twin.', error);
     if (loadingText) {
       loadingText.textContent =
         'The 3D garden could not start. Check WebGL support, then reload.';
