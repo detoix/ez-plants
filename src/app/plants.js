@@ -8,7 +8,6 @@ import {
   TreePreset,
 } from '@dgreenheck/ez-tree';
 import { getBarkMaps, getLeafMap, LeafType } from './textures';
-import { getForsythiaLeafMap } from './leaf-textures';
 
 // EZ-Tree v2 expresses textureScale.x per unit of branch radius. Both plants
 // are modelled in metres, so this is the Bark001 calibration in metre units.
@@ -204,7 +203,7 @@ export const PLANTS = Object.freeze({
           // forsythia's lenticel-dotted stems better than the currant's.
           bark: shrubBark('Bush 3'),
           leaf: {
-            map: getForsythiaLeafMap(),
+            map: getLeafMap(LeafType.ForsythiaLynwood),
             tint: 0xffffff,
             alphaTest: 0.5,
             roundedNormals: true,

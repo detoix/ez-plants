@@ -403,29 +403,32 @@ function instanceScales(plant, meshName) {
   return result;
 }
 
-test('leaf cards are narrow lanceolate blades, not square currant blades', () => {
+test('leaf cards scale uniformly, with blade proportions in the plate', () => {
   const plant = makePlant({ ageYears: 8, dayOfYear: 200 });
   try {
     const leaves = instanceScales(plant, MESH_NAMES.leaves);
     assert.ok(leaves.length > 0);
 
-    // The EZ-Tree card is a unit quad, so instance scale IS the blade's metres.
-    const mean = (pick) =>
-      leaves.reduce((sum, leaf) => sum + pick(leaf), 0) / leaves.length;
-    const width = mean((leaf) => leaf.scale.x);
-    const length = mean((leaf) => leaf.scale.y);
-    const aspect = width / length;
+    // The leaf plate carries the blade's own 2.2:1 proportions, as the other
+    // plates in this library do, so the card must scale uniformly. A width
+    // correction factor here would narrow an already-narrow blade twice.
+    for (const leaf of leaves.slice(0, 200)) {
+      // Compared relatively: composing and decomposing a matrix round-trips
+      // through a quaternion, which leaves noise a few ulps wide.
+      const spread =
+        Math.max(leaf.scale.x, leaf.scale.y, leaf.scale.z) -
+        Math.min(leaf.scale.x, leaf.scale.y, leaf.scale.z);
+      assert.ok(
+        spread / leaf.scale.y < 1e-6,
+        `leaf card is not uniformly scaled: ${leaf.scale.toArray()}`,
+      );
+    }
 
-    // Published blades are 4-10 x 2-5 cm, so roughly 2:1 to 2.5:1. A square
-    // card here means the width scaling has been cancelled out somewhere and
-    // the shrub is wearing blackcurrant foliage.
+    const mean =
+      leaves.reduce((sum, leaf) => sum + leaf.scale.y, 0) / leaves.length;
     assert.ok(
-      aspect > 0.35 && aspect < 0.58,
-      `leaf width:length ${aspect.toFixed(3)} is outside the published 0.35-0.58`,
-    );
-    assert.ok(
-      length > 0.035 && length < 0.11,
-      `leaf length ${length.toFixed(3)} m is outside the published 4-10 cm`,
+      mean > 0.035 && mean < 0.11,
+      `leaf length ${mean.toFixed(3)} m is outside the published 4-10 cm`,
     );
   } finally {
     plant.dispose();

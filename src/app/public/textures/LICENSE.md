@@ -27,3 +27,7 @@ repository LICENSE).
 `leaves/blackcurrant-tisel.png` was generated specifically for this
 Blackcurrant prototype from botanical references. It is a project asset, not
 an upstream EZ-Tree texture.
+
+`leaves/forsythia-lynwood.png` was generated for this Forsythia prototype from
+botanical references, by `scripts/make-leaf-texture.mjs`. It is a project
+asset, not an upstream EZ-Tree texture.

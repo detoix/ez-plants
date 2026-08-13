@@ -399,3 +399,24 @@ test('prune event construction is validated and ordered by time', () => {
       lynwoodEventTime({ ageYears: 3, dayOfYear: 200 }),
   );
 });
+
+test('modelled blades match the published 4-10 x 2-5 cm proportions', () => {
+  const model = createLynwoodModel({ seed: 'blade', maxYears: 20 });
+  const leaves = [];
+  for (const cane of model.canes) {
+    for (const axis of cane.axes) {
+      for (const node of axis.nodes) leaves.push(...node.leaves);
+    }
+  }
+  assert.ok(leaves.length > 0);
+  for (const leaf of leaves.slice(0, 500)) {
+    assert.ok(
+      leaf.lengthM >= 0.04 && leaf.lengthM <= 0.1,
+      `blade length ${leaf.lengthM} outside 4-10 cm`,
+    );
+    assert.ok(
+      leaf.widthM >= 0.02 && leaf.widthM <= 0.05,
+      `blade width ${leaf.widthM} outside 2-5 cm`,
+    );
+  }
+});
