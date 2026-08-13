@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import RNG from './rng.js';
 import { Branch } from './branch.js';
+import { AxisTaper, growWoodyAxis } from './woody-axis.js';
 import { Billboard, TreeType } from './enums.js';
 import TreeOptions from './options.js';
 import { loadPreset } from './presets/index.js';
@@ -337,106 +338,32 @@ export class Tree extends THREE.Group {
    * @returns
    */
   #growBranch(branch) {
-    let sectionOrientation = branch.orientation.clone();
-    let sectionOrigin = branch.origin.clone();
-    // Branch.length already contains the level-specific length. Keeping the
-    // section step independent of the total level count preserves v2's
-    // bit-identical skeleton while avoiding its unreachable case-sensitive
-    // "Deciduous" branch (and a latent division by zero at levels === 1).
-    const sectionLength = branch.length / branch.sectionCount;
-
-    // This information is used for generating child branches after the branch
-    // geometry has been constructed
-    let sections = [];
-
-    for (let i = 0; i <= branch.sectionCount; i++) {
-      let sectionRadius = branch.radius;
-
-      // If final section of final level, set radius to effecively zero
-      if (
-        i === branch.sectionCount &&
-        branch.level === this.options.branch.levels
-      ) {
-        sectionRadius = 0.001;
-      } else if (this.options.type === TreeType.Deciduous) {
-        sectionRadius *=
-          1 -
-          this.options.branch.taper[branch.level] * (i / branch.sectionCount);
-      } else if (this.options.type === TreeType.Evergreen) {
-        // Evergreens do not have a terminal branch so they have a taper of 1
-        sectionRadius *= 1 - i / branch.sectionCount;
-      }
-
-      // Use this information later on when generating child branches
-      sections.push({
-        origin: sectionOrigin.clone(),
-        orientation: sectionOrientation.clone(),
-        radius: sectionRadius,
-      });
-
-      sectionOrigin.add(
-        new THREE.Vector3(0, sectionLength, 0).applyEuler(sectionOrientation),
-      );
-
-      // Perturb the orientation of the next section randomly. The higher the
-      // gnarliness, the larger potential perturbation
-      const gnarliness =
-        Math.max(1, 1 / Math.sqrt(sectionRadius)) *
-        this.options.branch.gnarliness[branch.level];
-
-      sectionOrientation.x += this.rng.random(gnarliness, -gnarliness);
-      sectionOrientation.z += this.rng.random(gnarliness, -gnarliness);
-
-      // Apply growth force to the branch
-      const qSection = new THREE.Quaternion().setFromEuler(sectionOrientation);
-
-      const qTwist = new THREE.Quaternion().setFromAxisAngle(
-        new THREE.Vector3(0, 1, 0),
-        this.options.branch.twist[branch.level],
-      );
-
-      qSection.multiply(qTwist);
-
-      // Rotate the section's growth direction toward force.direction (positive
-      // strength) or away from it (negative). The (sectionUp × target) axis
-      // makes force.direction behave as a real world axis: when sectionUp is
-      // already aligned with target the rotation is zero, so a vertical trunk
-      // with force=(0,1,0) doesn't get gnarliness drift amplified — the old
-      // slerp form was degenerate at qForce=identity and pushed branches in
-      // whatever random direction the section had drifted.
-      const sectionUp = new THREE.Vector3(0, 1, 0).applyQuaternion(qSection);
-      const target = new THREE.Vector3()
-        .copy(this.options.branch.force.direction)
-        .normalize();
-      const axis = new THREE.Vector3().crossVectors(sectionUp, target);
-      const sinFull = axis.length();
-      if (sinFull > 1e-6) {
-        axis.divideScalar(sinFull);
-        const fullAngle = Math.atan2(sinFull, sectionUp.dot(target));
-        const step = this.options.branch.force.strength / sectionRadius;
-        const clamped = Math.max(-fullAngle, Math.min(fullAngle, step));
-        qSection.premultiply(
-          new THREE.Quaternion().setFromAxisAngle(axis, clamped),
-        );
-      }
-
-      // Apply trellis force if enabled
-      if (this.options.trellis.enabled) {
-        const trellisResult = this.calculateTrellisForce(
-          sectionOrigin,
-          sectionRadius,
-        );
-        if (trellisResult) {
-          const qTrellis = new THREE.Quaternion().setFromUnitVectors(
-            new THREE.Vector3(0, 1, 0),
-            trellisResult.direction,
-          );
-          qSection.rotateTowards(qTrellis, trellisResult.strength);
-        }
-      }
-
-      sectionOrientation.setFromQuaternion(qSection);
-    }
+    // The section-growing model lives in growWoodyAxis() so the shrub
+    // renderers can grow a cane through the same gnarliness/twist/force rules
+    // the trees use. Branch.length already contains the level-specific length.
+    const isTerminalLevel = branch.level === this.options.branch.levels;
+    const sections = growWoodyAxis({
+      origin: branch.origin,
+      orientation: branch.orientation,
+      length: branch.length,
+      radius: branch.radius,
+      sectionCount: branch.sectionCount,
+      gnarliness: this.options.branch.gnarliness[branch.level],
+      twist: this.options.branch.twist[branch.level],
+      taper: this.options.branch.taper[branch.level],
+      // Evergreens have no terminal branch, so their axes always run to a point.
+      taperMode:
+        this.options.type === TreeType.Evergreen
+          ? AxisTaper.Linear
+          : AxisTaper.Proportional,
+      // Only the final level closes off to an effectively zero radius.
+      tipRadius: isTerminalLevel ? 0.001 : null,
+      force: this.options.branch.force,
+      rng: this.rng,
+      attract: this.options.trellis.enabled
+        ? (origin, radius) => this.calculateTrellisForce(origin, radius)
+        : null,
+    });
 
     this.skeleton.branches.push({
       sections,

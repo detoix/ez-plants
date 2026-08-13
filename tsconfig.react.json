@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "./build/react",
+    "rootDir": "./src/react",
+    "jsx": "react-jsx",
+    "moduleResolution": "Bundler",
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "ESNext",
+    "module": "ESNext",
+    "lib": ["ESNext", "DOM"],
+    "paths": {
+      "@dgreenheck/ez-tree": ["./types/index.d.ts"]
+    }
+  },
+  "include": ["src/react/**/*"]
+}

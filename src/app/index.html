@@ -9,14 +9,14 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
     <link rel="manifest" href="/site.webmanifest" />
 
-    <title>Tisel · Blackcurrant Garden Digital Twin</title>
+    <title>EZ-Plants · Polish &amp; European Garden Digital Twins</title>
     <meta
       name="description"
-      content="A browser-based Three.js proof for exploring the age, seasons, care events and harvest of a Tisel blackcurrant bush."
+      content="A browser-based Three.js library of Polish and European garden plants — scrub any plant through age and day of year and watch its real phenology."
     />
     <meta
       name="keywords"
-      content="blackcurrant, Ribes nigrum, Tisel, digital twin, garden planner, Three.js, phenology"
+      content="forsythia, Forsythia intermedia, Lynwood, blackcurrant, Ribes nigrum, Tisel, digital twin, garden planner, Three.js, phenology, Poland"
     />
     <meta
       name="author"
@@ -24,21 +24,21 @@
     />
     <meta
       property="og:title"
-      content="Tisel · Blackcurrant Garden Digital Twin"
+      content="EZ-Plants · Garden Digital Twins"
     />
     <meta
       property="og:description"
-      content="Explore a Tisel blackcurrant across age, season and care scenarios in 3D."
+      content="Explore Polish and European garden plants across age, season and care scenarios in 3D."
     />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta
       name="twitter:title"
-      content="Tisel · Blackcurrant Garden Digital Twin"
+      content="EZ-Plants · Garden Digital Twins"
     />
     <meta
       name="twitter:description"
-      content="A browser-based age and season simulation for a Tisel blackcurrant."
+      content="A browser-based age and season simulation for Polish and European garden plants."
     />
 
     <link rel="stylesheet" href="/styles.css" />
@@ -51,7 +51,7 @@
       aria-live="polite"
       aria-atomic="true"
     >
-      <div class="bc-loader-mark" aria-hidden="true">Tisel</div>
+      <div class="bc-loader-mark" aria-hidden="true">EZ-Plants</div>
       <div id="loading-text">Growing the digital twin…</div>
     </div>
 
@@ -59,7 +59,7 @@
       <div
         id="app"
         role="region"
-        aria-label="Interactive 3D blackcurrant model"
+        aria-label="Interactive 3D garden plant model"
       ></div>
       <div id="ui-container"></div>
       <button
@@ -84,17 +84,21 @@
       >
         <div class="about-dialog bc-about-dialog" tabindex="-1">
           <p class="bc-kicker">Garden digital twin · research prototype</p>
-          <h1 id="about-title">Tisel blackcurrant</h1>
+          <h1 id="about-title">EZ-Plants garden twins</h1>
           <p>
-            This proof explores persistent cane structure, age, phenology,
-            pruning and harvest events. Dates and care cues are educational
-            scenario inputs—not a diagnosis or yield forecast.
+            A growing library of plants for Polish and European gardens.
+            Each plant models persistent cane structure, age, phenology and
+            care events. Dates and care cues are educational scenario
+            inputs—not a diagnosis or yield forecast.
           </p>
           <p>
-            The default season uses the mean 2022–2024 IO-PIB observations for
-            flowering onset, berry colouring onset and full maturity. Visual
-            phase durations are explicitly modeled assumptions; weather can
-            shift a real plant by weeks.
+            Blackcurrant &lsquo;Tisel&rsquo; uses the mean 2022–2024 IO-PIB
+            observations for flowering, colouring and maturity. Forsythia
+            &lsquo;Lynwood&rsquo; uses the RHS size and pruning envelope with the
+            central-Poland turn-of-March/April flowering peak, and flowers on
+            bare one- and two-year-old wood before any leaf opens. Visual phase
+            durations are explicitly modeled assumptions; weather can shift a
+            real plant by weeks.
           </p>
           <p>
             The procedural renderer is built on
