@@ -20,6 +20,7 @@ export const BarkType = {
 export const LeafType = {
   Ash: 'ash',
   Aspen: 'aspen',
+  BlackcurrantTisel: 'blackcurrant-tisel',
   Oak: 'oak',
   Pine: 'pine',
 };

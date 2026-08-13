@@ -1,110 +1,211 @@
 <!doctype html>
 <html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#28362d" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="manifest" href="/site.webmanifest" />
 
-<head>
-  <!-- Google tag (gtag.js) -->
-  <script async src="https://www.googletagmanager.com/gtag/js?id=G-08XPB68R9M"></script>
-  <script>
-    window.dataLayer = window.dataLayer || [];
-    function gtag() { dataLayer.push(arguments); }
-    gtag('js', new Date());
+    <title>Tisel · Blackcurrant Garden Digital Twin</title>
+    <meta
+      name="description"
+      content="A browser-based Three.js proof for exploring the age, seasons, care events and harvest of a Tisel blackcurrant bush."
+    />
+    <meta
+      name="keywords"
+      content="blackcurrant, Ribes nigrum, Tisel, digital twin, garden planner, Three.js, phenology"
+    />
+    <meta
+      name="author"
+      content="Garden digital twin prototype; based on EZ-Tree by Dan Greenheck"
+    />
+    <meta
+      property="og:title"
+      content="Tisel · Blackcurrant Garden Digital Twin"
+    />
+    <meta
+      property="og:description"
+      content="Explore a Tisel blackcurrant across age, season and care scenarios in 3D."
+    />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="Tisel · Blackcurrant Garden Digital Twin"
+    />
+    <meta
+      name="twitter:description"
+      content="A browser-based age and season simulation for a Tisel blackcurrant."
+    />
 
-    gtag('config', 'G-08XPB68R9M');
-  </script>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
-  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
-  <link rel="manifest" href="/site.webmanifest">
-  <title>EZ-Tree | Procedural Tree Generator</title>
-  <meta name="description"
-    content="EZ-Tree is a procedural tree generator that allows you to create realistic 3D tree models with ease.">
-  <!-- SEO Meta Tags -->
-  <meta name="keywords"
-    content="tree generator, 3D trees, procedural generation, 3D modeling, game development, web3D, threejs">
-  <meta name="author" content="Dan Greenheck">
-  <meta property="og:title" content="EZ-Tree | Procedural Tree Generator">
-  <meta property="og:description"
-    content="EZ-Tree is a procedural tree generator that allows you to create realistic 3D tree models with ease.">
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="https://eztree.dev">
-  <meta property="og:image" content="https://eztree.dev/og-image.png">
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:creator" content="@dangreenheck">
-  <meta name="twitter:title" content="EZ-Tree | Procedural Tree Generator">
-  <meta name="twitter:description"
-    content="EZ-Tree is a procedural tree generator that allows you to create realistic 3D models of trees with ease.">
-  <meta name="twitter:image" content="https://eztree.dev/og-image.png">
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
 
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link
-    href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap"
-    rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <body>
+    <div
+      id="loading-screen"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <div class="bc-loader-mark" aria-hidden="true">Tisel</div>
+      <div id="loading-text">Growing the digital twin…</div>
+    </div>
 
-</head>
+    <div id="root">
+      <div
+        id="app"
+        role="region"
+        aria-label="Interactive 3D blackcurrant model"
+      ></div>
+      <div id="ui-container"></div>
+      <button
+        id="aboutTrigger"
+        class="bc-about-trigger"
+        type="button"
+        aria-controls="aboutOverlay"
+        aria-expanded="false"
+        onclick="showAbout()"
+      >
+        About & sources
+      </button>
 
-<body>
-  <div id="loading-screen">
-    <img id="logo" src="/images/logo.png">
-    <div id="loading-text">LOADING... 0%</div>
-  </div>
-
-  <div id="root">
-    <img id="about-icon" class="about-icon" src="/icons/icon_about.png" onclick="showAbout()">
-    <img id="audio-status" class="audio-icon" src="/icons/icon_playing.png" onclick="toggleAudio()">
-    <div id="app"></div>
-    <div id="ui-container"></div>
-
-    <div id="aboutOverlay" class="overlay">
-      <div class="about-dialog">
-        <img src="/images/logo.png" alt="App Icon">
-        <h1>EZ-Tree</h1>
-        <h2>Procedural Tree Generator</h2>
-        <h3>Made by Dan Greenheck</h3>
-
-        <div class="social-icons">
-          <a href="mailto:dan.greenheck@drgsoftwaresolutions.com" target="_blank" class="social-icon email"><i
-              class="fas fa-envelope"></i></a>
-          <a href="https://github.com/dgreenheck" target="_blank" class="social-icon github"><i
-              class="fab fa-github"></i></a>
-          <a href="https://www.youtube.com/channel/UCrdx_EU_Wx8_uBfqO0cI-9Q" target="_blank"
-            class="social-icon youtube"><i class="fab fa-youtube"></i></a>
-          <a href="https://www.x.com/dangreenheck" target="_blank" class="social-icon twitter"><i
-              class="fab fa-x"></i></a>
-          <a href="https://www.linkedin.com/in/danielgreenheck/" target="_blank" class="social-icon linkedin"><i
-              class="fab fa-linkedin"></i></a>
+      <div
+        id="aboutOverlay"
+        class="overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="about-title"
+        hidden
+        inert
+      >
+        <div class="about-dialog bc-about-dialog" tabindex="-1">
+          <p class="bc-kicker">Garden digital twin · research prototype</p>
+          <h1 id="about-title">Tisel blackcurrant</h1>
+          <p>
+            This proof explores persistent cane structure, age, phenology,
+            pruning and harvest events. Dates and care cues are educational
+            scenario inputs—not a diagnosis or yield forecast.
+          </p>
+          <p>
+            The default season uses the mean 2022–2024 IO-PIB observations for
+            flowering onset, berry colouring onset and full maturity. Visual
+            phase durations are explicitly modeled assumptions; weather can
+            shift a real plant by weeks.
+          </p>
+          <p>
+            The procedural renderer is built on
+            <a
+              href="https://github.com/dgreenheck/ez-tree"
+              target="_blank"
+              rel="noreferrer"
+              >EZ-Tree</a
+            >, created by Dan Greenheck and distributed under the MIT License.
+          </p>
+          <div class="bc-about-links">
+            <a
+              href="https://www.rhs.org.uk/fruit/blackcurrants/grow-your-own?type=f"
+              target="_blank"
+              rel="noreferrer"
+              >RHS growing guide</a
+            >
+            <a
+              href="https://zdr.cdr.gov.pl/images/ZDR/2026/ZDR-2026-1-CHARAKTERYSTYKA-POMOLOGICZNA-WYBRANYCH-ODMIAN-PORZECZKI-CZARNEJ.pdf"
+              target="_blank"
+              rel="noreferrer"
+              >IO-PIB Tisel trial</a
+            >
+            <a
+              href="https://journals.ashs.org/downloadpdf/view/journals/hortsci/50/10/article-p1582.pdf"
+              target="_blank"
+              rel="noreferrer"
+              >Five-season Tisel yield trial</a
+            >
+            <a
+              href="https://bulaporzeczki.pl/pl_pl/oferta/tisel/"
+              target="_blank"
+              rel="noreferrer"
+              >Polish Tisel cultivar profile</a
+            >
+          </div>
+          <button class="close-button" type="button" onclick="closeAbout()">
+            Close
+          </button>
         </div>
-        <button class="close-button" onclick="closeAbout()">CLOSE</button>
       </div>
     </div>
 
-  </div>
+    <script type="module" src="./main.js"></script>
+    <script>
+      let aboutPreviousFocus = null;
 
-  <a id="downloadLink" style="display: none"></a>
+      function showAbout() {
+        const overlay = document.getElementById('aboutOverlay');
+        const trigger = document.getElementById('aboutTrigger');
+        aboutPreviousFocus = document.activeElement;
+        overlay.hidden = false;
+        overlay.inert = false;
+        overlay.classList.add('active');
+        trigger.setAttribute('aria-expanded', 'true');
+        overlay.querySelector('.bc-about-dialog').focus();
+      }
 
-  <!-- Used for file uploads -->
-  <input type="file" id="fileInput" accept=".json" style="display: none" />
+      function closeAbout() {
+        const overlay = document.getElementById('aboutOverlay');
+        if (overlay.hidden) return;
+        overlay.classList.remove('active');
+        overlay.inert = true;
+        overlay.hidden = true;
+        document
+          .getElementById('aboutTrigger')
+          .setAttribute('aria-expanded', 'false');
+        if (aboutPreviousFocus?.isConnected) aboutPreviousFocus.focus();
+        aboutPreviousFocus = null;
+      }
 
-  <audio id="background-audio" loop>
-    <source src="/audio/ambience.mp3" type="audio/mpeg">
-    Your browser does not support the audio element.
-  </audio>
+      document.addEventListener('keydown', (event) => {
+        const overlay = document.getElementById('aboutOverlay');
+        if (overlay.hidden) return;
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          closeAbout();
+          return;
+        }
+        if (event.key !== 'Tab') return;
 
-  <script type="module" src="./main.js"></script>
-  <script>
-    function showAbout() {
-      document.getElementById('aboutOverlay').classList.add('active');
-    }
+        const dialog = overlay.querySelector('.bc-about-dialog');
+        const focusable = [
+          ...overlay.querySelectorAll(
+            'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+          ),
+        ];
+        const first = focusable[0];
+        const last = focusable.at(-1);
+        if (!first || !last) return;
+        if (
+          event.shiftKey &&
+          (document.activeElement === first ||
+            document.activeElement === dialog)
+        ) {
+          event.preventDefault();
+          last.focus();
+        } else if (
+          !event.shiftKey &&
+          (document.activeElement === last || document.activeElement === dialog)
+        ) {
+          event.preventDefault();
+          first.focus();
+        }
+      });
 
-    function closeAbout() {
-      document.getElementById('aboutOverlay').classList.remove('active');
-    }
-  </script>
-
-</body>
-
+      document
+        .getElementById('aboutOverlay')
+        .addEventListener('click', (event) => {
+          if (event.target === event.currentTarget) closeAbout();
+        });
+    </script>
+  </body>
 </html>

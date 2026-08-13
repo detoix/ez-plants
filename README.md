@@ -103,10 +103,11 @@ The `TreeOptions` class defines an options object that controls various paramete
 
 The `bark` object controls the appearance and properties of the tree trunk.
 
-- **`type`**: Specifies the type of bark texture to use, selected from the `BarkType` enumeration (e.g., `BarkType.Oak`).
+- **`type`**: Optional informational identifier for the bark asset. The core library does not resolve texture names.
 - **`tint`**: Determines the color tint applied to the bark, defined as a hexadecimal color value (e.g., `0xffffff` for white).
 - **`flatShading`**: Boolean property indicating whether to use flat shading (`true`) or smooth shading (`false`) for the bark.
 - **`textured`**: Boolean value that indicates if a texture is applied to the bark (`true` or `false`).
+- **`maps`**: Caller-supplied `THREE.Texture` objects in `{ color, ao, normal, roughness }`. No textures are bundled with the library.
 - **`textureScale`**: Controls the scale of the bark texture in both the `x` and `y` axes. It is an object with properties `x` and `y` to define the scaling factors.
 
 ## Branch Parameters
@@ -130,7 +131,8 @@ The `branch` object defines parameters for the trunk and branch levels of the tr
 
 The `leaves` object defines properties that control the appearance and placement of leaves.
 
-- **`type`**: Specifies the type of leaf texture, selected from the `LeafType` enumeration (e.g., `LeafType.Oak`).
+- **`type`**: Optional informational identifier for the leaf asset. The core library does not resolve texture names.
+- **`map`**: Caller-supplied leaf `THREE.Texture`. No leaf textures are bundled with the library.
 - **`billboard`**: Defines how leaves are rendered. The `Billboard` enumeration can be set to `Single` or `Double` to indicate single or perpendicular double-sided leaves.
 - **`angle`**: Defines the angle of the leaves relative to the parent branch, in degrees.
 - **`count`**: Number of leaves to generate.
