@@ -4,6 +4,9 @@ import {
   getLynwoodPhenology,
 } from './phenology.js';
 import { LYNWOOD_PROFILE } from './lynwood.js';
+import * as THREE from 'three';
+import RNG from '../../rng.js';
+import { growWoodyAxis } from '../../woody-axis.js';
 import {
   keyedInteger as randomInt,
   keyedRandom,
@@ -11,6 +14,15 @@ import {
 } from '../../keyed-random.js';
 
 const TAU = Math.PI * 2;
+
+/**
+ * EZ-Tree's branch model consumes a sequential RNG, while this model is keyed
+ * so any organ can be regenerated in isolation. Deriving the axis seed from
+ * the organ key keeps both: the graph is built once, and rebuilding it from
+ * the same seed reproduces every cane exactly.
+ */
+const caneRngSeed = (seed, caneId) =>
+  Math.floor(keyedRandom(seed, caneId, 'axis-rng') * 0xffffffff);
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const vector = (x = 0, y = 0, z = 0) => ({ x, y, z });
 const add = (a, b) => vector(a.x + b.x, a.y + b.y, a.z + b.z);
@@ -53,6 +65,16 @@ function tangentAt(points, index) {
  * architecture.archFraction rather than the blackcurrant's shallow lean, and
  * it is deliberately back-loaded (t^2.1) so the lower cane stays erect.
  */
+/**
+ * Grow one cane through EZ-Tree's own branch model.
+ *
+ * A forsythia cane is not a curve to be fitted; it is a shoot that grows up
+ * and bends over as it thins. EZ-Tree already models exactly that: its force
+ * step is `strength / sectionRadius`, so a thick base holds its line while the
+ * thin distal wood turns further per section. Pointing that force outward and
+ * down produces the cultivar's fountain from the same code the trees use,
+ * instead of a hand-fitted polynomial that has to be re-tuned by eye.
+ */
 function mainAxisPoints(seed, cane) {
   const architecture = LYNWOOD_PROFILE.architecture;
   const count = randomInt(
@@ -61,42 +83,46 @@ function mainAxisPoints(seed, cane) {
     LYNWOOD_PROFILE.cane.mainAxisNodeCount[0],
     LYNWOOD_PROFILE.cane.mainAxisNodeCount[1],
   );
-  const points = [];
   const outward = vector(Math.cos(cane.azimuth), 0, Math.sin(cane.azimuth));
-  const sideways = vector(-outward.z, 0, outward.x);
-  const archReach =
-    cane.targetHeightM *
-    architecture.archFraction *
-    randomRange(seed, [cane.id, 'arch'], 0.72, 1.24);
-  // A long arching shoot loses height to its own curve near the tip.
-  const tipDroop = randomRange(
-    seed,
-    [cane.id, 'tip-droop'],
-    0.06,
-    0.16 + cane.vigour * 0.08,
-  );
-  const swayPhase = keyedRandom(seed, cane.id, 'sway-phase') * TAU;
 
-  for (let index = 0; index <= count; index += 1) {
-    const t = index / count;
-    const radial = archReach * Math.pow(t, 2.1);
-    const sway =
-      (Math.sin(t * Math.PI * 1.5 + swayPhase) +
-        Math.sin(t * Math.PI * 3.1 + swayPhase * 0.41) * 0.32) *
-      0.055 *
-      t;
-    const height = cane.targetHeightM * (t - tipDroop * Math.pow(t, 3.4));
-    points.push(
-      add(
-        cane.position,
-        add(
-          scale(outward, radial),
-          add(scale(sideways, sway), vector(0, height, 0)),
-        ),
-      ),
-    );
-  }
-  return points;
+  // Canes lean outward a little at the crown before the force takes over.
+  const lean = randomRange(seed, [cane.id, 'lean'], 0.06, 0.2);
+  const orientation = new THREE.Euler(
+    Math.sin(cane.azimuth) * lean,
+    keyedRandom(seed, cane.id, 'sway-phase') * TAU,
+    -Math.cos(cane.azimuth) * lean,
+  );
+
+  const sections = growWoodyAxis({
+    origin: new THREE.Vector3(
+      cane.position.x,
+      cane.position.y,
+      cane.position.z,
+    ),
+    orientation,
+    // The cane's arc is longer than its final height, because the arch trades
+    // height for reach.
+    length: cane.targetHeightM * architecture.caneArcLengthFactor,
+    radius: cane.baseRadiusM,
+    sectionCount: count,
+    gnarliness: architecture.caneGnarliness,
+    taper: LYNWOOD_PROFILE.cane.axisTaperRatios[1],
+    force: {
+      direction: new THREE.Vector3(outward.x, -architecture.archDrop, outward.z),
+      // Force is applied once per section, so without normalising by the
+      // section count a denser cane would arch further for the same strength
+      // and node spacing would silently change the plant's habit.
+      strength:
+        ((architecture.caneForceStrength * architecture.caneReferenceSections) /
+          count) *
+        randomRange(seed, [cane.id, 'arch'], 0.78, 1.26),
+    },
+    rng: new RNG(caneRngSeed(seed, cane.id)),
+  });
+
+  return sections.map((section) =>
+    vector(section.origin.x, section.origin.y, section.origin.z),
+  );
 }
 
 function lateralAxisPoints(seed, cane, mainPoints, lateralIndex, lateralCount) {
@@ -125,14 +151,14 @@ function lateralAxisPoints(seed, cane, mainPoints, lateralIndex, lateralCount) {
   const axisLength = randomRange(
     seed,
     [cane.id, 'lateral-length', lateralIndex],
-    0.34,
-    0.78 - attachFraction * 0.16,
+    0.26,
+    0.52 - attachFraction * 0.16,
   );
   const count = randomInt(
     seed,
     [cane.id, 'lateral-node-count', lateralIndex],
-    6,
     10,
+    16,
   );
   const rise = randomRange(
     seed,
@@ -253,19 +279,25 @@ function makeLeafPair(seed, node, year) {
 function makeFlowerCluster(seed, node, floweringYear, woodAgeYears) {
   const flower = LYNWOOD_PROFILE.flower;
   const id = `${node.id}:cluster:y${floweringYear}`;
-  // Two-year-old wood carries a lighter load than the prime one-year wood.
-  const vigourFactor = woodAgeYears === 1 ? 1 : 0.62;
-  const count = Math.max(
-    1,
-    Math.round(
-      randomInt(
-        seed,
-        [id, 'count'],
-        flower.perNodeRange[0],
-        flower.perNodeRange[1],
-      ) * vigourFactor,
-    ),
-  );
+  // Sources give 1-6 flowers per leaf-scar. Prime one-year wood in full bloom
+  // sits at the top of that range -- that density is what makes the shrub read
+  // as a sheet of yellow rather than dots on sticks -- while two-year wood
+  // carries a lighter second flush.
+  const [minPerNode, maxPerNode] = flower.perNodeRange;
+  const count =
+    woodAgeYears === 1
+      ? randomInt(
+          seed,
+          [id, 'count'],
+          Math.ceil((minPerNode + maxPerNode) / 2),
+          maxPerNode,
+        )
+      : randomInt(
+          seed,
+          [id, 'count'],
+          minPerNode,
+          Math.max(minPerNode, maxPerNode - 2),
+        );
   const flowers = [];
   const decussateTurn = node.index * LYNWOOD_PROFILE.leaf.decussateTurnRadians;
 
@@ -381,9 +413,22 @@ function makeNode(
   // the spring of year Y+1, and a lighter second flush in Y+2. Nothing flowers
   // on the year's own new growth, which is exactly why pruning must follow
   // flowering rather than precede it.
-  const woodYear = Math.floor(axis.birthAgeYears);
+  // A cane is not one age. It extends every season, so the wood at its tip is
+  // young while the wood at its base is old. Flowering therefore sweeps
+  // outward along the cane year by year instead of switching the whole cane
+  // on and then off, which left long bare stretches on the main stems.
+  const positionAlongAxis = (index + 1) / Math.max(1, axis.pointCount - 1);
+  // Every living cane puts on a new increment at its tip each season, so the
+  // gradient spans the cane's whole life rather than a fixed number of years.
+  // That way a band of one- and two-year-old wood exists on EVERY cane at
+  // every age, which is why an established forsythia flowers all over instead
+  // of only on whichever canes happen to be the right age.
+  const extensionYears = LYNWOOD_PROFILE.cane.productiveLifeYears;
+  const woodYear = Math.floor(
+    axis.birthAgeYears + positionAlongAxis * extensionYears,
+  );
   const bearsFlowers =
-    index >= 1 && keyedRandom(seed, node.id, 'flowering-node') > 0.22;
+    index >= 1 && keyedRandom(seed, node.id, 'flowering-node') > 0.06;
   if (bearsFlowers) {
     for (const woodAgeYears of LYNWOOD_PROFILE.flower.bornOnWoodAgeYears) {
       const floweringYear = woodYear + woodAgeYears;
@@ -548,6 +593,58 @@ function makeCane(
         maxYears,
       }),
     );
+
+    // Second-order twigs. Most of a forsythia's flowering wood is not the cane
+    // or even its main laterals but the short side twigs those laterals throw
+    // the following season. Without them the shrub is a handful of long whips
+    // and the bloom reads as speckles on bare sticks however many flowers each
+    // node carries.
+    const lateralId = `${id}:axis:${index + 1}`;
+    const twigCount = randomInt(seed, [lateralId, 'twig-count'], 2, 4);
+    for (let twig = 0; twig < twigCount; twig += 1) {
+      const sub = lateralAxisPoints(
+        seed,
+        cane,
+        lateral.points,
+        twig,
+        twigCount,
+      );
+      const twigBirthAgeYears =
+        lateralBirthAgeYears +
+        1 +
+        randomRange(seed, [lateralId, 'twig-birth', twig], 0.1, 0.3);
+      if (
+        twigBirthAgeYears >= naturalDeathAgeYears ||
+        twigBirthAgeYears >= maxYears + 1
+      ) {
+        continue;
+      }
+      cane.axes.push(
+        makeAxis(seed, {
+          id: `${lateralId}:twig:${twig}`,
+          parentId: `${lateralId}:node:${sub.attachIndex - 1}`,
+          order: 2,
+          birthAgeYears: twigBirthAgeYears,
+          azimuth: sub.azimuth,
+          // Twigs are short: a fraction of the lateral that bore them.
+          points: sub.points.map((point) =>
+            add(
+              sub.points[0],
+              scale(
+                vector(
+                  point.x - sub.points[0].x,
+                  point.y - sub.points[0].y,
+                  point.z - sub.points[0].z,
+                ),
+                0.44,
+              ),
+            ),
+          ),
+          deathAgeYears: naturalDeathAgeYears,
+          maxYears,
+        }),
+      );
+    }
   }
   return cane;
 }
@@ -581,7 +678,13 @@ export function createLynwoodModel({
           sequence: index,
           cohort: 'initial',
           birthAgeYears: cycleStart,
-          scheduledRemovalAgeYears: Math.min(cycleEnd, cycleStart + 5 + index),
+          // RHS renewal takes up to a fifth of the oldest stems every year, so the
+          // founding canes are worked out over about one productive life rather
+          // than lingering for a decade as unflowering old wood.
+          scheduledRemovalAgeYears: Math.min(
+            cycleEnd,
+            cycleStart + 4 + index * 0.62,
+          ),
           naturalDeathAgeYears: cycleEnd,
           maxYears,
         }),

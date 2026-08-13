@@ -98,14 +98,21 @@ export const LYNWOOD_PROFILE = Object.freeze({
     // blackcurrant. This is a renderer prior for a vigorous, rapidly growing
     // 2 m shrub under annual post-flowering renewal, not a published figure.
     maintainedCaneRange: Object.freeze([8, 20]),
-    initialCaneCount: 10,
+    initialCaneCount: 13,
     renewalStartsAfterYear: 3,
     replacementCycleYears: 20,
     modelHorizonYears: 50,
     // 'Lynwood' is a stiff, upright sport; the arch is real but shallower than
     // F. suspensa. This is the fraction of cane height expressed as outward
     // reach at the tip.
-    archFraction: 0.42,
+    // The cane is grown through EZ-Tree's force model rather than a fitted
+    // curve, so the habit is described by how hard the shoot is pulled over
+    // and how much longer its arc is than its finished height.
+    caneArcLengthFactor: 1.05,
+    caneForceStrength: 0.00016,
+    caneReferenceSections: 36,
+    archDrop: 0.32,
+    caneGnarliness: 0.012,
     tipLayering: true,
   }),
   growth: Object.freeze({
@@ -133,7 +140,10 @@ export const LYNWOOD_PROFILE = Object.freeze({
     targetHeightM: Object.freeze([1.75, 2.45]),
     baseRadiusM: Object.freeze([0.008, 0.019]),
     crownRadiusM: 0.13,
-    mainAxisNodeCount: Object.freeze([16, 22]),
+    // Nodes every 5-7 cm along a 2 m cane. At 10 cm spacing the shoots read
+    // as bare whips with flowers dotted along them, not the dense fountain a
+    // forsythia in bloom actually is.
+    mainAxisNodeCount: Object.freeze([46, 60]),
     // Densely branched: an established cane pushes new laterals every season,
     // and it is that annual supply of one-year wood that keeps a mature shrub
     // flowering harder than a young one.

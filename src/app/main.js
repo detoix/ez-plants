@@ -43,6 +43,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
       window.plant = stage.plant;
       window.setReviewView = (view) => ui.setView(view);
+      // Headless capture hook. The scene animates every frame, so a screenshot
+      // taken from outside the page can never find a stable moment; rendering
+      // and reading the drawing buffer in one synchronous turn always can.
+      window.__capture = () => {
+        renderer.render(stage.scene, stage.camera);
+        return renderer.domElement.toDataURL('image/png');
+      };
       resize();
       window.dispatchEvent(
         new CustomEvent('plant-ready', { detail: { plant: descriptor.id } }),
