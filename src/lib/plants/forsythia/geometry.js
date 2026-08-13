@@ -1,12 +1,13 @@
 import * as THREE from 'three';
 
 // 'Lynwood Variety' is described as a lighter, less brassy yellow than its
-// 'Spectabilis' parent, with broader and less curled lobes. The throat runs
-// slightly deeper and warmer than the lobe faces.
-const LOBE_YELLOW = new THREE.Color(0xffd52e);
-const LOBE_EDGE = new THREE.Color(0xffe86a);
-const THROAT_AMBER = new THREE.Color(0xe8a516);
-const TUBE_GREEN = new THREE.Color(0xb9c25a);
+// 'Spectabilis' parent, with broader and less curled lobes. The lobe faces are
+// a clear golden yellow; only the very throat runs deeper, and it must stay
+// confined there or the whole flower reads orange instead of forsythia yellow.
+const LOBE_YELLOW = new THREE.Color(0xffcf1c);
+const LOBE_EDGE = new THREE.Color(0xffe867);
+const THROAT_AMBER = new THREE.Color(0xf0ac1b);
+const TUBE_GREEN = new THREE.Color(0xc7cc63);
 
 /**
  * One open forsythia corolla, built as a unit organ along +Y.
@@ -35,8 +36,8 @@ export function createFlowerGeometry({
   };
 
   const tubeBaseRadius = 0.055;
-  const tubeMouthRadius = 0.1;
-  const tubeHeight = 0.3;
+  const tubeMouthRadius = 0.072;
+  const tubeHeight = 0.26;
 
   // --- Corolla tube -------------------------------------------------------
   const tubeRings = [];
@@ -70,6 +71,17 @@ export function createFlowerGeometry({
     indices.push(a, c, b, b, c, d);
   }
 
+  // Floor the tube. Left open, the corolla is a pipe you can see the sky
+  // through when the flower is viewed face on.
+  const throatCentre = pushVertex(
+    new THREE.Vector3(0, tubeHeight * 0.16, 0),
+    THROAT_AMBER.clone().multiplyScalar(0.72),
+  );
+  for (let segment = 0; segment < tubeSegments; segment += 1) {
+    const next = (segment + 1) % tubeSegments;
+    indices.push(throatCentre, tubeRings[0][next], tubeRings[0][segment]);
+  }
+
   // --- Four spreading, revolute lobes -------------------------------------
   for (let lobe = 0; lobe < lobes; lobe += 1) {
     const lobeAngle = (lobe / lobes) * Math.PI * 2;
@@ -88,18 +100,21 @@ export function createFlowerGeometry({
       const radial = tubeMouthRadius + (0.5 - tubeMouthRadius) * s;
       // Rise off the mouth, then roll back down: the revolute tip.
       const height = tubeHeight + 0.15 * s - 0.34 * Math.pow(s, 2.3);
-      // Oblong outline, widest just past the middle.
+      // Oblong: near parallel-sided for most of its length, then rounded off.
+      // A lobe that swells through the middle reads as a broad petal, which is
+      // a buttercup or a kerria -- forsythia lobes are narrow straps.
       const halfWidth =
-        0.115 * Math.pow(Math.sin(Math.PI * (0.12 + 0.88 * s)), 0.6);
+        0.088 * Math.pow(Math.sin(Math.PI * (0.3 + 0.7 * s)), 0.3);
       // The lobe twists about its own axis along its length.
       const lobeTwist = twist * s;
       const centre = outward
         .clone()
         .multiplyScalar(radial)
         .add(new THREE.Vector3(0, height, 0));
+      // Keep the deeper gold in the throat only.
       const color = THROAT_AMBER.clone().lerp(
         LOBE_YELLOW,
-        THREE.MathUtils.smoothstep(s, 0.0, 0.42),
+        THREE.MathUtils.smoothstep(s, 0.0, 0.2),
       );
 
       const rowIndices = [];
@@ -148,8 +163,8 @@ export function createFlowerBudGeometry({ segments = 6, rings = 5 } = {}) {
   const indices = [];
   // Unopened buds are duller and browner than the open corolla; the yellow
   // only shows once the lobes start to separate at the tip.
-  const budBase = new THREE.Color(0x8f7a3f);
-  const budTip = new THREE.Color(0xdcb52c);
+  const budBase = new THREE.Color(0xa8973f);
+  const budTip = new THREE.Color(0xf2c62b);
 
   const pushVertex = (point, color) => {
     positions.push(point.x, point.y, point.z);

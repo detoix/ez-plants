@@ -16,6 +16,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   - Regional phenology profiles: `central`, `northeast` (the reported 10–14 day lag for Mazury/Podlasie/Suwalszczyzna), plus `early`/`late` season brackets.
   - Every default is traceable: `LYNWOOD_SOURCES` cites RHS, Trees and Shrubs Online, NC State Extension, Atlas Roślin and Polish horticultural sources, and `LYNWOOD_PHASE_ASSUMPTIONS` labels which numbers are renderer assumptions rather than observations.
 
+### Organ morphology corrections
+
+- **Leaf cards were rendering square.** A stray width factor cancelled the narrowing, so forsythia was wearing blackcurrant foliage at a 1.04 width:length ratio. Cards now carry the blade's true metres (2.09:1, against the published 4-10 x 2-5 cm) and the drawn blade fills the card instead of leaving transparent margins.
+- **Blade silhouette redrawn** from the botanical description: cuneate base with finite width at the petiole and a convex lower margin (ovate, not a symmetric spindle), gradual acute apex, and shallow forward-leaning teeth confined to the upper margin. The previous outline had a rounded spatulate base and deep regular sawteeth that read as a fern frond.
+- **Opposite buds no longer stack.** Two leaves share every node, and both buds were written at the node centre, duplicating half the bud pool into a z-fighting blob. Each bud now sits on its own side of the stem.
+- **Corolla lobes narrowed** to the oblong straps the sources describe; broad swelling lobes read as a buttercup. The deeper gold is confined to the throat so the flower reads as clear forsythia yellow, and the corolla tube is floored so the flower is not see-through face on.
+- Regression tests cover blade aspect and bud coincidence; both defects passed the previous suite.
+
 ### Shared plant infrastructure
 
 - **`PlantRenderer`** base class extracts the machinery common to every multi-cane shrub: group layout, tracked materials and geometry, stable-capacity instance pools sized from peak annual concurrency, the combined EZ-Tree woody meshing pass, distance LOD, care-event validation and the atomic validate-evaluate-apply state cycle. `Forsythia` is built on it; organ placement stays species-specific by design.

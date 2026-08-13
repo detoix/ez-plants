@@ -383,3 +383,79 @@ test('dispose releases GPU resources once and is safe to repeat', () => {
   assert.equal(disposedMaterials, materials.size);
   assert.equal(plant.children.length, 0);
 });
+
+/* -------------------------------------------------------------------- *
+ * Blade morphology
+ * -------------------------------------------------------------------- */
+
+function instanceScales(plant, meshName) {
+  const mesh = meshNamed(plant, meshName);
+  const matrix = new THREE.Matrix4();
+  const position = new THREE.Vector3();
+  const quaternion = new THREE.Quaternion();
+  const scale = new THREE.Vector3();
+  const result = [];
+  for (let index = 0; index < mesh.count; index += 1) {
+    mesh.getMatrixAt(index, matrix);
+    matrix.decompose(position, quaternion, scale);
+    result.push({ position: position.clone(), scale: scale.clone() });
+  }
+  return result;
+}
+
+test('leaf cards are narrow lanceolate blades, not square currant blades', () => {
+  const plant = makePlant({ ageYears: 8, dayOfYear: 200 });
+  try {
+    const leaves = instanceScales(plant, MESH_NAMES.leaves);
+    assert.ok(leaves.length > 0);
+
+    // The EZ-Tree card is a unit quad, so instance scale IS the blade's metres.
+    const mean = (pick) =>
+      leaves.reduce((sum, leaf) => sum + pick(leaf), 0) / leaves.length;
+    const width = mean((leaf) => leaf.scale.x);
+    const length = mean((leaf) => leaf.scale.y);
+    const aspect = width / length;
+
+    // Published blades are 4-10 x 2-5 cm, so roughly 2:1 to 2.5:1. A square
+    // card here means the width scaling has been cancelled out somewhere and
+    // the shrub is wearing blackcurrant foliage.
+    assert.ok(
+      aspect > 0.35 && aspect < 0.58,
+      `leaf width:length ${aspect.toFixed(3)} is outside the published 0.35-0.58`,
+    );
+    assert.ok(
+      length > 0.035 && length < 0.11,
+      `leaf length ${length.toFixed(3)} m is outside the published 4-10 cm`,
+    );
+  } finally {
+    plant.dispose();
+  }
+});
+
+test('opposite buds at one node do not stack on top of each other', () => {
+  const plant = makePlant({ ageYears: 8, dayOfYear: 30 });
+  try {
+    const buds = instanceScales(plant, MESH_NAMES.buds);
+    assert.ok(buds.length > 0, 'bare winter wood must still carry buds');
+
+    const seen = new Set();
+    let coincident = 0;
+    for (const bud of buds) {
+      const key = bud.position
+        .toArray()
+        .map((value) => value.toFixed(5))
+        .join(',');
+      if (seen.has(key)) coincident += 1;
+      else seen.add(key);
+    }
+    // Two leaves share every node, so a node-centred bud would duplicate half
+    // the pool into a z-fighting blob.
+    assert.equal(
+      coincident,
+      0,
+      `${coincident} of ${buds.length} buds share an exact position`,
+    );
+  } finally {
+    plant.dispose();
+  }
+});

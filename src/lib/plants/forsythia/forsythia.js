@@ -376,9 +376,12 @@ export class Forsythia extends PlantRenderer {
     const matrix = new THREE.Matrix4().compose(
       position,
       leafQuaternion,
-      // Forsythia blades are narrow lanceolate cards, not the currant's
-      // near-square maple-like blade, so width is scaled independently.
-      new THREE.Vector3(scale * leafRuntime.widthRatio * 2.4, scale, scale),
+      // The EZ-Tree card is a unit quad (width 1 x length 1, rooted at y=0),
+      // so these scales ARE the blade's metres. Forsythia blades are ovate to
+      // broad-lanceolate at roughly 4-10 x 2-5 cm, so the card must be scaled
+      // narrower across than along -- unlike the currant's near-square blade,
+      // which the base card matches uniformly.
+      new THREE.Vector3(scale * leafRuntime.widthRatio, scale, scale),
     );
     this._writeInstance('leaves', identity, matrix);
 
@@ -402,11 +405,23 @@ export class Forsythia extends PlantRenderer {
       leafRuntime.id,
       'leaf',
     ));
-    const position = vector(nodeState.position);
-    const quaternion =
-      leafRuntime.currentQuaternion ??
-      makeBasisQuaternion(leafRuntime.radial, UP);
     const scale = new THREE.Vector3(0.006, 0.011, 0.006);
+    // Opposite phyllotaxis means two buds share this node. Seating both at the
+    // node centre stacks them into one z-fighting blob and doubles overdraw,
+    // so each is pushed out along its own leaf's radial to sit on its own side
+    // of the stem, which is where the pair actually sits on bare winter wood.
+    const position = vector(nodeState.position).addScaledVector(
+      leafRuntime.radial,
+      0.0042,
+    );
+    const quaternion = makeBasisQuaternion(
+      leafRuntime.radial
+        .clone()
+        .multiplyScalar(0.5)
+        .addScaledVector(vector(nodeState.tangent, UP).normalize(), 0.85)
+        .normalize(),
+      UP,
+    );
     this._writeInstance(
       'buds',
       identity,

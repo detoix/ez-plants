@@ -216,7 +216,8 @@ function makeLeafPair(seed, node, year) {
       leaf.lengthM[0],
       leaf.lengthM[1],
     );
-    const widthRatio = randomRange(seed, [id, 'width-ratio'], 0.34, 0.52);
+    // Published blades run 4-10 x 2-5 cm, so roughly 2:1 to 2.5:1.
+    const widthRatio = randomRange(seed, [id, 'width-ratio'], 0.4, 0.56);
 
     leaves.push({
       id,
