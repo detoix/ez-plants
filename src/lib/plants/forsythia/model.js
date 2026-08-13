@@ -668,9 +668,16 @@ export function createLynwoodModel({
   const architecture = LYNWOOD_PROFILE.architecture;
   const cycleYears = architecture.replacementCycleYears;
 
-  for (let cycleStart = 0; cycleStart <= maxYears; cycleStart += cycleYears) {
-    const cycleIndex = cycleStart / cycleYears;
-    const cycleEnd = cycleStart + cycleYears;
+  // Only ONE replacement cycle is ever built. After the cycle length the
+  // maintained view already represents a replacement planting, and the
+  // evaluator maps the requested age onto its position within a cycle, so
+  // materialising a fresh set of canes per cycle produced three identical
+  // stands of which two could never be seen -- at triple the build cost and
+  // triple the memory.
+  {
+    const cycleStart = 0;
+    const cycleIndex = 0;
+    const cycleEnd = cycleYears;
     for (let index = 0; index < architecture.initialCaneCount; index += 1) {
       canes.push(
         makeCane(seed, {
@@ -693,7 +700,7 @@ export function createLynwoodModel({
 
     for (
       let localYear = architecture.renewalStartsAfterYear + 1;
-      localYear < cycleYears && cycleStart + localYear <= maxYears;
+      localYear < cycleYears;
       localYear += 1
     ) {
       // A vigorous, rapidly growing shrub throws more than one basal shoot a
@@ -1077,8 +1084,12 @@ export function evaluateLynwoodModel(
   }
 
   const phenology = getLynwoodPhenology(dayOfYear, { region, offsetDays });
-  const now = ageYears + (phenology.dayOfYear - 1) / 365;
-  const currentYear = Math.floor(ageYears);
+  const cycleYearsForAge = LYNWOOD_PROFILE.architecture.replacementCycleYears;
+  // The graph holds one cycle, so the plant is evaluated at its age WITHIN the
+  // current replacement cycle.
+  const ageInCycle = ageYears % cycleYearsForAge;
+  const now = ageInCycle + (phenology.dayOfYear - 1) / 365;
+  const currentYear = Math.floor(ageInCycle);
   const appliedEvents = events
     .filter((event) => lynwoodEventTime(event) <= now)
     .slice()
