@@ -376,12 +376,9 @@ export class Forsythia extends PlantRenderer {
     const matrix = new THREE.Matrix4().compose(
       position,
       leafQuaternion,
-      // The EZ-Tree card is a unit quad (width 1 x length 1, rooted at y=0),
-      // so these scales ARE the blade's metres. Forsythia blades are ovate to
-      // broad-lanceolate at roughly 4-10 x 2-5 cm, so the card must be scaled
-      // narrower across than along -- unlike the currant's near-square blade,
-      // which the base card matches uniformly.
-      new THREE.Vector3(scale * leafRuntime.widthRatio, scale, scale),
+      // The leaf plate carries the blade's own 2.2:1 proportions, as the other
+      // plates in this library do, so the card scales uniformly.
+      new THREE.Vector3(scale, scale, scale),
     );
     this._writeInstance('leaves', identity, matrix);
 

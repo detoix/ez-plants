@@ -21,6 +21,7 @@ export const LeafType = {
   Ash: 'ash',
   Aspen: 'aspen',
   BlackcurrantTisel: 'blackcurrant-tisel',
+  ForsythiaLynwood: 'forsythia-lynwood',
   Oak: 'oak',
   Pine: 'pine',
 };
@@ -57,7 +58,9 @@ export function getBarkMaps(type) {
   const base = `/textures/bark/${dir}/${dir}`;
   const maps = {};
   const drop = (key) => () => {
-    console.warn(`Missing bark texture: ${base}_… (${key}); skipping this map.`);
+    console.warn(
+      `Missing bark texture: ${base}_… (${key}); skipping this map.`,
+    );
     maps[key] = null;
   };
   maps.color = loadColor(`${base}_Color.jpg`, drop('color'));
@@ -75,7 +78,9 @@ export function getBarkMaps(type) {
 export function getLeafMap(type) {
   if (leafCache.has(type)) return leafCache.get(type);
   const texture = loadColor(`/textures/leaves/${type}.png`, () => {
-    console.warn(`Missing leaf texture: /textures/leaves/${type}.png; skipping.`);
+    console.warn(
+      `Missing leaf texture: /textures/leaves/${type}.png; skipping.`,
+    );
     leafCache.set(type, null);
   });
   texture.premultiplyAlpha = true;
