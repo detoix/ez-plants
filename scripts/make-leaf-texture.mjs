@@ -1,9 +1,9 @@
 /**
  * Generate the Forsythia x intermedia 'Lynwood' leaf plate.
  *
- * Same approach as `leaves/blackcurrant-tisel.png`: a project asset drawn from
+ * Same approach as `leaves/blackcurrant-tisel.webp`: a project asset drawn from
  * botanical references rather than an upstream EZ-Tree texture. Baking it to a
- * PNG (instead of drawing it into a canvas at runtime) keeps the library's
+ * WebP (instead of drawing it into a canvas at runtime) keeps the library's
  * asset pipeline uniform -- every plant's foliage is a plate loaded through
  * `getLeafMap`, so the packaged component works without the demo app.
  *
@@ -13,14 +13,14 @@
  *
  *   node scripts/make-leaf-texture.mjs
  */
-import zlib from 'node:zlib';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
 const SIZE = 1024;
 const OUT = path.join(
   process.cwd(),
-  'src/app/public/textures/leaves/forsythia-lynwood.png',
+  'src/app/public/textures/leaves/forsythia-lynwood.webp',
 );
 
 const WIDEST_AT = 0.38;
@@ -149,7 +149,8 @@ for (let py = 0; py < SIZE; py += 1) {
 
     const enc = (x) => {
       const c = Math.max(0, Math.min(1, x * shade));
-      const e = c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+      const e =
+        c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
       return Math.round(e * 255);
     };
     rgba[i] = enc(r);
@@ -159,52 +160,45 @@ for (let py = 0; py < SIZE; py += 1) {
   }
 }
 
-/* ---- PNG encode ---- */
-let table = null;
-function crc32(buf) {
-  if (!table) {
-    table = new Int32Array(256);
-    for (let n = 0; n < 256; n += 1) {
-      let c = n;
-      for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-      table[n] = c;
-    }
-  }
-  let c = -1;
-  for (let i = 0; i < buf.length; i += 1) c = table[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
-  return c ^ -1;
-}
-const chunk = (type, data) => {
-  const len = Buffer.alloc(4);
-  len.writeUInt32BE(data.length);
-  const td = Buffer.concat([Buffer.from(type, 'ascii'), data]);
-  const crc = Buffer.alloc(4);
-  crc.writeUInt32BE(crc32(td) >>> 0);
-  return Buffer.concat([len, td, crc]);
-};
-// Filter type 1 (Sub) compresses this material better than none.
-const raw = Buffer.alloc((SIZE * 4 + 1) * SIZE);
-for (let y = 0; y < SIZE; y += 1) {
-  const o = y * (SIZE * 4 + 1);
-  raw[o] = 1;
-  for (let x = 0; x < SIZE * 4; x += 1) {
-    const cur = rgba[y * SIZE * 4 + x];
-    const left = x >= 4 ? rgba[y * SIZE * 4 + x - 4] : 0;
-    raw[o + 1 + x] = (cur - left) & 0xff;
-  }
-}
-const ihdr = Buffer.alloc(13);
-ihdr.writeUInt32BE(SIZE, 0);
-ihdr.writeUInt32BE(SIZE, 4);
-ihdr[8] = 8;
-ihdr[9] = 6;
-fs.writeFileSync(
-  OUT,
-  Buffer.concat([
-    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
-    chunk('IHDR', ihdr),
-    chunk('IDAT', zlib.deflateSync(raw, { level: 9 })),
-    chunk('IEND', Buffer.alloc(0)),
-  ]),
+const encoded = spawnSync(
+  'ffmpeg',
+  [
+    '-hide_banner',
+    '-loglevel',
+    'error',
+    '-y',
+    '-f',
+    'rawvideo',
+    '-pixel_format',
+    'rgba',
+    '-video_size',
+    `${SIZE}x${SIZE}`,
+    '-framerate',
+    '1',
+    '-i',
+    'pipe:0',
+    '-c:v',
+    'libwebp',
+    '-preset',
+    'picture',
+    '-quality',
+    '82',
+    '-compression_level',
+    '6',
+    '-frames:v',
+    '1',
+    OUT,
+  ],
+  { input: rgba, stdio: ['pipe', 'inherit', 'inherit'] },
 );
-console.log(`wrote ${OUT} (${SIZE}x${SIZE}, ${(fs.statSync(OUT).size / 1024).toFixed(0)} KB)`);
+if (encoded.error) {
+  throw new Error(`Unable to run ffmpeg: ${encoded.error.message}`, {
+    cause: encoded.error,
+  });
+}
+if (encoded.status !== 0) {
+  throw new Error(`ffmpeg failed with status ${encoded.status ?? 'unknown'}`);
+}
+console.log(
+  `wrote ${OUT} (${SIZE}x${SIZE}, ${(fs.statSync(OUT).size / 1024).toFixed(0)} KB)`,
+);

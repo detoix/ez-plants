@@ -1,6 +1,9 @@
 import {
   Blackcurrant,
   Forsythia,
+  Hydrangea,
+  LIMELIGHT_PROFILE,
+  LIMELIGHT_SOURCES,
   LYNWOOD_PROFILE,
   LYNWOOD_SOURCES,
   TISEL_PROFILE,
@@ -9,8 +12,9 @@ import {
 } from '@dgreenheck/ez-tree';
 import { getBarkMaps, getLeafMap, LeafType } from './textures';
 
-// EZ-Tree v2 expresses textureScale.x per unit of branch radius. Both plants
-// are modelled in metres, so this is the Bark001 calibration in metre units.
+// EZ-Tree v2 expresses textureScale.x per unit of branch radius. The shrub
+// models are expressed in metres, so this is the Bark001 calibration in metre
+// units.
 const BARK_WRAPS_PER_METRE_RADIUS = 250;
 
 /**
@@ -120,6 +124,7 @@ export const PLANTS = Object.freeze({
         ageYears: state.age,
         dayOfYear: state.day,
         scenario: state.scenario,
+        trialYear: state.phenologyProfile,
         lod: true,
         assets: {
           bark: shrubBark('Bush 1'),
@@ -197,6 +202,7 @@ export const PLANTS = Object.freeze({
         ageYears: state.age,
         dayOfYear: state.day,
         scenario: state.scenario,
+        region: state.phenologyProfile,
         lod: true,
         assets: {
           // Bush 3 is EZ-Tree's coarser, greyer shrub bark, which suits
@@ -212,9 +218,88 @@ export const PLANTS = Object.freeze({
       });
     },
   }),
+
+  hydrangea: Object.freeze({
+    id: 'hydrangea',
+    label: 'Hydrangea',
+    labelPl: 'Hortensja bukietowa',
+    cultivar: 'Limelight',
+    species: LIMELIGHT_PROFILE.species,
+    kicker: 'Garden digital twin · proof 03',
+    profile: LIMELIGHT_PROFILE,
+    sources: LIMELIGHT_SOURCES,
+    defaults: Object.freeze({ age: 6, day: 230 }),
+    maxYears: 30,
+    size: Object.freeze({
+      heightM: LIMELIGHT_PROFILE.architecture.matureHeightM,
+      radiusM: LIMELIGHT_PROFILE.architecture.matureRadiusM,
+    }),
+    bedRadiusM: 1.16,
+    profileControl: Object.freeze({
+      key: 'seasonProfile',
+      label: 'Season timing',
+      options: Object.freeze([
+        ['typical', 'Typical'],
+        ['early', 'Early'],
+        ['late', 'Late'],
+      ]),
+    }),
+    seasons: Object.freeze([
+      { label: 'Winter heads', day: 30 },
+      { label: 'Leaf-out', day: 112 },
+      { label: 'Green buds', day: 181 },
+      { label: 'Lime', day: 205 },
+      { label: 'Cream', day: 230 },
+      { label: 'Pink', day: 263 },
+      { label: 'Dry', day: 300 },
+    ]),
+    stats: Object.freeze([
+      { key: 'visibleCanes', label: 'Framework stems' },
+      { key: 'visibleLeaves', label: 'Leaves' },
+      { key: 'visiblePanicles', label: 'Panicles' },
+      { key: 'visibleDryPanicles', label: 'Dry heads' },
+    ]),
+    yieldLine: Object.freeze({
+      label: 'Modelled height × spread',
+      key: 'dimensions',
+      unit: 'm',
+      format: (value) =>
+        value
+          ? `${value.heightM.toFixed(2)} × ${value.spreadM.toFixed(2)} m`
+          : '—',
+      note: 'Each panicle is one representative branched head. Its visible florets sample a biological total reported at 850–1,200 per head.',
+    }),
+    // Medium pruning drives the maintained scenario. A public care event is
+    // omitted until the shared UI can represent current-shoot cutback without
+    // mislabelling it as blackcurrant-style whole-cane renewal.
+    actions: Object.freeze([]),
+    modelNote:
+      '<strong>Flowers form at the tips of shoots grown this season.</strong> Lime heads open from the base upward, pass through cream and dusty pink, then persist tan on bare winter stems. The maintained view medium-prunes before growth; neglected retains more, smaller heads and laxer outer shoots.',
+    create(state) {
+      return new Hydrangea({
+        cultivar: 'Limelight',
+        seed: 1986,
+        maxYears: 30,
+        ageYears: state.age,
+        dayOfYear: state.day,
+        scenario: state.scenario,
+        seasonProfile: state.phenologyProfile,
+        lod: true,
+        assets: {
+          bark: shrubBark('Bush 3'),
+          leaf: {
+            map: getLeafMap(LeafType.HydrangeaLimelight),
+            tint: 0xffffff,
+            alphaTest: 0.5,
+            roundedNormals: true,
+          },
+        },
+      });
+    },
+  }),
 });
 
-export const DEFAULT_PLANT_ID = 'forsythia';
+export const DEFAULT_PLANT_ID = 'hydrangea';
 
 export function getPlantDescriptor(id) {
   return PLANTS[id] ?? PLANTS[DEFAULT_PLANT_ID];

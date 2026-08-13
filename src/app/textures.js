@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { TreePreset } from '@dgreenheck/ez-tree';
 
-// Bark keys map 1:1 to ambientcg directories under /textures/bark/.
+// Bark keys map 1:1 to ambientcg-derived directories under /textures/bark/.
 // Add or remove entries to expose more variants in the UI dropdown.
 export const BarkType = {
   Bark001: 'Bark001',
@@ -22,6 +22,7 @@ export const LeafType = {
   Aspen: 'aspen',
   BlackcurrantTisel: 'blackcurrant-tisel',
   ForsythiaLynwood: 'forsythia-lynwood',
+  HydrangeaLimelight: 'hydrangea-limelight',
   Oak: 'oak',
   Pine: 'pine',
 };
@@ -54,18 +55,17 @@ export function getBarkMaps(type) {
   if (!BarkType[type]) return null;
   if (barkCache.has(type)) return barkCache.get(type);
 
-  const dir = `${type}_1K-JPG`;
-  const base = `/textures/bark/${dir}/${dir}`;
+  const base = `/textures/bark/${type}`;
   const maps = {};
   const drop = (key) => () => {
     console.warn(
-      `Missing bark texture: ${base}_… (${key}); skipping this map.`,
+      `Missing bark texture: ${base}/… (${key}); skipping this map.`,
     );
     maps[key] = null;
   };
-  maps.color = loadColor(`${base}_Color.jpg`, drop('color'));
-  maps.normal = loadLinear(`${base}_NormalGL.jpg`, drop('normal'));
-  maps.roughness = loadLinear(`${base}_Roughness.jpg`, drop('roughness'));
+  maps.color = loadColor(`${base}/color.webp`, drop('color'));
+  maps.normal = loadLinear(`${base}/normal.webp`, drop('normal'));
+  maps.roughness = loadLinear(`${base}/roughness.webp`, drop('roughness'));
   barkCache.set(type, maps);
   return maps;
 }
@@ -77,9 +77,9 @@ export function getBarkMaps(type) {
  */
 export function getLeafMap(type) {
   if (leafCache.has(type)) return leafCache.get(type);
-  const texture = loadColor(`/textures/leaves/${type}.png`, () => {
+  const texture = loadColor(`/textures/leaves/${type}.webp`, () => {
     console.warn(
-      `Missing leaf texture: /textures/leaves/${type}.png; skipping.`,
+      `Missing leaf texture: /textures/leaves/${type}.webp; skipping.`,
     );
     leafCache.set(type, null);
   });

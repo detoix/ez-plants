@@ -366,6 +366,124 @@ export declare class Forsythia extends PlantRenderer {
 }
 
 /* ==================================================================== *
+ * Panicle hydrangea — Hydrangea paniculata 'Limelight'
+ * ==================================================================== */
+
+/** Weather-timing brackets around the central-Poland phenology calendar. */
+export type LimelightSeasonProfile = 'typical' | 'early' | 'late';
+
+export interface LimelightPhenology {
+  dayOfYear: number;
+  season: 'spring' | 'summer' | 'autumn' | 'winter';
+  phase:
+    | 'dormant'
+    | 'bud-swelling'
+    | 'leaf-emergence'
+    | 'shoot-extension'
+    | 'panicle-bud'
+    | 'lime-flowering'
+    | 'cream-flowering'
+    | 'pink-ageing'
+    | 'burgundy-ageing'
+    | 'autumn-drying';
+  stage: string;
+  label: string;
+  bbch: string;
+  bbchCode: string;
+  seasonProfile: LimelightSeasonProfile;
+  seasonProfileLabel: string;
+  offsetDays: number;
+  calendar: Readonly<Record<string, number>>;
+  budSwellProgress: number;
+  leafProgress: number;
+  leafOpacity: number;
+  autumnProgress: number;
+  shootGrowthProgress: number;
+  panicleGrowthProgress: number;
+  panicleVisibility: number;
+  currentPanicleVisibility: number;
+  oldPanicleVisibility: number;
+  freshPanicleVisibility: number;
+  dryPanicleVisibility: number;
+  panicleBudVisibility: number;
+  sterileFloretVisibility: number;
+  fertileFloretVisibility: number;
+  flowerProgress: number;
+  flowerVisibility: number;
+  flowerOpenVisibility: number;
+  panicleColourStage:
+    | 'green-bud'
+    | 'pale-lime'
+    | 'cream-white'
+    | 'blush-pink'
+    | 'burgundy-pink'
+    | 'dry-tan';
+  limeToCreamProgress: number;
+  pinkProgress: number;
+  burgundyProgress: number;
+  dryProgress: number;
+  flowersOnCurrentSeasonWood: true;
+}
+
+export interface HydrangeaOptions {
+  cultivar?: 'Limelight';
+  seed?: string | number;
+  plantId?: string;
+  maxYears?: number;
+  ageYears?: number;
+  dayOfYear?: number;
+  scenario?: PlantScenario;
+  seasonProfile?: LimelightSeasonProfile;
+  offsetDays?: number;
+  assets?: PlantAssets;
+  /** Limelight currently exposes scenarios, not destructive care events. */
+  events?: readonly [];
+  lod?: boolean;
+}
+
+export interface HydrangeaStats extends PlantRenderStats {
+  species: string;
+  cultivar: string;
+  ageYears: number;
+  dayOfYear: number;
+  scenario: PlantScenario;
+  seasonProfile: LimelightSeasonProfile;
+  visiblePanicles: number;
+  visibleDryPanicles: number;
+  /** Age-eligible fresh heads before autumn drying. */
+  freshPanicles: number;
+  /** Age-eligible tan heads, before renderer LOD thinning. */
+  dryPanicles: number;
+  panicleBuds: number;
+  flowersOnCurrentSeasonWood: true;
+  dimensions: PlantDimensions;
+  phenology: LimelightPhenology;
+  careHints: readonly CareHint[];
+}
+
+export declare class Hydrangea extends PlantRenderer {
+  constructor(options?: HydrangeaOptions);
+  scenario: PlantScenario;
+  seasonProfile: LimelightSeasonProfile;
+  offsetDays: number;
+
+  setState(patch: {
+    ageYears?: number;
+    dayOfYear?: number;
+    scenario?: PlantScenario;
+    seasonProfile?: LimelightSeasonProfile;
+    offsetDays?: number;
+  }): this;
+  setScenario(scenario: PlantScenario): this;
+  setPhenologyProfile(profile: {
+    seasonProfile?: LimelightSeasonProfile;
+    offsetDays?: number;
+  }): this;
+  stats(): HydrangeaStats;
+  serialize(): HydrangeaOptions & { schemaVersion: 1; type: 'Hydrangea' };
+}
+
+/* ==================================================================== *
  * Free functions
  * ==================================================================== */
 
@@ -400,6 +518,28 @@ export declare function getLynwoodCareHints(
   },
 ): readonly CareHint[];
 
+export declare function getLimelightCalendar(options?: {
+  seasonProfile?: LimelightSeasonProfile;
+  offsetDays?: number;
+}): Readonly<Record<string, number>>;
+
+export declare function getLimelightPhenology(
+  value?: DayOfYearInput,
+  options?: {
+    seasonProfile?: LimelightSeasonProfile;
+    offsetDays?: number;
+  },
+): Readonly<LimelightPhenology>;
+
+export declare function getLimelightCareHints(
+  value?: DayOfYearInput,
+  options?: {
+    plantAgeYears?: number;
+    seasonProfile?: LimelightSeasonProfile;
+    offsetDays?: number;
+  },
+): readonly CareHint[];
+
 export declare function createLynwoodModel(options?: {
   seed?: string | number;
   maxYears?: number;
@@ -418,6 +558,30 @@ export declare function evaluateLynwoodModel(
 ): {
   dimensions: PlantDimensions;
   phenology: LynwoodPhenology;
+  careHints: readonly CareHint[];
+  stats: Record<string, number | boolean>;
+  [key: string]: unknown;
+};
+
+export declare function createLimelightModel(options?: {
+  seed?: string | number;
+  maxYears?: number;
+}): { kind: 'hydrangea-limelight-growth-model'; [key: string]: unknown };
+
+export declare function evaluateLimelightModel(
+  model: { kind: string; [key: string]: unknown },
+  options?: {
+    ageYears?: number;
+    dayOfYear?: number;
+    /** Limelight currently exposes scenarios, not destructive care events. */
+    events?: readonly [];
+    scenario?: PlantScenario;
+    seasonProfile?: LimelightSeasonProfile;
+    offsetDays?: number;
+  },
+): {
+  dimensions: PlantDimensions;
+  phenology: LimelightPhenology;
   careHints: readonly CareHint[];
   stats: Record<string, number | boolean>;
   [key: string]: unknown;
@@ -449,4 +613,19 @@ export declare const LYNWOOD_CALENDAR_PROVENANCE: Readonly<
 >;
 export declare const LYNWOOD_REGION_OBSERVATIONS: Readonly<
   Record<LynwoodRegion, Readonly<Record<string, unknown>>>
+>;
+
+export declare const LIMELIGHT_PROFILE: Readonly<Record<string, unknown>>;
+export declare const LIMELIGHT_SOURCES: Readonly<
+  Record<string, CultivarSource>
+>;
+export declare const LIMELIGHT_CALENDAR: Readonly<Record<string, number>>;
+export declare const LIMELIGHT_CALENDAR_PROVENANCE: Readonly<
+  Record<string, unknown>
+>;
+export declare const LIMELIGHT_PHASE_ASSUMPTIONS: Readonly<
+  Record<string, unknown>
+>;
+export declare const LIMELIGHT_SEASON_PROFILES: Readonly<
+  Record<LimelightSeasonProfile, Readonly<Record<string, unknown>>>
 >;

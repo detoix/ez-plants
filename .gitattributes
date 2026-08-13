@@ -1,3 +1,0 @@
-src/app/public/textures/**/*.jpg filter=lfs diff=lfs merge=lfs -text
-src/app/public/textures/**/*.png filter=lfs diff=lfs merge=lfs -text
-src/app/public/textures/**/*.jpeg filter=lfs diff=lfs merge=lfs -text

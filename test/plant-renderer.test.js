@@ -5,6 +5,8 @@ import * as THREE from 'three';
 import { PlantRenderer } from '../src/lib/plant-renderer.js';
 import { Forsythia } from '../src/lib/plants/forsythia/forsythia.js';
 import { LYNWOOD_PROFILE } from '../src/lib/plants/forsythia/lynwood.js';
+import { Hydrangea } from '../src/lib/plants/hydrangea/hydrangea.js';
+import { LIMELIGHT_PROFILE } from '../src/lib/plants/hydrangea/limelight.js';
 
 function minimalProfile(overrides = {}) {
   return {
@@ -73,46 +75,56 @@ test('age validation is shared and reports the plant maximum', () => {
   assert.equal(PlantRenderer.number(Number.NaN, 7), 7);
 });
 
-test('Forsythia is built on the shared base, not a private copy of it', () => {
-  const plant = new Forsythia({ seed: 3, maxYears: 10, ageYears: 4 });
+test('species renderers are built on the shared base, not private copies', () => {
+  const plants = [
+    new Forsythia({ seed: 3, maxYears: 10, ageYears: 4 }),
+    new Hydrangea({ seed: 3, maxYears: 10, ageYears: 4 }),
+  ];
   try {
-    assert.ok(plant instanceof PlantRenderer);
-    assert.ok(plant instanceof THREE.Group);
-    // The shared state cycle, event handling and teardown are inherited.
-    for (const method of [
-      'setTime',
-      'setState',
-      'addEvent',
-      'resetEvents',
-      'update',
-      'dispose',
-    ]) {
-      assert.equal(
-        typeof plant[method],
-        'function',
-        `${method} must come from the shared base`,
-      );
+    for (const plant of plants) {
+      assert.ok(plant instanceof PlantRenderer);
+      assert.ok(plant instanceof THREE.Group);
+      // The shared state cycle, event handling and teardown are inherited.
+      for (const method of [
+        'setTime',
+        'setState',
+        'addEvent',
+        'resetEvents',
+        'update',
+        'dispose',
+      ]) {
+        assert.equal(
+          typeof plant[method],
+          'function',
+          `${method} must come from the shared base`,
+        );
+      }
+      assert.equal(plant.maxYears, 10);
     }
-    assert.equal(plant.maxYears, 10);
   } finally {
-    plant.dispose();
+    for (const plant of plants) plant.dispose();
   }
 });
 
-test('both plants share the woody profile contract the base consumes', () => {
+test('species profiles share the woody contract the base consumes', () => {
   // The base reads exactly these fields when building axis runtimes, so a new
   // plant added to the library must declare them.
-  for (const key of [
-    'axisRadiusFactors',
-    'childParentRadiusRatio',
-    'axisTaperRatios',
+  for (const [name, profile] of [
+    ['Lynwood', LYNWOOD_PROFILE],
+    ['Limelight', LIMELIGHT_PROFILE],
   ]) {
-    assert.ok(
-      Object.hasOwn(LYNWOOD_PROFILE.cane, key),
-      `Lynwood profile is missing cane.${key}`,
-    );
+    for (const key of [
+      'axisRadiusFactors',
+      'childParentRadiusRatio',
+      'axisTaperRatios',
+    ]) {
+      assert.ok(
+        Object.hasOwn(profile.cane, key),
+        `${name} profile is missing cane.${key}`,
+      );
+    }
+    const factors = profile.cane.axisRadiusFactors;
+    assert.ok(factors.primary >= factors.lateral);
+    assert.ok(factors.lateral >= factors.higherOrder);
   }
-  const factors = LYNWOOD_PROFILE.cane.axisRadiusFactors;
-  assert.ok(factors.primary >= factors.lateral);
-  assert.ok(factors.lateral >= factors.higherOrder);
 });

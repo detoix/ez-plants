@@ -11,9 +11,11 @@
 </p>
 
 # About
+
 EZ-Tree is a procedural tree generator with dozens of tunable parameters. This repository additionally hosts **EZ-Plants**, a library of botanically specific garden plants for Polish and European gardens (see [Garden Plants](#garden-plants-poland--europe)). The standalone tree generation code is published as a library and can be imported into your own application for dynamically generating trees on demand. Additionally, there is a standalone web app which allows you to create trees within the browser and export as .PNG or .GLB files.
 
 # App
+
 https://eztree.dev
 
 # Installation
@@ -60,10 +62,10 @@ tree.generateLODs([
     distance: 80,
     hysteresis: 0.05,
     detail: {
-      sectionStride: 3,    // sample every 3rd ring along each branch
+      sectionStride: 3, // sample every 3rd ring along each branch
       segmentFactor: 0.75, // reduce radial segments to 75% (min 3)
-      leafStride: 2,       // keep every 2nd leaf...
-      leafScale: 1.4,      // ...enlarged to preserve canopy coverage
+      leafStride: 2, // keep every 2nd leaf...
+      leafScale: 1.4, // ...enlarged to preserve canopy coverage
       billboard: 'single', // drop the second crossed leaf quad
     },
   },
@@ -81,10 +83,11 @@ Alongside the procedural tree generator, this repository hosts a growing library
 cultivar-level digital twin: a persistent cane structure driven by an **age** and a
 **day of year**, with a phenology calendar built from cited real-world sources.
 
-| Plant | Cultivar | Habit | Defining behaviour |
-| --- | --- | --- | --- |
-| Blackcurrant (*Ribes nigrum*) | 'Tisel' | Upright multi-cane stool, ~1.3 m | Fruits on young wood; renewal pruning in dormancy |
-| Forsythia (*Forsythia × intermedia*) | 'Lynwood' | Upright-arching multi-cane, ~2.2 m | **Flowers on bare 1–2 year old wood before any leaf**; prune immediately after flowering |
+| Plant                                      | Cultivar    | Habit                                                                  | Defining behaviour                                                                           |
+| ------------------------------------------ | ----------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Blackcurrant (_Ribes nigrum_)              | 'Tisel'     | Upright multi-cane stool, ~1.3 m                                       | Fruits on young wood; renewal pruning in dormancy                                            |
+| Forsythia (_Forsythia × intermedia_)       | 'Lynwood'   | Upright-arching multi-cane, ~2.2 m                                     | **Flowers on bare 1–2 year old wood before any leaf**; prune immediately after flowering     |
+| Panicle hydrangea (_Hydrangea paniculata_) | 'Limelight' | Broad framework; 1.85 × 2.25 m renderer target within the RHS envelope | **Terminal panicles on current-season shoots**; lime → cream → dusty pink → dry winter heads |
 
 All plants are modelled in **metres**, share the same EZ-Tree woody geometry, bark
 material, leaf cards and wind shader, and extend a common `PlantRenderer` base.
@@ -92,12 +95,12 @@ material, leaf cards and wind shader, and extend a common `PlantRenderer` base.
 ## Three.js usage
 
 ```js
-import { Forsythia } from '@dgreenheck/ez-tree';
+import { Hydrangea } from '@dgreenheck/ez-tree';
 
-const bush = new Forsythia({
+const bush = new Hydrangea({
   ageYears: 6,
-  dayOfYear: 96,   // peak bloom in central Poland
-  region: 'central',
+  dayOfYear: 230, // cream-white peak in a typical central-Poland season
+  seasonProfile: 'typical',
   lod: true,
 });
 scene.add(bush);
@@ -112,23 +115,24 @@ bush.update(delta, elapsed, camera);
 bush.dispose();
 ```
 
-At day 96 the shrub renders **no leaves at all** — that is correct. Forsythia opens its
-display on bare wood, and the leaves follow as the flowers fade.
+At day 230 the Hydrangea is fully leafed and its terminal panicles are near the
+cream-white peak. Day 30 instead shows bare framework with last season's dry tan heads;
+the maintained scenario removes them through the modeled spring pruning window.
 
 ## React Three Fiber usage
 
 ```tsx
 import { Canvas } from '@react-three/fiber';
-import { Forsythia, type ForsythiaStats } from '@dgreenheck/ez-tree/react';
+import { Hydrangea, type HydrangeaStats } from '@dgreenheck/ez-tree/react';
 
 <Canvas>
-  <Forsythia
+  <Hydrangea
     ageYears={6}
-    dayOfYear={96}
-    region="northeast"
-    onStats={(stats: ForsythiaStats) => console.log(stats.phenology.stage)}
+    dayOfYear={230}
+    seasonProfile="late"
+    onStats={(stats: HydrangeaStats) => console.log(stats.phenology.stage)}
   />
-</Canvas>
+</Canvas>;
 ```
 
 `react` and `@react-three/fiber` are optional peer dependencies; importing the root
@@ -137,18 +141,18 @@ package never pulls React into your bundle.
 ## Care guidance and provenance
 
 Every plant exposes source-cited care hints and its own calendar provenance, so a UI can
-show *why* it is telling you something:
+show _why_ it is telling you something:
 
 ```js
 const { careHints, phenology } = bush.stats();
-careHints[0].message; // "Cut flowered growth back to vigorous ... one fifth of the oldest stems"
-careHints[0].source;  // https://www.rhs.org.uk/plants/types/shrubs/pruning-early-flowering
-phenology.bbch;       // BBCH growth-stage code
+careHints[0].message; // "The modeled display begins 15 July and runs into early October ..."
+careHints[0].source; // https://www.rhs.org.uk/plants/pdfs/plant-trials-and-awards/plant-bulletins/hydrangea-paniculata.pdf
+phenology.bbch; // BBCH growth-stage code
 ```
 
 Observed values and renderer assumptions are labelled separately in each profile
-(`LYNWOOD_SOURCES`, `LYNWOOD_PHASE_ASSUMPTIONS`). Phase durations shape the animation and
-are **not** claimed as observed station intervals; weather shifts a real plant by weeks.
+(`LIMELIGHT_SOURCES`, `LIMELIGHT_PHASE_ASSUMPTIONS`). Phase durations shape the animation
+and are **not** claimed as observed station intervals; weather shifts a real plant by weeks.
 
 ## Shared demo page
 
@@ -157,9 +161,8 @@ are **not** claimed as observed station intervals; weather shifts a real plant b
 profiles, care events and review cameras. State is reflected in the URL:
 
 ```
-http://localhost:5173/?plant=forsythia&year=6&day=96&view=three-quarter
+http://localhost:5173/?plant=hydrangea&year=6&day=230&profile=typical&view=three-quarter
 ```
-
 
 # Running Standalone App Locally
 
@@ -228,4 +231,3 @@ The `leaves` object defines properties that control the appearance and placement
 - **`sizeVariance`**: Specifies how much variance in size each leaf instance should have, making the leaves look more natural.
 - **`tint`**: Tint color applied to the leaves, defined as a hexadecimal color value (e.g., `0xffffff` for white).
 - **`alphaTest`**: Sets the alpha threshold for leaf transparency, controlling the transparency of the leaf textures.
-

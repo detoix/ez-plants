@@ -5,9 +5,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Compact demo textures
+
+- Converted every demo leaf plate and bark map to compact WebP assets. Leaves retain their alpha silhouettes; bark normal maps use bounded channel quantization followed by lossless WebP to avoid chroma-subsampling damage. Bark maps use clean `Bark###/{color,normal,roughness}.webp` paths, and all demo textures are now ordinary Git assets with no Git LFS dependency.
+
+### Hydrangea paniculata 'Limelight' — age and season digital twin
+
+- New `Hydrangea` renderer built on the shared `PlantRenderer`, EZ-Tree force-grown woody axes, one combined wood mesh and stable instanced organ pools.
+- Direct, non-cycling 0–30 year model: a persistent low framework is calibrated against measured RHS/Chicago size references and stays inside the published RHS envelope instead of resetting through artificial replacement cycles.
+- Current-season terminal flowering biology with broad 15–29 cm panicles. Each head combines an open branched rachis, sparse fertile interior and a representative shell of exactly four-sepal sterile florets; lower and upper layers preserve the real base-to-tip opening sequence.
+- Typical/early/late central-Poland calendars cover leaf-out, green panicle bud, lime, cream-white, restrained dusty pink, autumn drying and leafless winter heads. Observed July–October anchors are kept separate from interpolation assumptions.
+- Dedicated transparent WebP leaf plate with an opposite ovate, finely serrated blade based on patented 8.5–10 × 4–5.5 cm dimensions and source photographs.
+- The demo now exposes Limelight age/season controls, calibrated camera views and source-backed care cues. Initial deep-linked phenology profiles are also passed correctly for the two earlier plants, the picker wraps for three entries, and the remaining generic startup events no longer carry blackcurrant names.
+
 ### Forsythia × intermedia 'Lynwood' — second plant in the garden library
 
-- **`Forsythia`** renderer for *Forsythia × intermedia* 'Lynwood Variety' (sold as 'Lynwood Gold'), modelled in metres for central-Poland conditions.
+- **`Forsythia`** renderer for _Forsythia × intermedia_ 'Lynwood Variety' (sold as 'Lynwood Gold'), modelled in metres for central-Poland conditions.
   - **Flowers on bare one- and two-year-old wood before any leaf expands.** At peak bloom the renderer draws corollas and zero leaf cards; leaf-out begins as the last flowers fade. This is the behaviour the whole model is organised around.
   - **Opposite, decussate leaves** (two per node, 90° turn between nodes), narrow ovate-lanceolate blades scaled independently in width.
   - Four-lobed corolla geometry with oblong, revolute and twisted lobes; closed teardrop flower buds; sparse, non-ornamental two-celled capsules (a thrum-eyed clone sets almost no seed).
@@ -30,8 +43,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### React Three Fiber and TypeScript
 
-- New **`@dgreenheck/ez-tree/react`** entry point with `<Forsythia>` and `<Blackcurrant>` components. Plants are built once per seed and mounted with `<primitive>`; `ageYears` and `dayOfYear` are applied to the live object rather than rebuilding it. `react` and `@react-three/fiber` are optional peer dependencies.
-- Hand-authored TypeScript declarations (`types/plants.d.ts`) for the plant API. Generated declarations reduced option bags to `{}` and cultivar unions to `any`; the hand-authored surface types cultivars, regions, trial years, stats, phenology and prune-refusal reasons precisely.
+- New **`@dgreenheck/ez-tree/react`** entry point with `<Hydrangea>`, `<Forsythia>` and `<Blackcurrant>` components. Plants are built once per seed and mounted with `<primitive>`; `ageYears` and `dayOfYear` are applied to the live object rather than rebuilding it. `react` and `@react-three/fiber` are optional peer dependencies.
+- Hand-authored TypeScript declarations (`types/plants.d.ts`) for the plant API. Generated declarations reduced option bags to `{}` and cultivar unions to `any`; the hand-authored surface types cultivars, regions, season profiles, trial years, stats, phenology and prune-refusal reasons precisely.
 
 ### Shared demo page
 
@@ -63,7 +76,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - The library no longer bundles any textures. `bark.maps = { color, ao, normal, roughness }` and `leaves.map` slots on `TreeOptions` accept caller-supplied `THREE.Texture` instances.
 - **Breaking:** removed `BarkType` and `LeafType` enums and the bundled-texture lookup. Callers must now load `THREE.Texture` instances themselves and assign them to `options.bark.maps` / `options.leaves.map`. `bark.type` / `leaves.type` strings are still carried through presets but are now purely informational identifiers the host app can use to resolve textures.
 - Bark UVs now scale with `branch.radius` (integer-rounded per branch) so bark feature size stays consistent across thick trunks and thin twigs; `bark.textureScale.x` now means "wraps per unit radius" rather than "wraps per branch" (existing preset values may need re-tuning).
-- Demo app ships with 11 CC0 bark variants from ambientcg.com under `src/app/public/textures/bark/` with attribution in `src/app/public/textures/LICENSE.md`, tracked via Git LFS.
+- Demo app ships with 11 CC0 bark variants from ambientcg.com under `src/app/public/textures/bark/` with attribution in `src/app/public/textures/LICENSE.md`.
 - Trimmed the bark texture sets to the maps the demo actually uses (color, GL normal, roughness) — removed the ambient-occlusion, displacement, and DirectX normal variants (~15 MB). The library still applies an `ao` map when a caller supplies one.
 
 ### Rendering Improvements

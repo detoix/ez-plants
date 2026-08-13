@@ -102,7 +102,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (loadingScreen) loadingScreen.hidden = true;
     window.__ready = true;
-    window.dispatchEvent(new CustomEvent('blackcurrant-ready'));
+    window.dispatchEvent(new CustomEvent('garden-ready'));
     animate();
   } catch (error) {
     console.error('Unable to start the garden digital twin.', error);
@@ -112,7 +112,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     loadingScreen?.classList.add('bc-loading-error');
     window.dispatchEvent(
-      new CustomEvent('blackcurrant-error', { detail: { error } }),
+      new CustomEvent('garden-error', { detail: { error } }),
     );
   }
 });

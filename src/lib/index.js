@@ -30,3 +30,22 @@ export {
   createLynwoodModel,
   evaluateLynwoodModel,
 } from './plants/forsythia/model.js';
+
+export { Hydrangea } from './plants/hydrangea/hydrangea.js';
+export {
+  LIMELIGHT_PROFILE,
+  LIMELIGHT_SOURCES,
+} from './plants/hydrangea/limelight.js';
+export {
+  getLimelightPhenology,
+  getLimelightCareHints,
+  getLimelightCalendar,
+  LIMELIGHT_CALENDAR,
+  LIMELIGHT_CALENDAR_PROVENANCE,
+  LIMELIGHT_PHASE_ASSUMPTIONS,
+  LIMELIGHT_SEASON_PROFILES,
+} from './plants/hydrangea/phenology.js';
+export {
+  createLimelightModel,
+  evaluateLimelightModel,
+} from './plants/hydrangea/model.js';

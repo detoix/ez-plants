@@ -9,10 +9,14 @@ type GroupProps = ThreeElements['group'];
 import {
   Blackcurrant,
   Forsythia,
+  Hydrangea,
   type BlackcurrantOptions,
   type BlackcurrantStats,
   type ForsythiaOptions,
   type ForsythiaStats,
+  type HydrangeaOptions,
+  type HydrangeaStats,
+  type LimelightSeasonProfile,
   type LynwoodRegion,
   type PlantScenario,
   type TiselTrialYear,
@@ -163,6 +167,75 @@ export function ForsythiaPlant({
 }
 
 /* ==================================================================== *
+ * Hydrangea paniculata 'Limelight'
+ * ==================================================================== */
+
+export interface HydrangeaProps
+  extends BasePlantProps,
+    Pick<HydrangeaOptions, ConstructionKeys>,
+    Omit<GroupProps, 'children' | 'args'> {
+  /** Weather-timing bracket around the central-Poland calendar. */
+  seasonProfile?: LimelightSeasonProfile;
+  onStats?: (stats: HydrangeaStats) => void;
+}
+
+/**
+ * Hydrangea paniculata 'Limelight' as a React Three Fiber component.
+ *
+ * The graph is constructed once. Age, day, maintenance scenario and season
+ * profile are applied to the live renderer, so either slider can scrub without
+ * rebuilding the framework or reallocating instance buffers.
+ *
+ * ```tsx
+ * <Canvas>
+ *   <HydrangeaPlant ageYears={6} dayOfYear={230} />
+ * </Canvas>
+ * ```
+ */
+export function HydrangeaPlant({
+  seed,
+  maxYears,
+  plantId,
+  cultivar,
+  assets,
+  lod = true,
+  ageYears = 6,
+  dayOfYear = 230,
+  scenario = 'maintained',
+  seasonProfile = 'typical',
+  offsetDays = 0,
+  onStats,
+  ...groupProps
+}: HydrangeaProps) {
+  const plant = useDisposable(
+    () =>
+      new Hydrangea({
+        seed,
+        maxYears,
+        plantId,
+        cultivar,
+        assets,
+        lod,
+        ageYears,
+        dayOfYear,
+        scenario,
+        seasonProfile,
+        offsetDays,
+      }),
+    [seed, maxYears, plantId, cultivar, assets, lod],
+  );
+
+  useAppliedState(
+    plant,
+    { ageYears, dayOfYear, scenario, seasonProfile, offsetDays },
+    onStats as (stats: never) => void,
+  );
+  usePlantFrame(plant);
+
+  return <primitive object={plant} {...groupProps} />;
+}
+
+/* ==================================================================== *
  * Blackcurrant
  * ==================================================================== */
 
@@ -227,10 +300,16 @@ export function BlackcurrantPlant({
   return <primitive object={plant} {...groupProps} />;
 }
 
-export { ForsythiaPlant as Forsythia, BlackcurrantPlant as Blackcurrant };
+export {
+  HydrangeaPlant as Hydrangea,
+  ForsythiaPlant as Forsythia,
+  BlackcurrantPlant as Blackcurrant,
+};
 export type {
   BlackcurrantStats,
   ForsythiaStats,
+  HydrangeaStats,
+  LimelightSeasonProfile,
   LynwoodRegion,
   PlantScenario,
   TiselTrialYear,
