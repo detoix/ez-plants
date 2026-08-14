@@ -194,7 +194,7 @@ export const PLANTS = Object.freeze({
     }),
     actions: Object.freeze([{ id: 'prune', label: 'Prune after flowering' }]),
     modelNote:
-      '<strong>Flowers open on bare, one- and two-year-old wood before any leaf.</strong> That is why renewal cuts must follow flowering: pruning after mid-July removes the wood carrying next spring&rsquo;s display.',
+      '<strong>Flowers open on bare, one- and two-year-old wood before any leaf.</strong> The maintained scenario renews its oldest canes automatically after the display; in either scenario, pruning after mid-July removes the wood carrying next spring&rsquo;s flowers.',
     create(state) {
       return new Forsythia({
         cultivar: 'Lynwood',

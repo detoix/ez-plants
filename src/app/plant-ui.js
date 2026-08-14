@@ -344,6 +344,16 @@ export function setupPlantUI({
         : `Harvest ${stats.visibleRipeBerries.toLocaleString()} rendered ripe berries.`;
     }
 
+    const renewalButton = container.querySelector('[data-action="prune"]');
+    if (renewalButton && stats.renewalManagedAutomatically) {
+      renewalButton.disabled = true;
+      renewalButton.title =
+        'The maintained scenario already renews the oldest canes after flowering. Switch to Neglected to record a manual cut.';
+    } else if (renewalButton) {
+      renewalButton.disabled = false;
+      renewalButton.title = 'Remove an eligible oldest cane after flowering.';
+    }
+
     container.querySelector('[data-care-title]').textContent = guidance.title;
     container.querySelector('[data-care-text]').textContent = guidance.text;
     const source = container.querySelector('[data-care-source]');

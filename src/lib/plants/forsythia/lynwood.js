@@ -4,6 +4,45 @@
 export const METRES_PER_UNIT = 1;
 
 /**
+ * Procedural choices used to make the sourced morphology readable in a
+ * real-time renderer. These are calibration priors, not published cultivar
+ * measurements; keeping them separate prevents an exact instance count or
+ * random probability from looking like a botanical claim.
+ */
+export const LYNWOOD_RENDER_PRIORS = Object.freeze({
+  liveCaneCacheSize: 52,
+  foliageStartFractionByOrder: Object.freeze([0, 0.12, 0]),
+  foliageNodeOccupancyByOrder: Object.freeze([0.65, 0.82, 0.58]),
+  clusterSizeWeightsByOrder: Object.freeze([
+    Object.freeze([0.05, 0.23, 0.3, 0.25, 0.13, 0.04]),
+    Object.freeze([0.03, 0.16, 0.27, 0.29, 0.18, 0.07]),
+    Object.freeze([0.02, 0.11, 0.22, 0.3, 0.23, 0.12]),
+  ]),
+  anthesisOffsetDays: Object.freeze([-2, 8]),
+  corollaOpeningDays: 1.5,
+  individualFlowerDisplayDays: Object.freeze([12, 15]),
+  corollaFadeDays: 3,
+  leafBreakOffsetDays: Object.freeze([-2, 5]),
+  leafExpansionDurationDays: Object.freeze([29, 39]),
+  // New lateral and short-shoot modules belong to the leafy growing season;
+  // letting them appear during bare-wood bloom adds biologically impossible
+  // empty twigs precisely when the cultivar should read as a yellow fountain.
+  shootEmergenceDayRange: Object.freeze([102, 145]),
+  // Maintained snapshots fit at full detail. Denser neglected snapshots use
+  // deterministic whole-organ thinning to stay inside these bounded pools;
+  // the evaluator still reports the unthinned biological counts separately.
+  instanceCapacities: Object.freeze({
+    leaves: 6500,
+    petioles: 6500,
+    buds: 6500,
+    pedicels: 8000,
+    flowerBuds: 8000,
+    flowers: 8000,
+    capsules: 256,
+  }),
+});
+
+/**
  * Primary evidence behind the 'Lynwood Variety' defaults. RHS supplies the
  * garden-managed size envelope and the pruning regime; the botanical monograph
  * and the Polish floras supply organ morphology and the central-Poland season.
@@ -97,10 +136,16 @@ export const LYNWOOD_PROFILE = Object.freeze({
     // No cited source gives a stem count for forsythia the way RHS does for
     // blackcurrant. This is a renderer prior for a vigorous, rapidly growing
     // 2 m shrub under annual post-flowering renewal, not a published figure.
-    maintainedCaneRange: Object.freeze([8, 20]),
-    initialCaneCount: 13,
-    renewalStartsAfterYear: 3,
-    replacementCycleYears: 20,
+    maintainedCaneRange: Object.freeze([10, 15]),
+    // Establish from a small first-year stool, then add two basal shoots each
+    // leafy season. Starting with a synchronized mature stand makes year six
+    // unnaturally skeletal and all founding canes senesce together.
+    initialCaneCount: 4,
+    renewalStartsAfterYear: 0,
+    annualRenewalShootCount: 2,
+    // Individual neglected canes may persist long after their best flowering
+    // years, but the stool itself is continuous: it is not replanted or reset.
+    naturalCaneLifeYears: 20,
     modelHorizonYears: 50,
     // 'Lynwood' is a stiff, upright sport; the arch is real but shallower than
     // F. suspensa. This is the fraction of cane height expressed as outward
@@ -113,6 +158,12 @@ export const LYNWOOD_PROFILE = Object.freeze({
     caneReferenceSections: 36,
     archDrop: 0.32,
     caneGnarliness: 0.012,
+    // A Lynwood crown mixes stiff central shoots with a smaller arching outer
+    // layer. Pulling every cane outward by the same amount creates an empty V.
+    uprightCaneFraction: 0.5,
+    uprightArchMultiplier: Object.freeze([0.18, 0.4]),
+    outerArchMultiplier: Object.freeze([0.68, 1.08]),
+    calibratedRadiusFactor: Object.freeze([0.94, 1.1]),
     tipLayering: true,
   }),
   growth: Object.freeze({
@@ -138,20 +189,30 @@ export const LYNWOOD_PROFILE = Object.freeze({
     // Stems stay floriferous for a few years, then RHS renewal takes them out.
     productiveLifeYears: 5,
     targetHeightM: Object.freeze([1.75, 2.45]),
-    baseRadiusM: Object.freeze([0.008, 0.019]),
+    baseRadiusM: Object.freeze([0.007, 0.016]),
     crownRadiusM: 0.13,
     // Nodes every 5-7 cm along a 2 m cane. At 10 cm spacing the shoots read
     // as bare whips with flowers dotted along them, not the dense fountain a
     // forsythia in bloom actually is.
-    mainAxisNodeCount: Object.freeze([46, 60]),
+    mainAxisNodeCount: Object.freeze([34, 42]),
+    // Each shoot module forms within one growing season. These fractions map
+    // nodes into that season and must not be stretched over the cane's whole
+    // productive life, which would create travelling flower bands.
+    mainAxisGrowthDurationYears: 0.82,
+    lateralAxisGrowthDurationYears: 0.58,
+    twigGrowthDurationYears: 0.42,
     // Densely branched: an established cane pushes new laterals every season,
     // and it is that annual supply of one-year wood that keeps a mature shrub
     // flowering harder than a young one.
-    lateralAxisCount: Object.freeze([8, 14]),
+    lateralAxisCount: Object.freeze([15, 20]),
+    lateralNodeCount: Object.freeze([7, 10]),
+    annualShortShootCountPerLateral: Object.freeze([1, 2]),
+    shortShootNodeCount: Object.freeze([4, 6]),
+    shortShootLengthM: Object.freeze([0.14, 0.26]),
     axisRadiusFactors: Object.freeze({
       primary: 1,
-      lateral: 0.32,
-      higherOrder: 0.19,
+      lateral: 0.28,
+      higherOrder: 0.16,
     }),
     childParentRadiusRatio: 0.55,
     axisTaperRatios: Object.freeze([1, 0.84, 0.52, 0.18]),
@@ -179,8 +240,12 @@ export const LYNWOOD_PROFILE = Object.freeze({
     bornOnWoodAgeYears: Object.freeze([1, 2]),
     precedesLeaves: true,
     perNodeRange: Object.freeze([1, 6]),
+    // Lower axils on vigorous long shoots are commonly vegetative. Short side
+    // shoots carry the densest display, so eligibility rises with branch order.
+    floweringStartFractionByOrder: Object.freeze([0.28, 0.08, 0.04]),
+    floweringNodeOccupancyByOrder: Object.freeze([0.86, 0.94, 0.96]),
     corollaLobes: 4,
-    corollaWidthM: Object.freeze([0.025, 0.04]),
+    corollaWidthM: Object.freeze([0.033, 0.04]),
     corollaTubeLengthM: Object.freeze([0.008, 0.013]),
     lobeShape: 'oblong, often revolute and twisted',
     pedicelLengthM: Object.freeze([0.003, 0.009]),
@@ -197,7 +262,7 @@ export const LYNWOOD_PROFILE = Object.freeze({
     ornamental: false,
     // Pods on an isolated thrum clone are typically empty; only a small
     // fraction of pollinated nodes carry a visible capsule at all.
-    setFraction: 0.04,
+    setFraction: 0.025,
     note: 'Capsules are modeled as a sparse, non-ornamental presence so the summer canopy is botanically complete without implying a crop.',
   }),
   management: Object.freeze({
@@ -205,6 +270,7 @@ export const LYNWOOD_PROFILE = Object.freeze({
     // RHS pruning group 2: the cut follows flowering, it does not wait for
     // dormancy the way blackcurrant renewal does.
     pruningWindow: 'immediately after flowering',
+    automaticRenewalDelayDays: 1,
     renewalPruningMinimumAgeYears: 3,
     oldestCaneRemovalFraction: 1 / 5,
     pruningMethod:

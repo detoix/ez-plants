@@ -17,6 +17,7 @@ import {
 } from '../src/lib/plants/forsythia/phenology.js';
 import {
   LYNWOOD_PROFILE,
+  LYNWOOD_RENDER_PRIORS,
   LYNWOOD_SOURCES,
   METRES_PER_UNIT,
 } from '../src/lib/plants/forsythia/lynwood.js';
@@ -109,7 +110,7 @@ test('full summer canopy carries no flowers', () => {
   assert.equal(summer.phase, 'summer-canopy');
 });
 
-test('closed buds precede open corollas and hand over at the peak', () => {
+test('closed buds precede open corollas and finish opening just after the peak', () => {
   const budDay = LYNWOOD_CALENDAR.budSwellingStart + 14;
   const buds = getLynwoodPhenology(budDay);
   assert.ok(buds.flowerBudVisibility > 0);
@@ -117,7 +118,18 @@ test('closed buds precede open corollas and hand over at the peak', () => {
   assert.equal(buds.leafOpacity, 0);
 
   const peak = getLynwoodPhenology(LYNWOOD_CALENDAR.floweringPeak);
-  assert.equal(peak.flowerBudVisibility, 0, 'all buds are open by the peak');
+  assert.ok(
+    peak.flowerBudVisibility > 0,
+    'the latest staggered clusters must still be in bud at the global peak',
+  );
+  const latestOpeningDay = Math.ceil(
+    LYNWOOD_CALENDAR.floweringStart +
+      LYNWOOD_RENDER_PRIORS.anthesisOffsetDays[1] +
+      LYNWOOD_RENDER_PRIORS.corollaOpeningDays,
+  );
+  const fullyOpen = getLynwoodPhenology(latestOpeningDay);
+  assert.equal(fullyOpen.flowerBudVisibility, 0);
+  assert.ok(fullyOpen.flowerOpenVisibility > 0);
 });
 
 test('leaves fall by the end of the autumn window and winter is bare', () => {
@@ -231,6 +243,298 @@ test('the graph is deterministic and A to B to A snapshots are reproducible', ()
   evaluateLynwoodModel(first, { ageYears: 30, dayOfYear: 280 });
   const ageAAgain = evaluateLynwoodModel(first, { ageYears: 6, dayOfYear: 96 });
   assert.deepEqual(ageA, ageAAgain);
+});
+
+test('establishment begins with four canes and builds a mixed-age stool', () => {
+  const model = createLynwoodModel({ seed: 19460412, maxYears: 10 });
+  const summerCounts = [0, 1, 2, 3].map(
+    (ageYears) =>
+      evaluateLynwoodModel(model, {
+        ageYears,
+        dayOfYear: 200,
+      }).stats.visibleCanes,
+  );
+  assert.deepEqual(summerCounts, [4, 6, 8, 10]);
+
+  const maturePeak = evaluateLynwoodModel(model, {
+    ageYears: 6,
+    dayOfYear: LYNWOOD_CALENDAR.floweringPeak,
+  });
+  const matureSummer = evaluateLynwoodModel(model, {
+    ageYears: 6,
+    dayOfYear: 200,
+  });
+  assert.equal(maturePeak.stats.visibleCanes, 14);
+  assert.equal(matureSummer.stats.visibleCanes, 14);
+  assert.ok(
+    new Set(maturePeak.canes.map((cane) => Math.floor(cane.birthAgeYears)))
+      .size >= 5,
+    'a mature stool should not consist of one synchronized founding cohort',
+  );
+});
+
+test('schema 2 stays compact while preserving the lazy axes compatibility view', () => {
+  const model = createLynwoodModel({ seed: 'compact-schema', maxYears: 50 });
+  const descriptor = model.canes[0];
+  const axesProperty = Object.getOwnPropertyDescriptor(descriptor, 'axes');
+
+  assert.equal(model.schemaVersion, 2);
+  assert.equal(axesProperty?.enumerable, false);
+  assert.equal(typeof axesProperty?.get, 'function');
+  assert.ok(Array.isArray(descriptor.axes));
+
+  const json = JSON.stringify(model);
+  assert.ok(!json.includes('"axes"'));
+  assert.ok(!json.includes('"points"'));
+
+  const compact = JSON.parse(json);
+  assert.equal(compact.schemaVersion, 2);
+  assert.equal(Object.hasOwn(compact.canes[0], 'axes'), false);
+  assert.ok(
+    evaluateLynwoodModel(compact, {
+      ageYears: 6,
+      dayOfYear: LYNWOOD_CALENDAR.floweringPeak,
+    }).stats.visibleFlowers > 0,
+  );
+});
+
+test('shoot nodes finish inside the source growing year', () => {
+  const model = createLynwoodModel({ seed: 'source-year', maxYears: 20 });
+  const firstRenewal = model.canes.find((cane) => cane.cohort === 'renewal');
+  const laterRenewal = model.canes.find(
+    (cane) => cane.cohort === 'renewal' && cane.birthAgeYears >= 12,
+  );
+  const descriptors = [model.canes[0], firstRenewal, laterRenewal];
+  let inspectedNodes = 0;
+
+  for (const cane of descriptors) {
+    assert.ok(cane, 'expected a representative cane cohort');
+    for (const axis of cane.axes) {
+      const sourceYear = Math.floor(axis.birthAgeYears);
+      assert.equal(
+        Math.floor(axis.birthAgeYears + axis.growthDurationYears),
+        sourceYear,
+        `${axis.id} crosses out of its source growing year`,
+      );
+      for (const node of axis.nodes) {
+        inspectedNodes += 1;
+        assert.ok(node.birthAgeYears >= axis.birthAgeYears);
+        assert.ok(
+          node.birthAgeYears <=
+            axis.birthAgeYears + axis.growthDurationYears + Number.EPSILON,
+        );
+        assert.equal(
+          Math.floor(node.birthAgeYears),
+          sourceYear,
+          `${node.id} forms outside ${sourceYear}`,
+        );
+      }
+    }
+  }
+  assert.ok(inspectedNodes > 0);
+});
+
+test('leafy-season shoots stay out of bare bloom and spent short shoots clear', () => {
+  assert.ok(
+    LYNWOOD_RENDER_PRIORS.shootEmergenceDayRange[0] >
+      LYNWOOD_CALENDAR.floweringPeak,
+  );
+  const model = createLynwoodModel({ seed: 19460412, maxYears: 10 });
+  const peak = evaluateLynwoodModel(model, {
+    ageYears: 6,
+    dayOfYear: LYNWOOD_CALENDAR.floweringPeak,
+  });
+  const shortShootYears = [];
+
+  for (const cane of peak.canes) {
+    for (const axis of cane.axes) {
+      if (axis.order > 0) {
+        assert.ok(
+          axis.sourceNodes.every(
+            (node) => Math.floor(node.birthAgeYears) < peak.ageYears,
+          ),
+          `${axis.id} appears during bloom in its own formation year`,
+        );
+      }
+      if (axis.order === 2) {
+        shortShootYears.push(Number(axis.id.match(/:short:y(\d+):/)?.[1]));
+      }
+    }
+  }
+  assert.ok(shortShootYears.length > 0);
+  assert.ok(
+    shortShootYears.every((year) => year === peak.ageYears - 1),
+    'only last season short shoots should remain at the next full bloom',
+  );
+
+  const leafySeason = evaluateLynwoodModel(model, {
+    ageYears: 6,
+    dayOfYear: LYNWOOD_RENDER_PRIORS.shootEmergenceDayRange[1],
+  });
+  assert.ok(
+    leafySeason.canes.some((cane) =>
+      cane.axes.some(
+        (axis) =>
+          axis.order > 0 &&
+          axis.sourceNodes.some(
+            (node) => Math.floor(node.birthAgeYears) === leafySeason.ageYears,
+          ),
+      ),
+    ),
+    'current-season branch modules should emerge once the shrub is in leaf',
+  );
+});
+
+test('the demo seed carries a dense full-bloom display without a flower multiplier', () => {
+  const snapshot = evaluateLynwoodModel(
+    createLynwoodModel({ seed: 19460412, maxYears: 10 }),
+    {
+      ageYears: 6,
+      dayOfYear: LYNWOOD_CALENDAR.floweringPeak,
+    },
+  );
+  const showyOrgans =
+    snapshot.stats.visibleFlowers + snapshot.stats.visibleFlowerBuds;
+  assert.ok(showyOrgans >= 4000 && showyOrgans <= 5500, `${showyOrgans}`);
+  assert.equal(snapshot.stats.visibleLeaves, 0);
+});
+
+test('each node has one bloom year with 1-6 flowers on supported wood ages', () => {
+  const model = createLynwoodModel({ seed: 'cluster-contract', maxYears: 8 });
+  const supportAges = new Set();
+  let inspectedClusters = 0;
+
+  for (const axis of model.canes[0].axes) {
+    for (const node of axis.nodes) {
+      assert.ok(
+        new Set(node.clusters.map((cluster) => cluster.floweringYear)).size <=
+          1,
+        `${node.id} repeats a flower cluster across bloom years`,
+      );
+      for (const cluster of node.clusters) {
+        inspectedClusters += 1;
+        supportAges.add(cluster.woodAgeYears);
+        assert.ok(
+          cluster.flowers.length >= LYNWOOD_PROFILE.flower.perNodeRange[0] &&
+            cluster.flowers.length <= LYNWOOD_PROFILE.flower.perNodeRange[1],
+          `${cluster.id} has ${cluster.flowers.length} flowers`,
+        );
+      }
+    }
+  }
+
+  assert.ok(inspectedClusters > 0);
+  assert.deepEqual(
+    [...supportAges].sort((a, b) => a - b),
+    [1, 2],
+  );
+});
+
+test('staggered clusters mix buds and flowers near peak without overlap per flower', () => {
+  const model = createLynwoodModel({ seed: 'mixed-phase', maxYears: 10 });
+  const snapshot = evaluateLynwoodModel(model, {
+    ageYears: 6,
+    dayOfYear: LYNWOOD_CALENDAR.floweringPeak,
+  });
+  let buds = 0;
+  let open = 0;
+
+  for (const cane of snapshot.canes) {
+    for (const axis of cane.axes) {
+      for (const node of axis.nodes) {
+        for (const cluster of node.clusters) {
+          for (const flower of cluster.flowers) {
+            const isBud = flower.budVisibility > 0.015;
+            const isOpen = flower.openVisibility > 0.015;
+            assert.equal(
+              isBud && isOpen,
+              false,
+              `${flower.id} is simultaneously a bud and an open corolla`,
+            );
+            if (isBud) buds += 1;
+            if (isOpen) open += 1;
+          }
+        }
+      }
+    }
+  }
+
+  assert.ok(buds > 0, 'late clusters must still be in bud near peak');
+  assert.ok(open > 0, 'early clusters must already be open near peak');
+});
+
+test('absolute cane cohorts continue through ages 20 and 40 without a reset', () => {
+  const model = createLynwoodModel({ seed: 'no-cycle-reset', maxYears: 41 });
+  const snapshots = new Map();
+  for (const ageYears of [19, 20, 21, 39, 40, 41]) {
+    const snapshot = evaluateLynwoodModel(model, {
+      ageYears,
+      dayOfYear: LYNWOOD_CALENDAR.floweringPeak,
+    });
+    assert.ok(snapshot.stats.visibleFlowers > 0, `age ${ageYears} lost bloom`);
+    assert.ok(
+      snapshot.dimensions.heightM > 0,
+      `age ${ageYears} lost its crown`,
+    );
+    snapshots.set(ageYears, new Set(snapshot.canes.map((cane) => cane.id)));
+  }
+
+  const overlap = (left, right) =>
+    [...snapshots.get(left)].filter((id) => snapshots.get(right).has(id))
+      .length;
+  for (const [left, right] of [
+    [19, 20],
+    [20, 21],
+    [39, 40],
+    [40, 41],
+  ]) {
+    const shared = overlap(left, right);
+    assert.ok(shared > 0, `${left} -> ${right} replaced the whole shrub`);
+    assert.ok(
+      shared < snapshots.get(left).size,
+      `${left} -> ${right} failed to renew any cane`,
+    );
+  }
+  assert.equal(overlap(19, 39), 0, 'age 39 reused age-19 cane identities');
+  assert.equal(overlap(20, 40), 0, 'age 40 reused age-20 cane identities');
+});
+
+test('automatic renewal waits until the complete staggered display has ended', () => {
+  const model = createLynwoodModel({
+    seed: 'automatic-boundary',
+    maxYears: 10,
+  });
+  const removalYear = Math.min(
+    ...model.canes.map((cane) => cane.scheduledRemovalYear),
+  );
+  const victims = model.canes
+    .filter((cane) => cane.scheduledRemovalYear === removalYear)
+    .map((cane) => cane.id);
+  const lastFlowerDay = LYNWOOD_CALENDAR.floweringEnd;
+  const cutDay =
+    lastFlowerDay + LYNWOOD_PROFILE.management.automaticRenewalDelayDays;
+  const stillFlowering = evaluateLynwoodModel(model, {
+    ageYears: removalYear,
+    dayOfYear: lastFlowerDay - 1,
+  });
+  const beforeCut = evaluateLynwoodModel(model, {
+    ageYears: removalYear,
+    dayOfYear: lastFlowerDay,
+  });
+  const afterCut = evaluateLynwoodModel(model, {
+    ageYears: removalYear,
+    dayOfYear: cutDay,
+  });
+  const beforeIds = new Set(beforeCut.canes.map((cane) => cane.id));
+  const afterIds = new Set(afterCut.canes.map((cane) => cane.id));
+
+  assert.ok(stillFlowering.stats.visibleFlowers > 0);
+  assert.equal(beforeCut.stats.visibleFlowers, 0);
+  assert.ok(victims.length > 0);
+  for (const id of victims) {
+    assert.ok(beforeIds.has(id), `${id} was removed before flowering ended`);
+    assert.ok(!afterIds.has(id), `${id} survived its post-flowering cut`);
+  }
 });
 
 test('model options are validated', () => {

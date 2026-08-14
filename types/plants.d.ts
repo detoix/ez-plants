@@ -299,6 +299,7 @@ export interface LynwoodPhenology {
 }
 
 export interface ForsythiaOptions {
+  schemaVersion?: 2;
   cultivar?: 'Lynwood' | 'Lynwood Gold';
   seed?: string | number;
   plantId?: string;
@@ -319,11 +320,17 @@ export interface ForsythiaStats extends PlantRenderStats {
   ageYears: number;
   dayOfYear: number;
   scenario: PlantScenario;
+  renewalManagedAutomatically: boolean;
   region: LynwoodRegion;
   visibleFlowers: number;
   visibleFlowerBuds: number;
   /** Dry, non-ornamental capsules; a thrum clone sets almost no seed. */
   visibleCapsules: number;
+  /** Unthinned model counts; rendered counts may be lower under LOD. */
+  biologicalVisibleLeaves: number;
+  biologicalVisibleFlowers: number;
+  biologicalVisibleFlowerBuds: number;
+  biologicalVisibleCapsules: number;
   floweringNodes: number;
   bareWoodFlowering: boolean;
   dimensions: PlantDimensions;
@@ -362,7 +369,7 @@ export declare class Forsythia extends PlantRenderer {
   }): PruneResult;
 
   stats(): ForsythiaStats;
-  serialize(): ForsythiaOptions & { schemaVersion: 1; type: 'Forsythia' };
+  serialize(): ForsythiaOptions & { schemaVersion: 2; type: 'Forsythia' };
 }
 
 /* ==================================================================== *

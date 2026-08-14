@@ -4,9 +4,9 @@ import * as THREE from 'three';
 // 'Spectabilis' parent, with broader and less curled lobes. The lobe faces are
 // a clear golden yellow; only the very throat runs deeper, and it must stay
 // confined there or the whole flower reads orange instead of forsythia yellow.
-const LOBE_YELLOW = new THREE.Color(0xffcf1c);
-const LOBE_EDGE = new THREE.Color(0xffe867);
-const THROAT_AMBER = new THREE.Color(0xf0ac1b);
+const LOBE_YELLOW = new THREE.Color(0xffdc2d);
+const LOBE_EDGE = new THREE.Color(0xffff82);
+const THROAT_AMBER = new THREE.Color(0xefb51d);
 const TUBE_GREEN = new THREE.Color(0xc7cc63);
 
 /**
@@ -23,7 +23,7 @@ export function createFlowerGeometry({
   lobes = 4,
   lobeSegments = 6,
   tubeSegments = 6,
-  twist = 0.55,
+  twist = 0.2,
 } = {}) {
   const positions = [];
   const colors = [];
@@ -99,12 +99,12 @@ export function createFlowerGeometry({
       // width tip to tip.
       const radial = tubeMouthRadius + (0.5 - tubeMouthRadius) * s;
       // Rise off the mouth, then roll back down: the revolute tip.
-      const height = tubeHeight + 0.15 * s - 0.34 * Math.pow(s, 2.3);
+      const height = tubeHeight + 0.12 * s - 0.14 * Math.pow(s, 2.3);
       // Oblong: near parallel-sided for most of its length, then rounded off.
       // A lobe that swells through the middle reads as a broad petal, which is
       // a buttercup or a kerria -- forsythia lobes are narrow straps.
       const halfWidth =
-        0.088 * Math.pow(Math.sin(Math.PI * (0.3 + 0.7 * s)), 0.3);
+        0.174 * Math.pow(Math.sin(Math.PI * (0.3 + 0.7 * s)), 0.3);
       // The lobe twists about its own axis along its length.
       const lobeTwist = twist * s;
       const centre = outward

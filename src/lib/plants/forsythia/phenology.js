@@ -1,4 +1,8 @@
-import { LYNWOOD_PROFILE, LYNWOOD_SOURCES } from './lynwood.js';
+import {
+  LYNWOOD_PROFILE,
+  LYNWOOD_RENDER_PRIORS,
+  LYNWOOD_SOURCES,
+} from './lynwood.js';
 
 const MONTH_START = Object.freeze([
   0, 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334,
@@ -76,7 +80,10 @@ export const LYNWOOD_REGION_OBSERVATIONS = Object.freeze({
 
 export const LYNWOOD_PHASE_ASSUMPTIONS = Object.freeze({
   budSwellingLeadDays: 26,
-  floweringDurationDays: 19,
+  // Individual clusters are staggered across the crown. The whole population
+  // spans 24 days even though its dense, showy plateau is about two weeks.
+  floweringDurationDays: 24,
+  floweringPeakOffsetDays: 8,
   leafExpansionDays: 34,
   capsuleMaturityDay: monthDayToDay(9, 20),
   autumnStartDay: monthDayToDay(10, 4),
@@ -106,8 +113,7 @@ function createCalendar(observation, offsetDays = 0) {
     ),
     floweringStart,
     floweringPeak:
-      floweringStart +
-      Math.round(LYNWOOD_PHASE_ASSUMPTIONS.floweringDurationDays * 0.42),
+      floweringStart + LYNWOOD_PHASE_ASSUMPTIONS.floweringPeakOffsetDays,
     floweringEnd,
     leafEmergenceStart,
     leafFullExpansion: Math.min(
@@ -291,8 +297,12 @@ export function getLynwoodPhenology(
   const leafOpacity = clamp01(leafProgress * (1 - autumnProgress));
 
   // Closed buds are visible from bud swelling until they have all opened.
+  const latestOpeningDay =
+    calendar.floweringStart +
+    LYNWOOD_RENDER_PRIORS.anthesisOffsetDays[1] +
+    LYNWOOD_RENDER_PRIORS.corollaOpeningDays;
   const flowerBudVisibility =
-    day >= calendar.budSwellingStart && day <= calendar.floweringPeak
+    day >= calendar.budSwellingStart && day <= latestOpeningDay
       ? clamp01(
           Math.min(
             progress(
@@ -300,23 +310,18 @@ export function getLynwoodPhenology(
               calendar.budSwellingStart,
               calendar.budSwellingStart + 10,
             ),
-            1 - progress(day, calendar.floweringStart, calendar.floweringPeak),
+            1 - progress(day, calendar.floweringStart, latestOpeningDay),
           ),
         )
       : 0;
   // Open corollas ramp up over the first third of the window and drop off as
   // petals brown and fall.
   const flowerOpenVisibility =
-    day >= calendar.floweringStart && day <= calendar.floweringEnd + 3
+    day >= calendar.floweringStart && day <= calendar.floweringEnd
       ? clamp01(
           Math.min(
             progress(day, calendar.floweringStart - 1, calendar.floweringPeak),
-            1 -
-              progress(
-                day,
-                calendar.floweringEnd - 5,
-                calendar.floweringEnd + 3,
-              ),
+            1 - progress(day, calendar.floweringEnd - 5, calendar.floweringEnd),
           ),
         )
       : 0;

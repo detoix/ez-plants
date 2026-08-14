@@ -4,7 +4,10 @@ import * as THREE from 'three';
 
 import { Forsythia } from '../src/lib/plants/forsythia/forsythia.js';
 import { LYNWOOD_CALENDAR } from '../src/lib/plants/forsythia/phenology.js';
-import { LYNWOOD_PROFILE } from '../src/lib/plants/forsythia/lynwood.js';
+import {
+  LYNWOOD_PROFILE,
+  LYNWOOD_RENDER_PRIORS,
+} from '../src/lib/plants/forsythia/lynwood.js';
 
 const MESH_NAMES = Object.freeze({
   wood: 'Forsythia_Wood',
@@ -33,6 +36,49 @@ function meshNamed(plant, name) {
 
 function makePlant(options = {}) {
   return new Forsythia({ seed: 4242, maxYears: 20, ...options });
+}
+
+function assertInstancePoolsBounded(plant) {
+  for (const [kind, capacity] of Object.entries(
+    LYNWOOD_RENDER_PRIORS.instanceCapacities,
+  )) {
+    const mesh = meshNamed(plant, MESH_NAMES[kind]);
+    assert.equal(mesh.instanceMatrix.count, capacity);
+    assert.ok(
+      mesh.count <= capacity,
+      `${kind} uses ${mesh.count} of ${capacity} instances`,
+    );
+  }
+}
+
+function renderedState(plant) {
+  const wood = meshNamed(plant, MESH_NAMES.wood);
+  const geometry = wood.geometry;
+  const instances = Object.fromEntries(
+    Object.entries(MESH_NAMES)
+      .filter(([kind]) => kind !== 'wood')
+      .map(([kind, name]) => {
+        const mesh = meshNamed(plant, name);
+        return [
+          kind,
+          {
+            count: mesh.count,
+            matrices: mesh.instanceMatrix.array.slice(0, mesh.count * 16),
+            colors: mesh.instanceColor?.array.slice(0, mesh.count * 3) ?? null,
+          },
+        ];
+      }),
+  );
+
+  return {
+    instances,
+    wood: {
+      index: geometry.index?.array.slice() ?? null,
+      normal: geometry.attributes.normal.array.slice(),
+      position: geometry.attributes.position.array.slice(),
+      uv: geometry.attributes.uv.array.slice(),
+    },
+  };
 }
 
 /* -------------------------------------------------------------------- *
@@ -138,25 +184,62 @@ test('a dormant winter plant draws wood and buds but no soft organs', () => {
   }
 });
 
+test('a neglected mature shrub stays inside fixed pools in summer and winter', () => {
+  const plant = makePlant({
+    ageYears: 19,
+    dayOfYear: 200,
+    scenario: 'neglected',
+  });
+  try {
+    assert.ok(
+      plant.stats().biologicalVisibleLeaves >
+        LYNWOOD_RENDER_PRIORS.instanceCapacities.leaves,
+      'summer must exercise adaptive thinning',
+    );
+    assert.ok(meshNamed(plant, MESH_NAMES.leaves).count > 0);
+    assertInstancePoolsBounded(plant);
+
+    plant.setTime({ dayOfYear: 365 });
+    assert.ok(meshNamed(plant, MESH_NAMES.buds).count > 0);
+    assertInstancePoolsBounded(plant);
+  } finally {
+    plant.dispose();
+  }
+});
+
 /* -------------------------------------------------------------------- *
  * State cycle
  * -------------------------------------------------------------------- */
 
-test('scrubbing time A to B to A restores identical instance counts', () => {
-  const plant = makePlant({ ageYears: 5, dayOfYear: 96 });
+test('scrubbing time A to B to A restores the exact rendered state', () => {
+  const plant = makePlant({ ageYears: 5, dayOfYear: 200 });
   try {
-    const snapshot = () =>
-      Object.fromEntries(
-        Object.entries(MESH_NAMES)
-          .filter(([kind]) => kind !== 'wood')
-          .map(([kind, name]) => [kind, meshNamed(plant, name).count]),
-      );
-
-    const before = snapshot();
+    const before = renderedState(plant);
     plant.setState({ ageYears: 14, dayOfYear: 280 });
     plant.setState({ ageYears: 2, dayOfYear: 40 });
-    plant.setState({ ageYears: 5, dayOfYear: 96 });
-    assert.deepEqual(snapshot(), before);
+    plant.setState({ ageYears: 5, dayOfYear: 200 });
+    assert.deepEqual(renderedState(plant), before);
+  } finally {
+    plant.dispose();
+  }
+});
+
+test('adjacent bloom scrubs reuse organ runtimes and woody geometry', () => {
+  const plant = makePlant({ ageYears: 6, dayOfYear: 96 });
+  try {
+    const wood = meshNamed(plant, MESH_NAMES.wood);
+    const geometry = wood.geometry;
+    const renderIdentity = plant._renderIdentity.bind(plant);
+    let identityBuilds = 0;
+    plant._renderIdentity = (...args) => {
+      identityBuilds++;
+      return renderIdentity(...args);
+    };
+
+    plant.setTime({ dayOfYear: 97 });
+
+    assert.strictEqual(wood.geometry, geometry);
+    assert.equal(identityBuilds, 0);
   } finally {
     plant.dispose();
   }
@@ -231,7 +314,11 @@ test('pruning is refused during the display and after buds are set', () => {
 });
 
 test('pruning immediately after flowering removes one whole cane', () => {
-  const plant = makePlant({ ageYears: 8, dayOfYear: 130 });
+  const plant = makePlant({
+    ageYears: 8,
+    dayOfYear: 130,
+    scenario: 'neglected',
+  });
   try {
     const before = plant.stats().visibleCanes;
     const result = plant.pruneOldestCane({ dayOfYear: 130 });
@@ -257,7 +344,11 @@ test('a shrub younger than the renewal age is not pruned', () => {
 });
 
 test('renewal pruning stops at the one-fifth quota', () => {
-  const plant = makePlant({ ageYears: 8, dayOfYear: 130 });
+  const plant = makePlant({
+    ageYears: 8,
+    dayOfYear: 130,
+    scenario: 'neglected',
+  });
   try {
     const canes = plant.stats().visibleCanes;
     const quota = Math.max(
@@ -273,6 +364,50 @@ test('renewal pruning stops at the one-fifth quota', () => {
       plant.pruneOldestCane({ dayOfYear: 130 }).reason,
       'quota-reached',
     );
+  } finally {
+    plant.dispose();
+  }
+});
+
+test('maintained renewal consumes the same annual pruning quota', () => {
+  const floweringEnd = LYNWOOD_CALENDAR.floweringEnd;
+  const plant = makePlant({ ageYears: 8, dayOfYear: floweringEnd });
+  try {
+    const before = plant.stats().visibleCanes;
+    const quota = Math.max(
+      1,
+      Math.floor(before * LYNWOOD_PROFILE.management.oldestCaneRemovalFraction),
+    );
+    plant.setTime({
+      dayOfYear:
+        floweringEnd + LYNWOOD_PROFILE.management.automaticRenewalDelayDays,
+    });
+
+    assert.equal(before - plant.stats().visibleCanes, quota);
+    assert.equal(plant.pruneOldestCane().reason, 'quota-reached');
+    assert.equal(plant.serialize().events.length, 0);
+  } finally {
+    plant.dispose();
+  }
+});
+
+test('future pruning targets a cane alive in the requested year', () => {
+  const plant = makePlant({
+    ageYears: 8,
+    dayOfYear: 130,
+    scenario: 'neglected',
+  });
+  try {
+    const currentCanes = plant.stats().visibleCanes;
+    const result = plant.pruneOldestCane({ ageYears: 20, dayOfYear: 130 });
+    assert.equal(result.applied, true);
+    assert.equal(result.event.ageYears, 20);
+    assert.equal(plant.stats().visibleCanes, currentCanes);
+
+    plant.setState({ ageYears: 20, dayOfYear: 130 });
+    const prunedAtTarget = plant.stats().visibleCanes;
+    plant.resetEvents();
+    assert.equal(plant.stats().visibleCanes, prunedAtTarget + 1);
   } finally {
     plant.dispose();
   }
@@ -305,10 +440,20 @@ test('distance LOD thins the canopy without dropping the plant', () => {
 });
 
 test('serialize round-trips the state needed to rebuild the same plant', () => {
-  const plant = makePlant({ ageYears: 7, dayOfYear: 130, seed: 99 });
+  const plant = makePlant({
+    ageYears: 7,
+    dayOfYear: 130,
+    seed: 99,
+    scenario: 'neglected',
+  });
   try {
     plant.pruneOldestCane({ dayOfYear: 130 });
     const state = plant.serialize();
+    assert.equal(state.schemaVersion, 2);
+    assert.throws(
+      () => new Forsythia({ ...state, schemaVersion: 1 }),
+      /schema 1/i,
+    );
     assert.equal(state.type, 'Forsythia');
     assert.equal(state.cultivar, 'Lynwood');
     assert.equal(state.species, 'Forsythia × intermedia');

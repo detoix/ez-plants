@@ -3,7 +3,7 @@ import {
   getLynwoodCareHints,
   getLynwoodPhenology,
 } from './phenology.js';
-import { LYNWOOD_PROFILE } from './lynwood.js';
+import { LYNWOOD_PROFILE, LYNWOOD_RENDER_PRIORS } from './lynwood.js';
 import * as THREE from 'three';
 import RNG from '../../rng.js';
 import { growWoodyAxis } from '../../woody-axis.js';
@@ -14,6 +14,7 @@ import {
 } from '../../keyed-random.js';
 
 const TAU = Math.PI * 2;
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
 /**
  * EZ-Tree's branch model consumes a sequential RNG, while this model is keyed
@@ -28,6 +29,9 @@ const vector = (x = 0, y = 0, z = 0) => ({ x, y, z });
 const add = (a, b) => vector(a.x + b.x, a.y + b.y, a.z + b.z);
 const scale = (value, amount) =>
   vector(value.x * amount, value.y * amount, value.z * amount);
+const cross = (a, b) =>
+  vector(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
+const dot = (a, b) => a.x * b.x + a.y * b.y + a.z * b.z;
 const length = (value) => Math.hypot(value.x, value.y, value.z);
 const normalize = (value) => {
   const magnitude = length(value) || 1;
@@ -61,9 +65,8 @@ function tangentAt(points, index) {
 
 /**
  * The 'Lynwood' cane: stiff and upright for most of its length, then arching
- * outward and drooping near the tip. The outward reach is driven by
- * architecture.archFraction rather than the blackcurrant's shallow lean, and
- * it is deliberately back-loaded (t^2.1) so the lower cane stays erect.
+ * outward and drooping near the tip. A minority of central shoots stay nearly
+ * upright while the outer layer receives the stronger fountain-forming force.
  */
 /**
  * Grow one cane through EZ-Tree's own branch model.
@@ -84,9 +87,23 @@ function mainAxisPoints(seed, cane) {
     LYNWOOD_PROFILE.cane.mainAxisNodeCount[1],
   );
   const outward = vector(Math.cos(cane.azimuth), 0, Math.sin(cane.azimuth));
+  const upright =
+    keyedRandom(seed, cane.id, 'upright-cane') <
+    architecture.uprightCaneFraction;
+  const archRange = upright
+    ? architecture.uprightArchMultiplier
+    : architecture.outerArchMultiplier;
+  const archMultiplier = randomRange(
+    seed,
+    [cane.id, 'arch-multiplier'],
+    archRange[0],
+    archRange[1],
+  );
 
   // Canes lean outward a little at the crown before the force takes over.
-  const lean = randomRange(seed, [cane.id, 'lean'], 0.06, 0.2);
+  const lean = upright
+    ? randomRange(seed, [cane.id, 'lean'], 0.015, 0.08)
+    : randomRange(seed, [cane.id, 'lean'], 0.07, 0.18);
   const orientation = new THREE.Euler(
     Math.sin(cane.azimuth) * lean,
     keyedRandom(seed, cane.id, 'sway-phase') * TAU,
@@ -108,14 +125,18 @@ function mainAxisPoints(seed, cane) {
     gnarliness: architecture.caneGnarliness,
     taper: LYNWOOD_PROFILE.cane.axisTaperRatios[1],
     force: {
-      direction: new THREE.Vector3(outward.x, -architecture.archDrop, outward.z),
+      direction: new THREE.Vector3(
+        outward.x,
+        -architecture.archDrop,
+        outward.z,
+      ),
       // Force is applied once per section, so without normalising by the
       // section count a denser cane would arch further for the same strength
       // and node spacing would silently change the plant's habit.
       strength:
         ((architecture.caneForceStrength * architecture.caneReferenceSections) /
           count) *
-        randomRange(seed, [cane.id, 'arch'], 0.78, 1.26),
+        archMultiplier,
     },
     rng: new RNG(caneRngSeed(seed, cane.id)),
   });
@@ -125,59 +146,115 @@ function mainAxisPoints(seed, cane) {
   );
 }
 
-function lateralAxisPoints(seed, cane, mainPoints, lateralIndex, lateralCount) {
+function sideAxisPoints(
+  seed,
+  { parentId, parentAzimuth, parentPoints, childIndex, childCount, axisClass },
+) {
+  const isShortShoot = axisClass === 'short-shoot';
+  const rankedAttachment = clamp(
+    (childIndex +
+      randomRange(seed, [parentId, 'attach-jitter', childIndex], 0.05, 0.95)) /
+      Math.max(1, childCount) +
+      randomRange(seed, [parentId, 'attach-drift', childIndex], -0.055, 0.055),
+    0,
+    1,
+  );
+  const distributedAttachment = isShortShoot
+    ? rankedAttachment
+    : Math.pow(rankedAttachment, 0.82);
   const attachFraction = clamp(
-    0.24 +
-      ((lateralIndex +
-        randomRange(seed, [cane.id, 'attach-jitter', lateralIndex], 0.2, 0.8)) /
-        Math.max(1, lateralCount)) *
-        0.66,
-    0.2,
-    0.92,
+    0.28 + distributedAttachment * (isShortShoot ? 0.66 : 0.64),
+    isShortShoot ? 0.24 : 0.2,
+    isShortShoot ? 0.94 : 0.92,
   );
   const attachIndex = clamp(
-    Math.round(attachFraction * (mainPoints.length - 1)),
+    Math.round(attachFraction * (parentPoints.length - 1)),
     2,
-    mainPoints.length - 3,
+    parentPoints.length - (isShortShoot ? 2 : 3),
   );
-  const origin = mainPoints[attachIndex];
-  const side = lateralIndex % 2 === 0 ? -1 : 1;
-  const azimuth =
-    cane.azimuth +
-    side *
-      randomRange(seed, [cane.id, 'lateral-angle', lateralIndex], 0.5, 1.24) +
-    lateralIndex * 0.11;
-  const horizontal = vector(Math.cos(azimuth), 0, Math.sin(azimuth));
-  const axisLength = randomRange(
-    seed,
-    [cane.id, 'lateral-length', lateralIndex],
-    0.26,
-    0.52 - attachFraction * 0.16,
-  );
+  const origin = parentPoints[attachIndex];
+  const side = childIndex % 2 === 0 ? -1 : 1;
+  const parentTangent = tangentAt(parentPoints, attachIndex);
+  const radialOut = vector(Math.cos(parentAzimuth), 0, Math.sin(parentAzimuth));
+  let sideNormal = normalize(cross(vector(0, 1, 0), parentTangent));
+  if (
+    length(sideNormal) < 1e-5 ||
+    Math.abs(dot(sideNormal, sideNormal)) < 1e-5
+  ) {
+    sideNormal = vector(-radialOut.z, 0, radialOut.x);
+  }
+  let localUp = normalize(cross(parentTangent, sideNormal));
+  if (localUp.y < 0) localUp = scale(localUp, -1);
+
+  const direction = isShortShoot
+    ? normalize(
+        add(
+          scale(
+            parentTangent,
+            randomRange(seed, [parentId, 'forward', childIndex], 0.38, 0.68),
+          ),
+          add(
+            scale(
+              sideNormal,
+              side *
+                randomRange(seed, [parentId, 'side', childIndex], 0.32, 0.72),
+            ),
+            scale(
+              localUp,
+              randomRange(seed, [parentId, 'rise', childIndex], 0.2, 0.55),
+            ),
+          ),
+        ),
+      )
+    : normalize(
+        add(
+          scale(
+            radialOut,
+            randomRange(seed, [parentId, 'forward', childIndex], 0.32, 0.72),
+          ),
+          add(
+            scale(
+              sideNormal,
+              side *
+                randomRange(seed, [parentId, 'side', childIndex], 0.38, 0.78),
+            ),
+            vector(
+              0,
+              randomRange(seed, [parentId, 'rise', childIndex], 0.48, 0.92),
+              0,
+            ),
+          ),
+        ),
+      );
+  const azimuth = Math.atan2(direction.z, direction.x);
+  const axisLength = isShortShoot
+    ? randomRange(
+        seed,
+        [parentId, 'short-shoot-length', childIndex],
+        LYNWOOD_PROFILE.cane.shortShootLengthM[0],
+        LYNWOOD_PROFILE.cane.shortShootLengthM[1],
+      )
+    : randomRange(seed, [parentId, 'lateral-length', childIndex], 0.24, 0.56);
+  const nodeRange = isShortShoot
+    ? LYNWOOD_PROFILE.cane.shortShootNodeCount
+    : LYNWOOD_PROFILE.cane.lateralNodeCount;
   const count = randomInt(
     seed,
-    [cane.id, 'lateral-node-count', lateralIndex],
-    10,
-    16,
-  );
-  const rise = randomRange(
-    seed,
-    [cane.id, 'lateral-rise', lateralIndex],
-    0.5,
-    0.86,
+    [parentId, `${axisClass}-node-count`, childIndex],
+    nodeRange[0],
+    nodeRange[1],
   );
   const distalDroop = randomRange(
     seed,
-    [cane.id, 'lateral-droop', lateralIndex],
-    0.12,
-    0.34,
+    [parentId, `${axisClass}-droop`, childIndex],
+    isShortShoot ? 0.04 : 0.1,
+    isShortShoot ? 0.18 : 0.28,
   );
-  const curveSide = vector(-horizontal.z, 0, horizontal.x);
   const sideCurve = randomRange(
     seed,
-    [cane.id, 'lateral-side-curve', lateralIndex],
-    -0.14,
-    0.14,
+    [parentId, `${axisClass}-side-curve`, childIndex],
+    -0.12,
+    0.12,
   );
   const points = [];
 
@@ -187,10 +264,10 @@ function lateralAxisPoints(seed, cane, mainPoints, lateralIndex, lateralCount) {
       add(
         origin,
         add(
-          scale(horizontal, axisLength * t),
+          scale(direction, axisLength * t),
           add(
-            scale(curveSide, Math.sin(t * Math.PI) * axisLength * sideCurve),
-            vector(0, axisLength * (rise * t - distalDroop * t * t), 0),
+            scale(sideNormal, Math.sin(t * Math.PI) * axisLength * sideCurve),
+            vector(0, -axisLength * distalDroop * t * t, 0),
           ),
         ),
       ),
@@ -207,18 +284,32 @@ function lateralAxisPoints(seed, cane, mainPoints, lateralIndex, lateralCount) {
  * degrees apart. Successive nodes rotate by 90 degrees, which is what makes a
  * forsythia shoot read as a flat-ranked cross rather than the currant's spiral.
  */
-function makeLeafPair(seed, node, year) {
+function phyllotacticAngle(seed, node) {
+  const axisPhase = randomRange(seed, [node.axisId, 'leaf-phase'], -0.18, 0.18);
+  const pairJitter = randomRange(
+    seed,
+    [node.id, 'pair-azimuth-jitter'],
+    -0.2,
+    0.2,
+  );
+  return (
+    node.index * LYNWOOD_PROFILE.leaf.decussateTurnRadians +
+    axisPhase +
+    pairJitter
+  );
+}
+
+function makeLeafPair(seed, node) {
   const leaf = LYNWOOD_PROFILE.leaf;
-  const decussateTurn = node.index * leaf.decussateTurnRadians;
+  const decussateTurn = phyllotacticAngle(seed, node);
   const leaves = [];
 
   for (let side = 0; side < leaf.leavesPerNode; side += 1) {
-    const id = `${node.id}:leaf:y${year}:${side}`;
-    const azimuth =
-      node.azimuth +
-      decussateTurn +
-      side * Math.PI +
-      randomRange(seed, [id, 'azimuth-jitter'], -0.12, 0.12);
+    // A woody node carries the same opposite bud sites from year to year. Reuse
+    // one stable blade blueprint per side instead of materialising identical
+    // leaf objects for every simulated year.
+    const id = `${node.id}:leaf:${side}`;
+    const azimuth = node.azimuth + decussateTurn + side * Math.PI;
     const petioleLengthM = randomRange(
       seed,
       [id, 'petiole'],
@@ -230,7 +321,7 @@ function makeLeafPair(seed, node, year) {
     // Blades hang outward and slightly down from an arching shoot rather than
     // presenting flat upward like a currant leaf.
     const bladeTilt = randomRange(seed, [id, 'blade-tilt'], 0.55, 1.05);
-    const bladeRoll = randomRange(seed, [id, 'blade-roll'], -0.24, 0.24);
+    const bladeRoll = randomRange(seed, [id, 'blade-roll'], -0.35, 0.35);
     const bladeDroop = randomRange(seed, [id, 'blade-droop'], -0.34, -0.06);
     const position = add(
       node.position,
@@ -247,7 +338,6 @@ function makeLeafPair(seed, node, year) {
 
     leaves.push({
       id,
-      year,
       side,
       position,
       normal: normalize(
@@ -279,37 +369,63 @@ function makeLeafPair(seed, node, year) {
 function makeFlowerCluster(seed, node, floweringYear, woodAgeYears) {
   const flower = LYNWOOD_PROFILE.flower;
   const id = `${node.id}:cluster:y${floweringYear}`;
-  // Sources give 1-6 flowers per leaf-scar. Prime one-year wood in full bloom
-  // sits at the top of that range -- that density is what makes the shrub read
-  // as a sheet of yellow rather than dots on sticks -- while two-year wood
-  // carries a lighter second flush.
-  const [minPerNode, maxPerNode] = flower.perNodeRange;
-  const count =
-    woodAgeYears === 1
-      ? randomInt(
-          seed,
-          [id, 'count'],
-          Math.ceil((minPerNode + maxPerNode) / 2),
-          maxPerNode,
-        )
-      : randomInt(
-          seed,
-          [id, 'count'],
-          minPerNode,
-          Math.max(minPerNode, maxPerNode - 2),
-        );
+  // Sources constrain a scar to 1-6 flowers but do not publish a cultivar
+  // frequency table. The renderer prior favours 3-4, with short shoots a
+  // little richer than vigorous basal axes; this avoids six-way pinwheels.
+  const order = clamp(
+    node.axisOrder,
+    0,
+    LYNWOOD_RENDER_PRIORS.clusterSizeWeightsByOrder.length - 1,
+  );
+  const weights = LYNWOOD_RENDER_PRIORS.clusterSizeWeightsByOrder[order];
+  const [minimumCount, maximumCount] = flower.perNodeRange;
+  if (weights.length !== maximumCount - minimumCount + 1) {
+    throw new RangeError(
+      'Forsythia cluster weights must cover the configured 1-6 range.',
+    );
+  }
+  const draw = keyedRandom(seed, id, 'count');
+  let cumulative = 0;
+  let count = maximumCount;
+  for (let index = 0; index < weights.length; index += 1) {
+    cumulative += weights[index];
+    if (draw <= cumulative) {
+      count = minimumCount + index;
+      break;
+    }
+  }
   const flowers = [];
-  const decussateTurn = node.index * LYNWOOD_PROFILE.leaf.decussateTurnRadians;
+  const axisOffset = randomRange(
+    seed,
+    [node.axisId, 'anthesis-offset'],
+    LYNWOOD_RENDER_PRIORS.anthesisOffsetDays[0],
+    LYNWOOD_RENDER_PRIORS.anthesisOffsetDays[1],
+  );
+  const anthesisOffsetDays = clamp(
+    axisOffset -
+      node.positionAlongAxis * 0.8 +
+      randomRange(seed, [id, 'anthesis-jitter'], -0.8, 0.8),
+    LYNWOOD_RENDER_PRIORS.anthesisOffsetDays[0],
+    LYNWOOD_RENDER_PRIORS.anthesisOffsetDays[1],
+  );
+  const displayDurationDays = randomRange(
+    seed,
+    [id, 'display-duration'],
+    LYNWOOD_RENDER_PRIORS.individualFlowerDisplayDays[0],
+    LYNWOOD_RENDER_PRIORS.individualFlowerDisplayDays[1],
+  );
+  const decussateTurn = phyllotacticAngle(seed, node);
 
   for (let index = 0; index < count; index += 1) {
     const flowerId = `${id}:f${index}`;
-    // Flowers ring the stem at the node, biased to the two leaf-scar sides.
+    // Flowers fan tightly from the two opposite leaf scars. A broad ring hides
+    // the node rhythm and makes every cluster look like a manufactured rosette.
     const scarSide = index % 2 === 0 ? 0 : Math.PI;
     const azimuth =
       node.azimuth +
       decussateTurn +
       scarSide +
-      randomRange(seed, [flowerId, 'azimuth'], -0.85, 0.85);
+      randomRange(seed, [flowerId, 'azimuth'], -0.28, 0.28);
     const pedicelLengthM = randomRange(
       seed,
       [flowerId, 'pedicel'],
@@ -329,7 +445,7 @@ function makeFlowerCluster(seed, node, floweringYear, woodAgeYears) {
       flower.corollaTubeLengthM[1],
     );
     // Corollas nod outward and downward off the stem.
-    const nod = randomRange(seed, [flowerId, 'nod'], 0.35, 0.95);
+    const nod = randomRange(seed, [flowerId, 'nod'], 0.2, 0.65);
     const outward = vector(Math.cos(azimuth), 0, Math.sin(azimuth));
 
     flowers.push({
@@ -343,7 +459,13 @@ function makeFlowerCluster(seed, node, floweringYear, woodAgeYears) {
       roll: randomRange(seed, [flowerId, 'roll'], 0, TAU),
       direction: normalize(add(outward, vector(0, -nod, 0))),
       position: add(
-        node.position,
+        add(
+          node.position,
+          scale(
+            node.tangent,
+            randomRange(seed, [flowerId, 'axial-offset'], -0.003, 0.003),
+          ),
+        ),
         scale(
           normalize(add(outward, vector(0, -nod * 0.5, 0))),
           pedicelLengthM,
@@ -375,6 +497,8 @@ function makeFlowerCluster(seed, node, floweringYear, woodAgeYears) {
     id,
     floweringYear,
     woodAgeYears,
+    anthesisOffsetDays,
+    displayDurationDays,
     flowers,
     capsule,
   };
@@ -393,48 +517,77 @@ function makeNode(
   const node = {
     id,
     axisId: axis.id,
+    axisOrder: axis.order,
     index,
+    positionAlongAxis: (index + 1) / Math.max(1, axis.pointCount - 1),
     birthAgeYears:
-      axis.birthAgeYears + (index / Math.max(1, axis.pointCount - 1)) * 0.34,
+      axis.birthAgeYears +
+      ((index + 1) / Math.max(1, axis.pointCount - 1)) *
+        axis.growthDurationYears,
     position,
     tangent,
     azimuth: axis.azimuth,
     leaves: [],
     clusters: [],
   };
-  const firstLeafYear = Math.floor(axis.birthAgeYears);
   const finalYear = Math.min(Math.ceil(deathAgeYears), maxYears + 1);
+  const foliageOrder = clamp(
+    axis.order,
+    0,
+    LYNWOOD_RENDER_PRIORS.foliageStartFractionByOrder.length - 1,
+  );
+  const foliageEligible =
+    node.positionAlongAxis >=
+      LYNWOOD_RENDER_PRIORS.foliageStartFractionByOrder[foliageOrder] &&
+    keyedRandom(seed, node.id, 'foliage-proxy') <
+      LYNWOOD_RENDER_PRIORS.foliageNodeOccupancyByOrder[foliageOrder];
+  if (foliageEligible) node.leaves.push(...makeLeafPair(seed, node));
 
-  for (let year = firstLeafYear; year < finalYear; year += 1) {
-    node.leaves.push(...makeLeafPair(seed, node, year));
-  }
-
-  // The rule that defines this plant: buds set on wood grown in year Y open in
-  // the spring of year Y+1, and a lighter second flush in Y+2. Nothing flowers
-  // on the year's own new growth, which is exactly why pruning must follow
-  // flowering rather than precede it.
-  // A cane is not one age. It extends every season, so the wood at its tip is
-  // young while the wood at its base is old. Flowering therefore sweeps
-  // outward along the cane year by year instead of switching the whole cane
-  // on and then off, which left long bare stretches on the main stems.
-  const positionAlongAxis = (index + 1) / Math.max(1, axis.pointCount - 1);
-  // Every living cane puts on a new increment at its tip each season, so the
-  // gradient spans the cane's whole life rather than a fixed number of years.
-  // That way a band of one- and two-year-old wood exists on EVERY cane at
-  // every age, which is why an established forsythia flowers all over instead
-  // of only on whichever canes happen to be the right age.
-  const extensionYears = LYNWOOD_PROFILE.cane.productiveLifeYears;
-  const woodYear = Math.floor(
-    axis.birthAgeYears + positionAlongAxis * extensionYears,
+  // The rule that defines this plant: a bud set on wood grown in year Y opens
+  // once, in spring Y+1. Nothing flowers on the year's own new growth, which
+  // is exactly why pruning must follow flowering rather than precede it.
+  const positionAlongAxis = node.positionAlongAxis;
+  // Wood age follows the shoot's own growing-season cohort, so a whole module
+  // flowers together rather than carrying an artificial travelling age band.
+  const woodYear = Math.floor(node.birthAgeYears);
+  const order = clamp(
+    axis.order,
+    0,
+    LYNWOOD_PROFILE.flower.floweringStartFractionByOrder.length - 1,
+  );
+  const floweringStart =
+    LYNWOOD_PROFILE.flower.floweringStartFractionByOrder[order];
+  const occupancy = LYNWOOD_PROFILE.flower.floweringNodeOccupancyByOrder[order];
+  const exposureProxy = clamp(
+    0.62 +
+      0.17 *
+        clamp(
+          node.position.y / LYNWOOD_PROFILE.architecture.matureHeightM,
+          0,
+          1,
+        ) +
+      0.28 *
+        clamp(
+          Math.hypot(node.position.x, node.position.z) /
+            LYNWOOD_PROFILE.architecture.matureRadiusM,
+          0,
+          1,
+        ),
+    0.68,
+    1,
   );
   const bearsFlowers =
-    index >= 1 && keyedRandom(seed, node.id, 'flowering-node') > 0.06;
+    positionAlongAxis >= floweringStart &&
+    keyedRandom(seed, node.id, 'flowering-node') < occupancy * exposureProxy;
   if (bearsFlowers) {
-    for (const woodAgeYears of LYNWOOD_PROFILE.flower.bornOnWoodAgeYears) {
-      const floweringYear = woodYear + woodAgeYears;
-      if (floweringYear >= finalYear || floweringYear > maxYears + 1) continue;
+    // One axillary bud opens once, in the spring after its shoot formed. Short
+    // shoots borne by older laterals provide the display associated with
+    // two-year supporting wood; a spent leaf scar must not flower again.
+    const floweringYear = woodYear + 1;
+    if (floweringYear < finalYear && floweringYear <= maxYears + 1) {
+      const supportWoodAgeYears = axis.order >= 2 ? 2 : 1;
       node.clusters.push(
-        makeFlowerCluster(seed, node, floweringYear, woodAgeYears),
+        makeFlowerCluster(seed, node, floweringYear, supportWoodAgeYears),
       );
     }
   }
@@ -456,6 +609,13 @@ function makeAxis(
     growthDurationYears = 0.55,
   },
 ) {
+  const sourceYear = Math.floor(birthAgeYears);
+  const seasonalEndAgeYears =
+    sourceYear + (LYNWOOD_CALENDAR.autumnStart - 1) / 365;
+  const seasonalGrowthDurationYears = Math.min(
+    growthDurationYears,
+    Math.max(1 / 365, seasonalEndAgeYears - birthAgeYears),
+  );
   const shell = {
     id,
     parentId,
@@ -463,7 +623,8 @@ function makeAxis(
     birthAgeYears,
     azimuth,
     pointCount: points.length,
-    growthDurationYears,
+    growthDurationYears: seasonalGrowthDurationYears,
+    deathAgeYears,
   };
   const nodes = points
     .slice(1)
@@ -481,22 +642,101 @@ function makeAxis(
   return { ...shell, points, nodes };
 }
 
-function makeCane(
-  seed,
-  {
-    cycleIndex,
+function calibrateCaneRadius(seed, cane) {
+  const architecture = LYNWOOD_PROFILE.architecture;
+  let rawRadius = 0;
+  for (const axis of cane.axes) {
+    for (const point of axis.points) {
+      rawRadius = Math.max(rawRadius, Math.hypot(point.x, point.z));
+    }
+  }
+  const targetFactor = randomRange(
+    seed,
+    [cane.id, 'calibrated-radius'],
+    architecture.calibratedRadiusFactor[0],
+    architecture.calibratedRadiusFactor[1],
+  );
+  const targetRadius = architecture.matureRadiusM * targetFactor;
+  if (rawRadius <= targetRadius || rawRadius <= 1e-8) return cane;
+
+  const horizontalScale = targetRadius / rawRadius;
+  const positions = new Set([cane.position]);
+  const directions = new Set();
+  for (const axis of cane.axes) {
+    for (const point of axis.points) positions.add(point);
+    for (const node of axis.nodes) {
+      positions.add(node.position);
+      directions.add(node.tangent);
+      for (const leaf of node.leaves) {
+        positions.add(leaf.position);
+        directions.add(leaf.normal);
+      }
+      for (const cluster of node.clusters) {
+        for (const flower of cluster.flowers) {
+          positions.add(flower.position);
+          directions.add(flower.direction);
+        }
+        if (cluster.capsule) {
+          positions.add(cluster.capsule.position);
+          directions.add(cluster.capsule.direction);
+        }
+      }
+    }
+  }
+  for (const position of positions) {
+    position.x *= horizontalScale;
+    position.z *= horizontalScale;
+  }
+  for (const direction of directions) {
+    direction.x *= horizontalScale;
+    direction.z *= horizontalScale;
+    const adjusted = normalize(direction);
+    direction.x = adjusted.x;
+    direction.y = adjusted.y;
+    direction.z = adjusted.z;
+  }
+  for (const axis of cane.axes) {
+    axis.nodes.forEach((node, index) => {
+      node.tangent = tangentAt(axis.points, index + 1);
+    });
+  }
+  return cane;
+}
+
+const caneIdFor = ({ sequence, cohort }) =>
+  `lynwood:cane:${cohort}:${String(sequence).padStart(2, '0')}`;
+
+function makeCaneDescriptor({
+  sequence,
+  cohort,
+  birthAgeYears,
+  scheduledRemovalYear,
+  naturalDeathAgeYears,
+}) {
+  return {
+    id: caneIdFor({ sequence, cohort }),
     sequence,
     cohort,
     birthAgeYears,
-    scheduledRemovalAgeYears,
+    scheduledRemovalYear,
+    naturalDeathAgeYears,
+  };
+}
+
+function makeCane(
+  seed,
+  {
+    id: suppliedId,
+    sequence,
+    cohort,
+    birthAgeYears,
+    scheduledRemovalYear,
     naturalDeathAgeYears,
     maxYears,
   },
 ) {
-  const id = `lynwood:c${cycleIndex}:cane:${cohort}:${String(sequence).padStart(2, '0')}`;
-  const baseAngle =
-    (sequence / LYNWOOD_PROFILE.architecture.initialCaneCount) * TAU +
-    cycleIndex * 0.53;
+  const id = suppliedId ?? caneIdFor({ sequence, cohort });
+  const baseAngle = sequence * GOLDEN_ANGLE;
   const azimuth =
     baseAngle + randomRange(seed, [id, 'azimuth-jitter'], -0.26, 0.26);
   const crownRadius = randomRange(
@@ -518,11 +758,10 @@ function makeCane(
   );
   const cane = {
     id,
-    cycleIndex,
     sequence,
     cohort,
     birthAgeYears,
-    scheduledRemovalAgeYears,
+    scheduledRemovalYear,
     naturalDeathAgeYears,
     position,
     azimuth,
@@ -539,16 +778,22 @@ function makeCane(
   };
   const mainPoints = mainAxisPoints(seed, cane);
   const mainId = `${id}:axis:0`;
+  const mainSourceYear = Math.floor(birthAgeYears);
+  const mainAxisBirthAgeYears = Math.max(
+    birthAgeYears,
+    mainSourceYear + (LYNWOOD_CALENDAR.leafEmergenceStart - 1) / 365,
+  );
   cane.axes.push(
     makeAxis(seed, {
       id: mainId,
       parentId: id,
       order: 0,
-      birthAgeYears,
+      birthAgeYears: mainAxisBirthAgeYears,
       azimuth,
       points: mainPoints,
       deathAgeYears: naturalDeathAgeYears,
       maxYears,
+      growthDurationYears: LYNWOOD_PROFILE.cane.mainAxisGrowthDurationYears,
     }),
   );
   const lateralCount = randomInt(
@@ -558,23 +803,36 @@ function makeCane(
     LYNWOOD_PROFILE.cane.lateralAxisCount[1],
   );
   for (let index = 0; index < lateralCount; index += 1) {
-    const lateral = lateralAxisPoints(
-      seed,
-      cane,
-      mainPoints,
-      index,
-      lateralCount,
-    );
+    const lateral = sideAxisPoints(seed, {
+      parentId: mainId,
+      parentAzimuth: cane.azimuth,
+      parentPoints: mainPoints,
+      childIndex: index,
+      childCount: lateralCount,
+      axisClass: 'long-lateral',
+    });
+    const lateralTip = lateral.points[lateral.points.length - 1];
+    const exposedOuterLateral =
+      lateralTip.y / Math.max(0.1, targetHeightM) > 0.46 ||
+      Math.hypot(lateralTip.x, lateralTip.z) /
+        Math.max(0.1, LYNWOOD_PROFILE.architecture.matureRadiusM) >
+        0.58;
     // Laterals are not a single cohort. A forsythia cane extends and branches
     // every season it is alive, and it is that steady supply of one-year wood
     // that keeps an established shrub flowering harder than a young one. Two
     // laterals are assigned to each year of the cane's productive life.
     const lateralCohortYear =
       1 + (index % Math.max(1, LYNWOOD_PROFILE.cane.productiveLifeYears));
+    const lateralEmergenceDay = randomRange(
+      seed,
+      [id, 'lateral-birth', index],
+      LYNWOOD_RENDER_PRIORS.shootEmergenceDayRange[0],
+      LYNWOOD_RENDER_PRIORS.shootEmergenceDayRange[1],
+    );
     const lateralBirthAgeYears =
-      birthAgeYears +
+      Math.floor(birthAgeYears) +
       lateralCohortYear +
-      randomRange(seed, [id, 'lateral-birth', index], 0.24, 0.34);
+      (lateralEmergenceDay - 1) / 365;
     if (
       lateralBirthAgeYears >= naturalDeathAgeYears ||
       lateralBirthAgeYears >= maxYears + 1
@@ -591,6 +849,8 @@ function makeCane(
         points: lateral.points,
         deathAgeYears: naturalDeathAgeYears,
         maxYears,
+        growthDurationYears:
+          LYNWOOD_PROFILE.cane.lateralAxisGrowthDurationYears,
       }),
     );
 
@@ -600,53 +860,76 @@ function makeCane(
     // and the bloom reads as speckles on bare sticks however many flowers each
     // node carries.
     const lateralId = `${id}:axis:${index + 1}`;
-    const twigCount = randomInt(seed, [lateralId, 'twig-count'], 2, 4);
-    for (let twig = 0; twig < twigCount; twig += 1) {
-      const sub = lateralAxisPoints(
+    const firstShortShootYear = Math.floor(lateralBirthAgeYears) + 1;
+    const finalShortShootYear = Math.min(
+      maxYears,
+      scheduledRemovalYear - 1,
+      Math.floor(naturalDeathAgeYears) - 1,
+    );
+    for (
+      let formationYear = firstShortShootYear;
+      formationYear <= finalShortShootYear;
+      formationYear += 1
+    ) {
+      const cohortId = `${lateralId}:short:y${formationYear}`;
+      const baseShootCount = randomInt(
         seed,
-        cane,
-        lateral.points,
-        twig,
-        twigCount,
+        [cohortId, 'count'],
+        LYNWOOD_PROFILE.cane.annualShortShootCountPerLateral[0],
+        LYNWOOD_PROFILE.cane.annualShortShootCountPerLateral[1],
       );
-      const twigBirthAgeYears =
-        lateralBirthAgeYears +
-        1 +
-        randomRange(seed, [lateralId, 'twig-birth', twig], 0.1, 0.3);
-      if (
-        twigBirthAgeYears >= naturalDeathAgeYears ||
-        twigBirthAgeYears >= maxYears + 1
-      ) {
-        continue;
+      // A minority of exposed outer laterals carries one more short flowering
+      // spray. This fills real crown gaps without multiplying flowers on every
+      // axis or rebuilding the cultivar as a solid yellow blob.
+      const shootCount =
+        baseShootCount +
+        (exposedOuterLateral &&
+        keyedRandom(seed, [cohortId, 'outer-extra-shoot']) < 0.4
+          ? 1
+          : 0);
+      for (let shoot = 0; shoot < shootCount; shoot += 1) {
+        const sub = sideAxisPoints(seed, {
+          parentId: cohortId,
+          parentAzimuth: lateral.azimuth,
+          parentPoints: lateral.points,
+          childIndex: shoot,
+          childCount: shootCount,
+          axisClass: 'short-shoot',
+        });
+        const shortShootEmergenceDay = randomRange(
+          seed,
+          [cohortId, 'birth', shoot],
+          LYNWOOD_RENDER_PRIORS.shootEmergenceDayRange[0],
+          LYNWOOD_RENDER_PRIORS.shootEmergenceDayRange[1],
+        );
+        const shortShootBirthAgeYears =
+          formationYear + (shortShootEmergenceDay - 1) / 365;
+        if (
+          shortShootBirthAgeYears >= naturalDeathAgeYears ||
+          shortShootBirthAgeYears >= maxYears + 1
+        ) {
+          continue;
+        }
+        cane.axes.push(
+          makeAxis(seed, {
+            id: `${cohortId}:${shoot}`,
+            parentId: `${lateralId}:node:${sub.attachIndex - 1}`,
+            order: 2,
+            birthAgeYears: shortShootBirthAgeYears,
+            azimuth: sub.azimuth,
+            points: sub.points,
+            // A short shoot is a brief flowering module, not another immortal
+            // twig. Keep the flowering spring and following season, then let
+            // younger cohorts replace its visual role on the parent lateral.
+            deathAgeYears: Math.min(naturalDeathAgeYears, formationYear + 1.95),
+            maxYears,
+            growthDurationYears: LYNWOOD_PROFILE.cane.twigGrowthDurationYears,
+          }),
+        );
       }
-      cane.axes.push(
-        makeAxis(seed, {
-          id: `${lateralId}:twig:${twig}`,
-          parentId: `${lateralId}:node:${sub.attachIndex - 1}`,
-          order: 2,
-          birthAgeYears: twigBirthAgeYears,
-          azimuth: sub.azimuth,
-          // Twigs are short: a fraction of the lateral that bore them.
-          points: sub.points.map((point) =>
-            add(
-              sub.points[0],
-              scale(
-                vector(
-                  point.x - sub.points[0].x,
-                  point.y - sub.points[0].y,
-                  point.z - sub.points[0].z,
-                ),
-                0.44,
-              ),
-            ),
-          ),
-          deathAgeYears: naturalDeathAgeYears,
-          maxYears,
-        }),
-      );
     }
   }
-  return cane;
+  return calibrateCaneRadius(seed, cane);
 }
 
 function assertModelOptions(seed, maxYears) {
@@ -658,7 +941,7 @@ function assertModelOptions(seed, maxYears) {
   }
 }
 
-/** Builds the stable all-years organ graph once. */
+/** Builds the absolute-year cane cohort schedule. Geometry stays lazy. */
 export function createLynwoodModel({
   seed = 'lynwood-demo',
   maxYears = 50,
@@ -666,78 +949,57 @@ export function createLynwoodModel({
   assertModelOptions(seed, maxYears);
   const canes = [];
   const architecture = LYNWOOD_PROFILE.architecture;
-  const cycleYears = architecture.replacementCycleYears;
+  const annualRenewalCount = architecture.annualRenewalShootCount;
+  const firstRenewalYear = architecture.renewalStartsAfterYear + 1;
+  const initialRemovalStartYear = LYNWOOD_PROFILE.cane.productiveLifeYears + 1;
+  const naturalLifeYears = architecture.naturalCaneLifeYears;
 
-  // Only ONE replacement cycle is ever built. After the cycle length the
-  // maintained view already represents a replacement planting, and the
-  // evaluator maps the requested age onto its position within a cycle, so
-  // materialising a fresh set of canes per cycle produced three identical
-  // stands of which two could never be seen -- at triple the build cost and
-  // triple the memory.
-  {
-    const cycleStart = 0;
-    const cycleIndex = 0;
-    const cycleEnd = cycleYears;
-    for (let index = 0; index < architecture.initialCaneCount; index += 1) {
+  // The stool persists for the whole horizon. Its founding canes are renewed
+  // away in annual post-flowering cohorts, while new basal shoots continue on
+  // absolute years; no whole-plant modulo reset or organ-ID reuse is involved.
+  for (let index = 0; index < architecture.initialCaneCount; index += 1) {
+    canes.push(
+      makeCaneDescriptor({
+        sequence: index,
+        cohort: 'initial',
+        birthAgeYears: 0,
+        scheduledRemovalYear:
+          initialRemovalStartYear + Math.floor(index / annualRenewalCount),
+        naturalDeathAgeYears: Math.min(maxYears + 1, naturalLifeYears),
+      }),
+    );
+  }
+
+  for (let year = firstRenewalYear; year <= maxYears; year += 1) {
+    for (let shoot = 0; shoot < annualRenewalCount; shoot += 1) {
+      const renewalKey = `lynwood:renewal:${year}:${shoot}`;
+      const renewalEmergenceDay = randomRange(
+        seed,
+        [renewalKey, 'emergence-day'],
+        LYNWOOD_PROFILE.growth.renewalEmergenceDayRange[0],
+        LYNWOOD_PROFILE.growth.renewalEmergenceDayRange[1],
+      );
+      const birthAgeYears = year + (renewalEmergenceDay - 1) / 365;
       canes.push(
-        makeCane(seed, {
-          cycleIndex,
-          sequence: index,
-          cohort: 'initial',
-          birthAgeYears: cycleStart,
-          // RHS renewal takes up to a fifth of the oldest stems every year, so the
-          // founding canes are worked out over about one productive life rather
-          // than lingering for a decade as unflowering old wood.
-          scheduledRemovalAgeYears: Math.min(
-            cycleEnd,
-            cycleStart + 4 + index * 0.62,
+        makeCaneDescriptor({
+          sequence: year * annualRenewalCount + shoot,
+          cohort: 'renewal',
+          birthAgeYears,
+          // Retain the cane through its productive extension years and both
+          // supported flowering ages, then renew it immediately after bloom.
+          scheduledRemovalYear:
+            year + LYNWOOD_PROFILE.cane.productiveLifeYears + 2,
+          naturalDeathAgeYears: Math.min(
+            maxYears + 1,
+            birthAgeYears + naturalLifeYears,
           ),
-          naturalDeathAgeYears: cycleEnd,
-          maxYears,
         }),
       );
     }
-
-    for (
-      let localYear = architecture.renewalStartsAfterYear + 1;
-      localYear < cycleYears;
-      localYear += 1
-    ) {
-      // A vigorous, rapidly growing shrub throws more than one basal shoot a
-      // season. Two per year keeps the maintained stool inside the 7-14 stem
-      // range while replacing what post-flowering renewal takes out.
-      for (let shoot = 0; shoot < 2; shoot += 1) {
-        const renewalKey = `lynwood:c${cycleIndex}:renewal:${localYear}:${shoot}`;
-        const renewalEmergenceDay = randomRange(
-          seed,
-          [renewalKey, 'emergence-day'],
-          LYNWOOD_PROFILE.growth.renewalEmergenceDayRange[0],
-          LYNWOOD_PROFILE.growth.renewalEmergenceDayRange[1],
-        );
-        canes.push(
-          makeCane(seed, {
-            cycleIndex,
-            sequence: localYear * 2 + shoot,
-            cohort: 'renewal',
-            birthAgeYears:
-              cycleStart + localYear + (renewalEmergenceDay - 1) / 365,
-            scheduledRemovalAgeYears: Math.min(
-              cycleEnd,
-              cycleStart +
-                localYear +
-                LYNWOOD_PROFILE.cane.productiveLifeYears +
-                1,
-            ),
-            naturalDeathAgeYears: cycleEnd,
-            maxYears,
-          }),
-        );
-      }
-    }
   }
 
-  return {
-    schemaVersion: 1,
+  const model = {
+    schemaVersion: 2,
     kind: 'forsythia-growth-model',
     species: LYNWOOD_PROFILE.species,
     cultivar: LYNWOOD_PROFILE.cultivar,
@@ -746,6 +1008,47 @@ export function createLynwoodModel({
     metresPerUnit: LYNWOOD_PROFILE.metresPerUnit,
     canes,
   };
+  // Schema 2 serialises only compact cohort descriptors. A non-enumerable
+  // compatibility view keeps direct `cane.axes` inspection available without
+  // making JSON/deep comparisons eagerly build fifty years of geometry.
+  for (const descriptor of canes) {
+    Object.defineProperty(descriptor, 'axes', {
+      configurable: false,
+      enumerable: false,
+      get: () => materializeCane(model, descriptor).axes,
+    });
+  }
+  return model;
+}
+
+// A 50-year timeline contains more than one hundred distinct cane identities,
+// but only about fourteen coexist in a maintained stool. Materialise geometry
+// for live canes on demand and retain a small LRU so A -> B -> A scrubbing is
+// fast without turning the model into a permanent all-years organ warehouse.
+const MATERIALIZED_CANE_CACHES = new WeakMap();
+
+function materializeCane(model, descriptor) {
+  let cache = MATERIALIZED_CANE_CACHES.get(model);
+  if (!cache) {
+    cache = new Map();
+    MATERIALIZED_CANE_CACHES.set(model, cache);
+  }
+  if (cache.has(descriptor.id)) {
+    const cached = cache.get(descriptor.id);
+    cache.delete(descriptor.id);
+    cache.set(descriptor.id, cached);
+    return cached;
+  }
+
+  const cane = makeCane(model.seed, {
+    ...descriptor,
+    maxYears: model.maxYears,
+  });
+  cache.set(descriptor.id, cane);
+  while (cache.size > LYNWOOD_RENDER_PRIORS.liveCaneCacheSize) {
+    cache.delete(cache.keys().next().value);
+  }
+  return cane;
 }
 
 export function createPruneEvent({ id, caneId, ageYears, dayOfYear = 1 }) {
@@ -799,6 +1102,61 @@ function vegetativeGrowthProgress(day, calendar = LYNWOOD_CALENDAR) {
 
 function growthBirthOffsetYears(phenology) {
   return Number(phenology.offsetDays ?? 0) / 365;
+}
+
+function localFlowerState(cluster, day, calendar) {
+  const anthesisDay = calendar.floweringStart + cluster.anthesisOffsetDays;
+  const openDay = anthesisDay + LYNWOOD_RENDER_PRIORS.corollaOpeningDays;
+  const endDay = anthesisDay + cluster.displayDurationDays;
+  const budStart =
+    calendar.budSwellingStart + Math.max(0, cluster.anthesisOffsetDays * 0.2);
+
+  let budVisibility = 0;
+  let openVisibility = 0;
+  if (day >= budStart && day < openDay) {
+    budVisibility = smoothstep01(
+      (day - budStart) / Math.max(1, Math.min(9, anthesisDay - budStart)),
+    );
+  } else if (day >= openDay && day <= endDay) {
+    const opening = smoothstep01((day - openDay + 0.35) / 1.5);
+    const fadeStart = endDay - LYNWOOD_RENDER_PRIORS.corollaFadeDays;
+    const fading =
+      1 -
+      smoothstep01(
+        (day - fadeStart) / Math.max(1, LYNWOOD_RENDER_PRIORS.corollaFadeDays),
+      );
+    openVisibility = Math.min(opening, fading);
+  }
+
+  return {
+    budVisibility,
+    openVisibility,
+    flowerVisibility: Math.max(budVisibility, openVisibility),
+    progress: smoothstep01(
+      (day - anthesisDay) /
+        Math.max(1, LYNWOOD_RENDER_PRIORS.corollaOpeningDays),
+    ),
+  };
+}
+
+function localLeafProgress(seed, axisId, nodeId, day, calendar) {
+  const axisOffset = randomRange(
+    seed,
+    [axisId, 'leaf-break-offset'],
+    LYNWOOD_RENDER_PRIORS.leafBreakOffsetDays[0],
+    LYNWOOD_RENDER_PRIORS.leafBreakOffsetDays[1],
+  );
+  const startDay =
+    calendar.leafEmergenceStart +
+    axisOffset +
+    randomRange(seed, [nodeId, 'leaf-break-jitter'], -0.75, 0.75);
+  const duration = randomRange(
+    seed,
+    [axisId, 'leaf-expansion-duration'],
+    LYNWOOD_RENDER_PRIORS.leafExpansionDurationDays[0],
+    LYNWOOD_RENDER_PRIORS.leafExpansionDurationDays[1],
+  );
+  return smoothstep01((day - startDay) / Math.max(1, duration));
 }
 
 function effectiveCaneBirthAge(cane, phenology) {
@@ -865,7 +1223,7 @@ function evaluateCane(seed, cane, now, currentYear, phenology) {
 
   for (const axis of cane.axes) {
     const axisBirthAgeYears = effectiveAxisBirthAge(axis, cane, phenology);
-    if (axisBirthAgeYears > now) continue;
+    if (axisBirthAgeYears > now || now >= axis.deathAgeYears) continue;
     const isPrimary = axis.order === 0;
     const axisGrowthScale = isPrimary
       ? visibleGrowthScale
@@ -897,17 +1255,30 @@ function evaluateCane(seed, cane, now, currentYear, phenology) {
 
     const nodes = [];
     for (const node of axis.nodes) {
+      const nodeBirthAgeYears =
+        node.birthAgeYears + (axisBirthAgeYears - axis.birthAgeYears);
+      if (nodeBirthAgeYears > now) continue;
       const nodePosition = transformAxisPoint(node.position);
       const organScale = isPrimary ? visibleGrowthScale : axisGrowthScale;
 
       const leaves = [];
-      for (const leaf of node.leaves) {
-        if (leaf.year !== currentYear) continue;
-        const unfoldProgress = clamp(phenology.leafProgress, 0, 1);
+      const nodeLeafProgress = localLeafProgress(
+        seed,
+        axis.id,
+        node.id,
+        phenology.dayOfYear,
+        phenology.calendar,
+      );
+      const lowerOldMainWood =
+        isPrimary &&
+        currentYear - Math.floor(caneBirthAgeYears) >= 2 &&
+        node.positionAlongAxis < 0.62;
+      for (const leaf of lowerOldMainWood ? [] : node.leaves) {
+        const unfoldProgress = clamp(nodeLeafProgress, 0, 1);
         leaves.push({
           id: leaf.id,
           side: leaf.side,
-          visible: phenology.leafOpacity > 0.02,
+          visible: phenology.leafOpacity > 0.02 && unfoldProgress > 0.015,
           unfoldProgress,
           position: transformAxisPoint(leaf.position),
           normal: leaf.normal,
@@ -920,16 +1291,21 @@ function evaluateCane(seed, cane, now, currentYear, phenology) {
       const clusters = [];
       for (const cluster of node.clusters) {
         if (cluster.floweringYear !== currentYear) continue;
+        const flowerState = localFlowerState(
+          cluster,
+          phenology.dayOfYear,
+          phenology.calendar,
+        );
         const capsuleVisible =
           cluster.capsule != null && phenology.capsuleVisibility > 0.02;
         clusters.push({
           id: cluster.id,
           woodAgeYears: cluster.woodAgeYears,
-          visible: phenology.flowerVisibility > 0.015 || capsuleVisible,
-          flowerVisibility: phenology.flowerVisibility,
-          flowerBudVisibility: phenology.flowerBudVisibility,
-          flowerOpenVisibility: phenology.flowerOpenVisibility,
-          flowerProgress: phenology.flowerProgress,
+          visible: flowerState.flowerVisibility > 0.015 || capsuleVisible,
+          flowerVisibility: flowerState.flowerVisibility,
+          flowerBudVisibility: flowerState.budVisibility,
+          flowerOpenVisibility: flowerState.openVisibility,
+          flowerProgress: flowerState.progress,
           capsuleVisibility: capsuleVisible ? phenology.capsuleVisibility : 0,
           capsuleMaturity: phenology.capsuleMaturity,
           flowers: cluster.flowers.map((flower) => ({
@@ -940,6 +1316,9 @@ function evaluateCane(seed, cane, now, currentYear, phenology) {
             corollaWidthM: flower.corollaWidthM,
             tubeLengthM: flower.tubeLengthM,
             roll: flower.roll,
+            budVisibility: flowerState.budVisibility,
+            openVisibility: flowerState.openVisibility,
+            openProgress: flowerState.progress,
           })),
           capsule: cluster.capsule
             ? {
@@ -967,6 +1346,8 @@ function evaluateCane(seed, cane, now, currentYear, phenology) {
       id: axis.id,
       order: axis.order,
       parentId: axis.parentId,
+      sourcePoints: axis.points,
+      sourceNodes: axis.nodes,
       root: grownRoot,
       growthScale: axisGrowthScale,
       nodes,
@@ -1022,14 +1403,17 @@ function snapshotStats(canes, phenology) {
         }
         for (const cluster of node.clusters) {
           if (!cluster.visible) continue;
-          if (cluster.flowerVisibility > 0.015) {
-            floweringNodes++;
-            if (cluster.flowerOpenVisibility > 0.015) {
-              visibleFlowers += cluster.flowers.length;
-            } else {
-              visibleFlowerBuds += cluster.flowers.length;
+          let flowering = false;
+          for (const flower of cluster.flowers) {
+            if (flower.openVisibility > 0.015) {
+              visibleFlowers++;
+              flowering = true;
+            } else if (flower.budVisibility > 0.015) {
+              visibleFlowerBuds++;
+              flowering = true;
             }
           }
+          if (flowering) floweringNodes++;
           if (cluster.capsule && cluster.capsuleVisibility > 0.02) {
             visibleCapsules++;
           }
@@ -1045,8 +1429,20 @@ function snapshotStats(canes, phenology) {
     visibleFlowerBuds,
     visibleCapsules,
     floweringNodes,
-    bareWoodFlowering: phenology.bareWoodFlowering,
+    bareWoodFlowering: phenology.bareWoodFlowering && visibleFlowers > 0,
   };
+}
+
+function automaticRemovalTime(cane, calendar) {
+  const day =
+    calendar.floweringEnd +
+    LYNWOOD_PROFILE.management.automaticRenewalDelayDays;
+  if (day > LYNWOOD_PROFILE.management.latestSafePruningDay) {
+    throw new RangeError(
+      'Automatic Forsythia renewal falls outside the safe pruning window.',
+    );
+  }
+  return cane.scheduledRemovalYear + (day - 1) / 365;
 }
 
 /**
@@ -1067,6 +1463,11 @@ export function evaluateLynwoodModel(
   if (!model || model.kind !== 'forsythia-growth-model') {
     throw new TypeError('Expected a model returned by createLynwoodModel');
   }
+  if (model.schemaVersion !== 2) {
+    throw new RangeError(
+      'Unsupported Forsythia model schema; rebuild it with createLynwoodModel.',
+    );
+  }
   if (
     !Number.isInteger(ageYears) ||
     ageYears < 0 ||
@@ -1084,12 +1485,8 @@ export function evaluateLynwoodModel(
   }
 
   const phenology = getLynwoodPhenology(dayOfYear, { region, offsetDays });
-  const cycleYearsForAge = LYNWOOD_PROFILE.architecture.replacementCycleYears;
-  // The graph holds one cycle, so the plant is evaluated at its age WITHIN the
-  // current replacement cycle.
-  const ageInCycle = ageYears % cycleYearsForAge;
-  const now = ageInCycle + (phenology.dayOfYear - 1) / 365;
-  const currentYear = Math.floor(ageInCycle);
+  const now = ageYears + (phenology.dayOfYear - 1) / 365;
+  const currentYear = ageYears;
   const appliedEvents = events
     .filter((event) => lynwoodEventTime(event) <= now)
     .slice()
@@ -1108,16 +1505,22 @@ export function evaluateLynwoodModel(
     .filter((cane) => {
       const removalAgeYears =
         scenario === 'maintained'
-          ? cane.scheduledRemovalAgeYears
+          ? automaticRemovalTime(cane, phenology.calendar)
           : cane.naturalDeathAgeYears;
       return (
         effectiveCaneBirthAge(cane, phenology) <= now && now < removalAgeYears
       );
     })
-    .map((cane) => evaluateCane(model.seed, cane, now, currentYear, phenology));
+    .map((descriptor) =>
+      evaluateCane(
+        model.seed,
+        materializeCane(model, descriptor),
+        now,
+        currentYear,
+        phenology,
+      ),
+    );
   const canes = evaluatedCanes.filter((cane) => !prunedCanes.has(cane.id));
-  const cycleYears = LYNWOOD_PROFILE.architecture.replacementCycleYears;
-  const cycleAgeYears = ageYears % cycleYears;
 
   return {
     species: model.species,
@@ -1126,12 +1529,10 @@ export function evaluateLynwoodModel(
     scenario,
     ageYears,
     dayOfYear: phenology.dayOfYear,
-    cycleIndex: Math.floor(ageYears / cycleYears),
-    cycleAgeYears,
     dimensions: snapshotDimensions(canes),
     phenology,
     careHints: getLynwoodCareHints(phenology.dayOfYear, {
-      plantAgeYears: cycleAgeYears,
+      plantAgeYears: ageYears,
       region,
       offsetDays,
     }),

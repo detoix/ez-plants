@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { LYNWOOD_PROFILE } from './lynwood.js';
+import { LYNWOOD_PROFILE, LYNWOOD_RENDER_PRIORS } from './lynwood.js';
 import {
   createLynwoodModel,
   createPruneEvent,
@@ -15,7 +15,6 @@ import { createLeafCardGeometry } from '../../leaf-geometry.js';
 import { createLeafMaterialSet } from '../../leaf-material.js';
 import { keyedRange } from '../../keyed-random.js';
 import {
-  composeSegmentMatrix,
   createUnitStemGeometry,
   makeBasisQuaternion,
   vector,
@@ -26,10 +25,31 @@ const UP = new THREE.Vector3(0, 1, 0);
 // Forsythia foliage runs a fairly deep, slightly blue green in summer, flushes
 // bronze-tinted when young, and turns gold to purple-bronze in autumn.
 const SPRING_LEAF_TINT = new THREE.Color(0xdcecc0);
-const SUMMER_LEAF_TINT = new THREE.Color(0xffffff);
+const SUMMER_LEAF_TINT = new THREE.Color(0xc2d3ac);
 const AUTUMN_LEAF_TINT = new THREE.Color(0xd8a05a);
 const PETIOLE_GREEN = new THREE.Color(0x7d8d4e);
 const PETIOLE_BRONZE = new THREE.Color(0x7d6340);
+const DORMANT_BUD_SCALE = new THREE.Vector3(0.0038, 0.007, 0.0038);
+
+function composeSegmentMatrix(target, direction, start, end, radius) {
+  direction.copy(end).sub(start);
+  const length = direction.length();
+  target.position.copy(start);
+
+  if (length < 1e-7) {
+    target.quaternion.identity();
+    target.scale.set(0, 0, 0);
+  } else {
+    target.quaternion.setFromUnitVectors(
+      UP,
+      direction.multiplyScalar(1 / length),
+    );
+    target.scale.set(radius, length, radius);
+  }
+
+  target.updateMatrix();
+  return target.matrix;
+}
 
 const INSTANCE_KINDS = Object.freeze([
   'leaves',
@@ -77,7 +97,21 @@ const DEFAULT_LOD_LEVELS = Object.freeze([
 export class Forsythia extends PlantRenderer {
   #model;
 
+  #scratch = {
+    direction: new THREE.Vector3(),
+    matrix: new THREE.Matrix4(),
+    nodePosition: new THREE.Vector3(),
+    position: new THREE.Vector3(),
+    scale: new THREE.Vector3(),
+    segment: new THREE.Object3D(),
+  };
+
   constructor(options = {}) {
+    if (options.schemaVersion != null && options.schemaVersion !== 2) {
+      throw new RangeError(
+        'Forsythia schema 1 used replacement-cycle event IDs; rebuild or migrate it to schema 2.',
+      );
+    }
     const requestedCultivar = options.cultivar ?? LYNWOOD_PROFILE.cultivar;
     if (
       requestedCultivar !== LYNWOOD_PROFILE.cultivar &&
@@ -123,7 +157,8 @@ export class Forsythia extends PlantRenderer {
     this._initialiseEvents(options.events ?? []);
 
     this._runtime.leaves = new Map();
-    this._runtime.clusters = new Map();
+    this._runtime.flowers = new Map();
+    this._runtime.capsules = new Map();
 
     this.#createMaterials();
     this.#buildStableGraph();
@@ -165,7 +200,7 @@ export class Forsythia extends PlantRenderer {
         metalness: 0,
       }),
       // Dormant vegetative buds on bare wood: small, dark and pointed.
-      bud: this._material({ color: 0x6b5a3e, roughness: 0.92, metalness: 0 }),
+      bud: this._material({ color: 0x78694d, roughness: 0.92, metalness: 0 }),
       flowerBud: this._material({
         color: 0xffffff,
         vertexColors: true,
@@ -175,6 +210,10 @@ export class Forsythia extends PlantRenderer {
       flower: this._material({
         color: 0xffffff,
         vertexColors: true,
+        // A small yellow lift keeps shaded, outward-facing corollas clear
+        // yellow instead of collapsing into ochre clumps at shrub scale.
+        emissive: 0x5a4800,
+        emissiveIntensity: 0.25,
         roughness: 0.62,
         metalness: 0,
         side: THREE.DoubleSide,
@@ -250,237 +289,264 @@ export class Forsythia extends PlantRenderer {
    * ------------------------------------------------------------------ */
 
   #buildStableGraph() {
-    const annualOrganCounts = new Map();
-    const unknownYearCounts = this._emptyInstanceCounts();
-    const historicalCounts = this._emptyInstanceCounts();
-    const addHistoricalOrgans = (additions) => {
-      for (const [kind, amount] of Object.entries(additions)) {
-        historicalCounts[kind] += amount;
-      }
+    const capacities = LYNWOOD_RENDER_PRIORS.instanceCapacities;
+    const historicalCounts = {
+      ...this._emptyInstanceCounts(),
+      ...capacities,
     };
-    const addAnnualOrgans = (year, additions) => {
-      let counts;
-      if (Number.isFinite(year)) {
-        counts = annualOrganCounts.get(year);
-        if (!counts) {
-          counts = this._emptyInstanceCounts();
-          annualOrganCounts.set(year, counts);
-        }
-      } else {
-        counts = unknownYearCounts;
-      }
-      for (const [kind, amount] of Object.entries(additions)) {
-        counts[kind] += amount;
-      }
-    };
+    const unknownYearCounts = { ...historicalCounts };
+    this._sizeInstancePool({
+      historicalCounts,
+      annualOrganCounts: new Map(),
+      unknownYearCounts,
+    });
+  }
 
-    for (const cane of this.#model.canes) {
+  /** Build render runtimes only for the canes present in this snapshot. */
+  #syncRuntime(snapshot) {
+    let signature = '';
+    for (const cane of snapshot.canes) {
+      for (const axis of cane.axes) signature += `${axis.id}|`;
+    }
+    if (signature === this._forsythiaRuntimeSignature) return;
+
+    this._runtime.axes.clear();
+    this._runtime.leaves.clear();
+    this._runtime.flowers.clear();
+    this._runtime.capsules.clear();
+
+    for (const cane of snapshot.canes) {
       const nodeAttachments = new Map();
-
       cane.axes.forEach((axis, axisIndex) => {
-        this._buildAxisRuntime({ cane, axis, axisIndex, nodeAttachments });
+        const sourceAxis = {
+          ...axis,
+          points: axis.sourcePoints,
+          nodes: axis.sourceNodes,
+        };
+        this._buildAxisRuntime({
+          cane,
+          axis: sourceAxis,
+          axisIndex,
+          nodeAttachments,
+        });
 
-        for (const node of axis.nodes) {
+        for (const node of axis.sourceNodes) {
           const nodePosition = vector(node.position);
           const tangent = vector(node.tangent);
           if (tangent.lengthSq() < 1e-6) tangent.set(0, 1, 0);
           tangent.normalize();
-
           for (const leaf of node.leaves) {
-            const start = nodePosition.clone();
             const end = vector(leaf.position);
-            const radial = end.clone().sub(start);
+            const radial = end.clone().sub(nodePosition);
             if (radial.lengthSq() < 1e-6) {
               radial.set(Math.cos(leaf.azimuth), 0.1, Math.sin(leaf.azimuth));
             }
             radial.normalize();
-            const size =
-              leaf.lengthM *
-              keyedRange(this.seed, [leaf.id, 'size'], 0.93, 1.07);
-
-            addHistoricalOrgans({ leaves: 1, petioles: 1, buds: 1 });
-            addAnnualOrgans(leaf.year, { leaves: 1, petioles: 1, buds: 1 });
+            const bladeForward = radial
+              .clone()
+              .multiplyScalar(0.84)
+              .addScaledVector(tangent, 0.16)
+              .normalize();
+            const budForward = radial
+              .clone()
+              .multiplyScalar(0.5)
+              .addScaledVector(tangent, 0.85)
+              .normalize();
             this._runtime.leaves.set(leaf.id, {
               id: leaf.id,
-              start,
+              identity: this._renderIdentity(leaf.id, 'leaf'),
               position: end,
               radial,
-              size,
+              leafQuaternion: makeBasisQuaternion(
+                bladeForward,
+                vector(leaf.normal, UP),
+              ),
+              budQuaternion: makeBasisQuaternion(budForward, UP),
+              petioleColor: PETIOLE_GREEN.clone().lerp(
+                PETIOLE_BRONZE,
+                keyedRange(this.seed, [leaf.id, 'petiole-bronze'], 0.2, 0.7),
+              ),
+              size:
+                leaf.lengthM *
+                keyedRange(this.seed, [leaf.id, 'size'], 0.93, 1.07),
               sourceSize: leaf.lengthM,
-              widthRatio: leaf.widthM / Math.max(1e-6, leaf.lengthM),
             });
           }
 
           for (const cluster of node.clusters) {
-            const flowerCount = cluster.flowers.length;
-            const organs = {
-              pedicels: flowerCount,
-              flowerBuds: flowerCount,
-              flowers: flowerCount,
-              capsules: cluster.capsule ? 1 : 0,
-            };
-            addHistoricalOrgans(organs);
-            addAnnualOrgans(cluster.floweringYear, organs);
-            this._runtime.clusters.set(cluster.id, { id: cluster.id });
+            for (const flower of cluster.flowers) {
+              const direction = vector(flower.direction);
+              if (direction.lengthSq() < 1e-6) direction.set(0, -1, 0);
+              direction.normalize();
+              const budQuaternion = makeBasisQuaternion(direction, UP);
+              const spin = new THREE.Quaternion().setFromAxisAngle(
+                UP,
+                flower.roll,
+              );
+              this._runtime.flowers.set(flower.id, {
+                id: flower.id,
+                identity: this._renderIdentity(flower.id, 'flower'),
+                budQuaternion,
+                flowerQuaternion: budQuaternion.clone().multiply(spin),
+                budSizeFactor: keyedRange(
+                  this.seed,
+                  [flower.id, 'bud-size'],
+                  0.85,
+                  1.15,
+                ),
+                corollaSizeFactor: keyedRange(
+                  this.seed,
+                  [flower.id, 'corolla-size'],
+                  0.88,
+                  1.12,
+                ),
+                tubeRatio: THREE.MathUtils.clamp(
+                  flower.tubeLengthM /
+                    Math.max(1e-6, flower.corollaWidthM * 0.3),
+                  0.86,
+                  1.18,
+                ),
+              });
+            }
+
+            if (cluster.capsule) {
+              const direction = vector(cluster.capsule.direction);
+              if (direction.lengthSq() < 1e-6) direction.set(0, -1, 0);
+              direction.normalize();
+              this._runtime.capsules.set(cluster.capsule.id, {
+                id: cluster.capsule.id,
+                identity: this._renderIdentity(cluster.capsule.id, 'capsule'),
+                quaternion: makeBasisQuaternion(direction, UP),
+              });
+            }
           }
         }
       });
     }
 
-    this._sizeInstancePool({
-      historicalCounts,
-      annualOrganCounts,
-      unknownYearCounts,
-    });
+    this._forsythiaRuntimeSignature = signature;
   }
 
   /* ------------------------------------------------------------------ *
    * Per-organ placement
    * ------------------------------------------------------------------ */
 
+  #detailScale(runtime, stride, scale) {
+    if (stride <= 1) return scale;
+    if (runtime.detailStride !== stride || runtime.detailInputScale !== scale) {
+      runtime.detailStride = stride;
+      runtime.detailInputScale = scale;
+      runtime.detailScale = this._organDetailScale(runtime.id, stride, scale);
+    }
+    return runtime.detailScale;
+  }
+
   #setLeaf(leafRuntime, leafState, nodeState, detailScale = 1) {
-    const identity = (leafRuntime.identity ??= this._renderIdentity(
-      leafRuntime.id,
-      'leaf',
-    ));
+    const identity = leafRuntime.identity;
     const unfoldProgress = THREE.MathUtils.clamp(
       leafState.unfoldProgress,
       0,
       1,
     );
 
-    const petioleStart = vector(nodeState.position);
-    const position = petioleStart
-      .clone()
-      .lerp(vector(leafState.position, leafRuntime.position), unfoldProgress);
-    const radial = position.clone().sub(petioleStart);
-    if (radial.lengthSq() < 1e-6) radial.copy(leafRuntime.radial);
-    const tangent = vector(nodeState.tangent);
-    if (tangent.lengthSq() < 1e-6) tangent.set(0, 1, 0);
-    tangent.normalize();
-
-    // The blade projects away from the shoot with only a little alignment to
-    // it, which is what gives an opposite-leaved shrub its flat, ranked look.
-    const bladeForward = radial
-      .clone()
-      .normalize()
-      .multiplyScalar(0.84)
-      .addScaledVector(tangent, 0.16)
-      .normalize();
-    const leafQuaternion = makeBasisQuaternion(
-      bladeForward,
-      vector(leafState.normal, UP),
-    );
+    const { direction, matrix, nodePosition, position, scale, segment } =
+      this.#scratch;
+    nodePosition.copy(nodeState.position);
+    position
+      .copy(nodePosition)
+      .lerp(leafState.position ?? leafRuntime.position, unfoldProgress);
     const sourceScale = leafState.scale / leafRuntime.sourceSize;
-    const scale = leafRuntime.size * sourceScale * detailScale;
-    const matrix = new THREE.Matrix4().compose(
-      position,
-      leafQuaternion,
-      // The leaf plate carries the blade's own 2.2:1 proportions, as the other
-      // plates in this library do, so the card scales uniformly.
-      new THREE.Vector3(scale, scale, scale),
-    );
+    const leafScale = leafRuntime.size * sourceScale * detailScale;
+    scale.set(leafScale, leafScale, leafScale);
+    matrix.compose(position, leafRuntime.leafQuaternion, scale);
     this._writeInstance('leaves', identity, matrix);
 
-    const petioleDummy = new THREE.Object3D();
-    composeSegmentMatrix(petioleDummy, petioleStart, position, 0.0011);
+    composeSegmentMatrix(segment, direction, nodePosition, position, 0.0011);
     this._writeInstance(
       'petioles',
       identity,
-      petioleDummy.matrix,
-      PETIOLE_GREEN.clone().lerp(
-        PETIOLE_BRONZE,
-        keyedRange(this.seed, [leafRuntime.id, 'petiole-bronze'], 0.2, 0.7),
-      ),
+      segment.matrix,
+      leafRuntime.petioleColor,
     );
-    leafRuntime.currentQuaternion = leafQuaternion;
   }
 
   #setBud(leafRuntime, nodeState, visible) {
     if (!visible) return;
-    const identity = (leafRuntime.identity ??= this._renderIdentity(
-      leafRuntime.id,
-      'leaf',
-    ));
-    const scale = new THREE.Vector3(0.006, 0.011, 0.006);
+    const { matrix, position } = this.#scratch;
     // Opposite phyllotaxis means two buds share this node. Seating both at the
     // node centre stacks them into one z-fighting blob and doubles overdraw,
     // so each is pushed out along its own leaf's radial to sit on its own side
     // of the stem, which is where the pair actually sits on bare winter wood.
-    const position = vector(nodeState.position).addScaledVector(
-      leafRuntime.radial,
-      0.0042,
-    );
-    const quaternion = makeBasisQuaternion(
-      leafRuntime.radial
-        .clone()
-        .multiplyScalar(0.5)
-        .addScaledVector(vector(nodeState.tangent, UP).normalize(), 0.85)
-        .normalize(),
-      UP,
-    );
-    this._writeInstance(
-      'buds',
-      identity,
-      new THREE.Matrix4().compose(position, quaternion, scale),
-    );
+    position
+      .copy(nodeState.position)
+      .addScaledVector(leafRuntime.radial, 0.0032);
+    matrix.compose(position, leafRuntime.budQuaternion, DORMANT_BUD_SCALE);
+    this._writeInstance('buds', leafRuntime.identity, matrix);
   }
 
-  #setCluster(clusterState, nodeState) {
-    const openVisibility = THREE.MathUtils.clamp(
-      clusterState.flowerOpenVisibility,
-      0,
-      1,
-    );
-    const budVisibility = THREE.MathUtils.clamp(
-      clusterState.flowerBudVisibility,
-      0,
-      1,
-    );
+  #setCluster(
+    clusterState,
+    nodeState,
+    { flowerStride = 1, flowerScale = 1 } = {},
+    counts,
+  ) {
     const capsuleVisibility = THREE.MathUtils.clamp(
       clusterState.capsuleVisibility,
       0,
       1,
     );
-    const nodePosition = vector(nodeState.position);
+    const { direction, matrix, nodePosition, position, scale, segment } =
+      this.#scratch;
+    nodePosition.copy(nodeState.position);
 
     for (const flower of clusterState.flowers) {
-      const identity = this._renderIdentity(flower.id, 'flower');
-      const position = vector(flower.position);
-      const direction = vector(flower.direction);
-      if (direction.lengthSq() < 1e-6) direction.set(0, -1, 0);
-      direction.normalize();
+      const runtime = this._runtime.flowers.get(flower.id);
+      if (!runtime) {
+        throw new Error(`Missing render flower for model organ ${flower.id}.`);
+      }
+      const detailScale = this.#detailScale(runtime, flowerStride, flowerScale);
+      if (detailScale <= 0) continue;
+      const openVisibility = THREE.MathUtils.clamp(
+        flower.openVisibility ?? clusterState.flowerOpenVisibility,
+        0,
+        1,
+      );
+      const budVisibility = THREE.MathUtils.clamp(
+        flower.budVisibility ?? clusterState.flowerBudVisibility,
+        0,
+        1,
+      );
+      position.copy(flower.position);
 
       // The pedicel is very short: forsythia flowers sit almost directly on
       // the stem rather than hanging from an inflorescence axis.
       if (openVisibility > 0.015 || budVisibility > 0.015) {
-        const pedicelDummy = new THREE.Object3D();
-        composeSegmentMatrix(pedicelDummy, nodePosition, position, 0.0009);
+        composeSegmentMatrix(
+          segment,
+          direction,
+          nodePosition,
+          position,
+          0.0009,
+        );
         this._writeInstance(
           'pedicels',
-          identity,
-          pedicelDummy.matrix,
+          runtime.identity,
+          segment.matrix,
           PETIOLE_BRONZE,
         );
       }
-
-      const quaternion = makeBasisQuaternion(direction, UP);
 
       if (budVisibility > 0.015) {
         const budScale =
           flower.corollaWidthM *
           0.42 *
           budVisibility *
-          keyedRange(this.seed, [flower.id, 'bud-size'], 0.85, 1.15);
-        this._writeInstance(
-          'flowerBuds',
-          identity,
-          new THREE.Matrix4().compose(
-            position,
-            quaternion,
-            new THREE.Vector3(budScale, budScale * 1.6, budScale),
-          ),
-        );
+          detailScale *
+          runtime.budSizeFactor;
+        scale.set(budScale, budScale * 1.6, budScale);
+        matrix.compose(position, runtime.budQuaternion, scale);
+        this._writeInstance('flowerBuds', runtime.identity, matrix);
+        counts.visibleFlowerBuds++;
       }
 
       if (openVisibility > 0.015) {
@@ -488,38 +554,29 @@ export class Forsythia extends PlantRenderer {
         const openScale =
           flower.corollaWidthM *
           THREE.MathUtils.lerp(0.55, 1, openVisibility) *
-          keyedRange(this.seed, [flower.id, 'corolla-size'], 0.88, 1.12);
-        const spin = new THREE.Quaternion().setFromAxisAngle(
-          new THREE.Vector3(0, 1, 0),
-          flower.roll,
-        );
-        this._writeInstance(
-          'flowers',
-          identity,
-          new THREE.Matrix4().compose(
-            position,
-            quaternion.clone().multiply(spin),
-            new THREE.Vector3(openScale, openScale, openScale),
-          ),
-        );
+          detailScale *
+          runtime.corollaSizeFactor;
+        scale.set(openScale, openScale * runtime.tubeRatio, openScale);
+        matrix.compose(position, runtime.flowerQuaternion, scale);
+        this._writeInstance('flowers', runtime.identity, matrix);
+        counts.visibleFlowers++;
       }
     }
 
     if (clusterState.capsule && capsuleVisibility > 0.02) {
       const capsule = clusterState.capsule;
-      const direction = vector(capsule.direction);
-      if (direction.lengthSq() < 1e-6) direction.set(0, -1, 0);
-      direction.normalize();
-      const scale = capsule.lengthM * capsuleVisibility;
-      this._writeInstance(
-        'capsules',
-        this._renderIdentity(capsule.id, 'capsule'),
-        new THREE.Matrix4().compose(
-          vector(capsule.position),
-          makeBasisQuaternion(direction, UP),
-          new THREE.Vector3(scale, scale, scale),
-        ),
-      );
+      const runtime = this._runtime.capsules.get(capsule.id);
+      if (!runtime) {
+        throw new Error(
+          `Missing render capsule for model organ ${capsule.id}.`,
+        );
+      }
+      const capsuleScale = capsule.lengthM * capsuleVisibility;
+      position.copy(capsule.position);
+      scale.set(capsuleScale, capsuleScale, capsuleScale);
+      matrix.compose(position, runtime.quaternion, scale);
+      this._writeInstance('capsules', runtime.identity, matrix);
+      counts.visibleCapsules++;
     }
   }
 
@@ -546,6 +603,7 @@ export class Forsythia extends PlantRenderer {
 
   _applySnapshot(snapshot) {
     this._instancePool.beginFrame();
+    this.#syncRuntime(snapshot);
     this._rebuildWoodyGeometry(snapshot);
 
     const phenology = snapshot.phenology;
@@ -554,9 +612,54 @@ export class Forsythia extends PlantRenderer {
     let visibleCanes = 0;
     let visibleAxes = 0;
     let visibleLeaves = 0;
-    let visibleFlowers = 0;
-    let visibleFlowerBuds = 0;
-    let visibleCapsules = 0;
+    const organCounts = {
+      visibleFlowers: 0,
+      visibleFlowerBuds: 0,
+      visibleCapsules: 0,
+    };
+
+    let totalLeafSites = 0;
+    let totalVisibleFlowerSites = 0;
+    for (const cane of snapshot.canes) {
+      for (const axis of cane.axes) {
+        for (const node of axis.nodes) {
+          totalLeafSites += node.leaves.length;
+          for (const cluster of node.clusters) {
+            if (!cluster.visible) continue;
+            for (const flower of cluster.flowers) {
+              if (
+                flower.openVisibility > 0.015 ||
+                flower.budVisibility > 0.015
+              ) {
+                totalVisibleFlowerSites++;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    const capacityStride = (count, capacity, requested) =>
+      count <= capacity
+        ? requested
+        : Math.max(requested, Math.ceil(count / Math.max(1, capacity * 0.82)));
+    const leafStride = capacityStride(
+      totalLeafSites,
+      LYNWOOD_RENDER_PRIORS.instanceCapacities.leaves,
+      this._detail.leafStride,
+    );
+    const flowerStride = capacityStride(
+      totalVisibleFlowerSites,
+      LYNWOOD_RENDER_PRIORS.instanceCapacities.flowers,
+      this._detail.leafStride,
+    );
+    const leafScale =
+      this._detail.leafScale *
+      (leafStride > this._detail.leafStride ? 1.08 : 1);
+    const flowerScale =
+      flowerStride > this._detail.leafStride
+        ? Math.min(1.12, 1 + (flowerStride - 1) * 0.035)
+        : 1;
 
     for (const cane of snapshot.canes) {
       if (cane.removed) continue;
@@ -577,7 +680,11 @@ export class Forsythia extends PlantRenderer {
               );
             }
             const biologicallyVisible = state.visible;
-            const detailScale = this._organDetailScale(state.id);
+            const detailScale = this.#detailScale(
+              leafRuntime,
+              leafStride,
+              leafScale,
+            );
             const visible = biologicallyVisible && detailScale > 0;
             if (visible) {
               this.#setLeaf(leafRuntime, state, node, detailScale);
@@ -589,21 +696,19 @@ export class Forsythia extends PlantRenderer {
             this.#setBud(
               leafRuntime,
               node,
-              !biologicallyVisible || phenology.leafProgress < 0.2,
+              detailScale > 0 &&
+                (!biologicallyVisible || phenology.leafProgress < 0.2),
             );
           }
 
           for (const state of node.clusters) {
             if (!state.visible) continue;
-            this.#setCluster(state, node);
-            if (state.flowerOpenVisibility > 0.015) {
-              visibleFlowers += state.flowers.length;
-            } else if (state.flowerBudVisibility > 0.015) {
-              visibleFlowerBuds += state.flowers.length;
-            }
-            if (state.capsule && state.capsuleVisibility > 0.02) {
-              visibleCapsules++;
-            }
+            this.#setCluster(
+              state,
+              node,
+              { flowerStride, flowerScale },
+              organCounts,
+            );
           }
         }
       }
@@ -615,9 +720,11 @@ export class Forsythia extends PlantRenderer {
       visibleCanes,
       visibleAxes,
       visibleLeaves,
-      visibleFlowers,
-      visibleFlowerBuds,
-      visibleCapsules,
+      ...organCounts,
+      biologicalVisibleLeaves: snapshot.stats.visibleLeaves,
+      biologicalVisibleFlowers: snapshot.stats.visibleFlowers,
+      biologicalVisibleFlowerBuds: snapshot.stats.visibleFlowerBuds,
+      biologicalVisibleCapsules: snapshot.stats.visibleCapsules,
       ...this._drawCallStats(),
     };
   }
@@ -677,7 +784,15 @@ export class Forsythia extends PlantRenderer {
       return reject('too-young');
     }
 
-    const calendar = this._snapshot.phenology.calendar;
+    const targetSnapshot = evaluateLynwoodModel(this.#model, {
+      ageYears: targetAge,
+      dayOfYear: targetDay,
+      events: this._events,
+      scenario: this.scenario,
+      region: this.region,
+      offsetDays: this.offsetDays,
+    });
+    const calendar = targetSnapshot.phenology.calendar;
     if (targetDay <= calendar.floweringEnd) {
       return reject('before-flowering-ends');
     }
@@ -685,7 +800,7 @@ export class Forsythia extends PlantRenderer {
       return reject('after-bud-set');
     }
 
-    const candidates = this._snapshot.canes
+    const candidates = targetSnapshot.canes
       .filter((cane) => !cane.removed)
       .sort(
         (a, b) => a.birthAgeYears - b.birthAgeYears || a.id.localeCompare(b.id),
@@ -693,20 +808,52 @@ export class Forsythia extends PlantRenderer {
     if (candidates.length === 0) return reject('no-canes');
 
     // RHS group 2 takes up to one fifth of the oldest stems at the base, per
-    // season. Pruned canes leave the evaluated snapshot, so the quota has to
-    // be measured against the stand as it stood before this season's cuts --
-    // counting only what is left would let the fifth be taken over and over.
+    // season. The maintained scenario already performs its scheduled renewal
+    // immediately after flowering, so those automatic cuts consume the same
+    // quota as explicit events instead of silently doubling it.
     const prunedThisSeason = this._events.filter(
       (event) =>
         event.type === 'prune' &&
         Math.floor(event.ageYears) === Math.floor(targetAge),
     );
-    const standSize = candidates.length + prunedThisSeason.length;
+    const beforeRenewal = evaluateLynwoodModel(this.#model, {
+      ageYears: targetAge,
+      dayOfYear: calendar.floweringEnd,
+      events: this._events,
+      scenario: this.scenario,
+      region: this.region,
+      offsetDays: this.offsetDays,
+    });
+    let automaticCuts = 0;
+    if (this.scenario === 'maintained') {
+      const afterAutomaticRenewal = evaluateLynwoodModel(this.#model, {
+        ageYears: targetAge,
+        dayOfYear:
+          calendar.floweringEnd +
+          LYNWOOD_PROFILE.management.automaticRenewalDelayDays,
+        events: this._events,
+        scenario: this.scenario,
+        region: this.region,
+        offsetDays: this.offsetDays,
+      });
+      const retained = new Set(
+        afterAutomaticRenewal.canes.map((cane) => cane.id),
+      );
+      const explicitTargets = new Set(
+        prunedThisSeason.map((event) => event.caneId),
+      );
+      automaticCuts = beforeRenewal.canes.filter(
+        (cane) => !retained.has(cane.id) && !explicitTargets.has(cane.id),
+      ).length;
+    }
+    const standSize = beforeRenewal.stats.visibleCanes;
     const quota = Math.max(
       1,
       Math.floor(standSize * management.oldestCaneRemovalFraction),
     );
-    if (prunedThisSeason.length >= quota) return reject('quota-reached');
+    if (automaticCuts + prunedThisSeason.length >= quota) {
+      return reject('quota-reached');
+    }
 
     const target = candidates[0];
     if (!target) return reject('quota-reached');
@@ -731,6 +878,7 @@ export class Forsythia extends PlantRenderer {
       ageYears: this.ageYears,
       dayOfYear: this.dayOfYear,
       scenario: this.scenario,
+      renewalManagedAutomatically: this.scenario === 'maintained',
       region: this.region,
       dimensions: this._snapshot.dimensions,
       phenology: this._snapshot.phenology,
@@ -740,7 +888,7 @@ export class Forsythia extends PlantRenderer {
 
   serialize() {
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       type: 'Forsythia',
       plantId: this._plantId,
       species: LYNWOOD_PROFILE.species,
