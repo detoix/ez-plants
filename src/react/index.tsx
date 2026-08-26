@@ -10,6 +10,7 @@ import {
   Blackcurrant,
   Forsythia,
   Hydrangea,
+  Miscanthus,
   type BlackcurrantOptions,
   type BlackcurrantStats,
   type ForsythiaOptions,
@@ -18,6 +19,9 @@ import {
   type HydrangeaStats,
   type LimelightSeasonProfile,
   type LynwoodRegion,
+  type MalepartusSeasonProfile,
+  type MiscanthusOptions,
+  type MiscanthusStats,
   type PlantScenario,
   type TiselTrialYear,
 } from '@dgreenheck/ez-tree';
@@ -236,6 +240,76 @@ export function HydrangeaPlant({
 }
 
 /* ==================================================================== *
+ * Miscanthus sinensis 'Malepartus'
+ * ==================================================================== */
+
+export interface MiscanthusProps
+  extends BasePlantProps,
+    Pick<MiscanthusOptions, ConstructionKeys>,
+    Omit<GroupProps, 'children' | 'args'> {
+  /** Weather-timing bracket around the central-Poland calendar. */
+  seasonProfile?: MalepartusSeasonProfile;
+  onStats?: (stats: MiscanthusStats) => void;
+}
+
+/**
+ * Miscanthus sinensis 'Malepartus' as a React Three Fiber component.
+ *
+ * The crown is built once; age, day, maintenance scenario and season profile
+ * are applied to the live renderer. Note that this is a warm-season grass with
+ * nothing woody about it: a day before late April renders either last year's
+ * standing dead culms or, after the modelled spring cut, bare stubble.
+ *
+ * ```tsx
+ * <Canvas>
+ *   <MiscanthusPlant ageYears={6} dayOfYear={250} />
+ * </Canvas>
+ * ```
+ */
+export function MiscanthusPlant({
+  seed,
+  maxYears,
+  plantId,
+  cultivar,
+  assets,
+  lod = true,
+  ageYears = 6,
+  dayOfYear = 250,
+  scenario = 'maintained',
+  seasonProfile = 'typical',
+  offsetDays = 0,
+  onStats,
+  ...groupProps
+}: MiscanthusProps) {
+  const plant = useDisposable(
+    () =>
+      new Miscanthus({
+        seed,
+        maxYears,
+        plantId,
+        cultivar,
+        assets,
+        lod,
+        ageYears,
+        dayOfYear,
+        scenario,
+        seasonProfile,
+        offsetDays,
+      }),
+    [seed, maxYears, plantId, cultivar, assets, lod],
+  );
+
+  useAppliedState(
+    plant,
+    { ageYears, dayOfYear, scenario, seasonProfile, offsetDays },
+    onStats as (stats: never) => void,
+  );
+  usePlantFrame(plant);
+
+  return <primitive object={plant} {...groupProps} />;
+}
+
+/* ==================================================================== *
  * Blackcurrant
  * ==================================================================== */
 
@@ -304,6 +378,7 @@ export {
   HydrangeaPlant as Hydrangea,
   ForsythiaPlant as Forsythia,
   BlackcurrantPlant as Blackcurrant,
+  MiscanthusPlant as Miscanthus,
 };
 export type {
   BlackcurrantStats,
@@ -311,6 +386,8 @@ export type {
   HydrangeaStats,
   LimelightSeasonProfile,
   LynwoodRegion,
+  MalepartusSeasonProfile,
+  MiscanthusStats,
   PlantScenario,
   TiselTrialYear,
 };

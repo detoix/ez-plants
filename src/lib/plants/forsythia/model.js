@@ -12,8 +12,22 @@ import {
   keyedRandom,
   keyedRange as randomRange,
 } from '../../keyed-random.js';
+import {
+  add,
+  clamp,
+  cross,
+  dot,
+  length,
+  lerp,
+  normalize,
+  sampleAnchors,
+  scale,
+  smoothstep01,
+  tangentAt,
+  TAU,
+  vector,
+} from '../../model-math.js';
 
-const TAU = Math.PI * 2;
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
 /**
@@ -24,44 +38,6 @@ const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
  */
 const caneRngSeed = (seed, caneId) =>
   Math.floor(keyedRandom(seed, caneId, 'axis-rng') * 0xffffffff);
-const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
-const vector = (x = 0, y = 0, z = 0) => ({ x, y, z });
-const add = (a, b) => vector(a.x + b.x, a.y + b.y, a.z + b.z);
-const scale = (value, amount) =>
-  vector(value.x * amount, value.y * amount, value.z * amount);
-const cross = (a, b) =>
-  vector(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
-const dot = (a, b) => a.x * b.x + a.y * b.y + a.z * b.z;
-const length = (value) => Math.hypot(value.x, value.y, value.z);
-const normalize = (value) => {
-  const magnitude = length(value) || 1;
-  return scale(value, 1 / magnitude);
-};
-const lerp = (a, b, amount) => a + (b - a) * amount;
-
-function sampleAnchors(anchors, value) {
-  if (value <= anchors[0][0]) return anchors[0][1];
-  for (let index = 1; index < anchors.length; index += 1) {
-    const [endAge, endValue] = anchors[index];
-    const [startAge, startValue] = anchors[index - 1];
-    if (value <= endAge) {
-      return lerp(
-        startValue,
-        endValue,
-        (value - startAge) / Math.max(0.0001, endAge - startAge),
-      );
-    }
-  }
-  return anchors.at(-1)[1];
-}
-
-function tangentAt(points, index) {
-  const before = points[Math.max(0, index - 1)];
-  const after = points[Math.min(points.length - 1, index + 1)];
-  return normalize(
-    vector(after.x - before.x, after.y - before.y, after.z - before.z),
-  );
-}
 
 /**
  * The 'Lynwood' cane: stiff and upright for most of its length, then arching
@@ -1086,11 +1062,6 @@ function scaledPosition(position, origin, amount) {
       amount,
     ),
   );
-}
-
-function smoothstep01(value) {
-  const amount = clamp(value, 0, 1);
-  return amount * amount * (3 - 2 * amount);
 }
 
 function vegetativeGrowthProgress(day, calendar = LYNWOOD_CALENDAR) {

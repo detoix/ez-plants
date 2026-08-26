@@ -49,3 +49,22 @@ export {
   createLimelightModel,
   evaluateLimelightModel,
 } from './plants/hydrangea/model.js';
+
+export { Miscanthus } from './plants/miscanthus/miscanthus.js';
+export {
+  MALEPARTUS_PROFILE,
+  MALEPARTUS_SOURCES,
+} from './plants/miscanthus/malepartus.js';
+export {
+  getMalepartusPhenology,
+  getMalepartusCareHints,
+  getMalepartusCalendar,
+  MALEPARTUS_CALENDAR,
+  MALEPARTUS_CALENDAR_PROVENANCE,
+  MALEPARTUS_PHASE_ASSUMPTIONS,
+  MALEPARTUS_SEASON_PROFILES,
+} from './plants/miscanthus/phenology.js';
+export {
+  createMalepartusModel,
+  evaluateMalepartusModel,
+} from './plants/miscanthus/model.js';

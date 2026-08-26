@@ -491,6 +491,146 @@ export declare class Hydrangea extends PlantRenderer {
 }
 
 /* ==================================================================== *
+ * Chinese silver grass — Miscanthus sinensis 'Malepartus'
+ * ==================================================================== */
+
+/** Weather-timing brackets around the central-Poland phenology calendar. */
+export type MalepartusSeasonProfile = 'typical' | 'early' | 'late';
+
+export interface MalepartusPhenology {
+  dayOfYear: number;
+  season: 'spring' | 'summer' | 'autumn' | 'winter';
+  phase:
+    | 'standing-dry'
+    | 'cut-back'
+    | 'dormant'
+    | 'emergence'
+    | 'tillering'
+    | 'culm-elongation'
+    | 'booting'
+    | 'heading'
+    | 'flowering'
+    | 'silvering'
+    | 'senescence';
+  stage: string;
+  label: string;
+  bbch: string;
+  bbchCode: string;
+  /** Grasses are labelled on the BBCH monocotyledon (cereal) scale. */
+  bbchScale: 'cereal';
+  seasonProfile: MalepartusSeasonProfile;
+  seasonProfileLabel: string;
+  offsetDays: number;
+  scenario: PlantScenario;
+  calendar: Readonly<Record<string, number>>;
+  /** How far through the modelled spring cut the clump is. */
+  cutProgress: number;
+  stubbleVisibility: number;
+  /** How much of last season's standing dead growth is still present. */
+  standingDryVisibility: number;
+  emergenceProgress: number;
+  culmExtensionProgress: number;
+  bladeProgress: number;
+  autumnProgress: number;
+  strawProgress: number;
+  /** Physical winter tattering of this season's dry culms. */
+  weatheringProgress: number;
+  /** The same measure for growth that went dry a year earlier. */
+  previousWeatheringProgress: number;
+  paniclePush: number;
+  panicleVisibility: number;
+  fanOpenProgress: number;
+  plumeFluffProgress: number;
+  plumeVisibility: number;
+  silverProgress: number;
+  plumeColourStage:
+    | 'absent'
+    | 'coppery-wine'
+    | 'bronze-pink'
+    | 'silver-pink'
+    | 'silver-white'
+    | 'weathered-ivory';
+  flowersOnCurrentSeasonCulms: true;
+  foliageIsDeciduousButPersistent: true;
+}
+
+export interface MalepartusClump {
+  /** Half-width of the crown of tillers, not of the arching foliage. */
+  radiusM: number;
+  /** Radius of the dead centre of an undivided clump; 0 when maintained. */
+  dieOutRadiusM: number;
+  tillerSites: number;
+}
+
+export interface MiscanthusOptions {
+  cultivar?: 'Malepartus';
+  seed?: string | number;
+  plantId?: string;
+  maxYears?: number;
+  ageYears?: number;
+  dayOfYear?: number;
+  scenario?: PlantScenario;
+  seasonProfile?: MalepartusSeasonProfile;
+  offsetDays?: number;
+  assets?: PlantAssets;
+  /**
+   * Malepartus exposes scenarios rather than care events: its single annual
+   * cut is modelled by the maintained scenario's pruning window.
+   */
+  events?: readonly [];
+  lod?: boolean;
+}
+
+export interface MiscanthusStats extends PlantRenderStats {
+  species: string;
+  cultivar: string;
+  ageYears: number;
+  dayOfYear: number;
+  scenario: PlantScenario;
+  seasonProfile: MalepartusSeasonProfile;
+  visibleTillers: number;
+  /** One culm is one cane; `visibleCanes` mirrors this for shared UI. */
+  visibleCulms: number;
+  livingCulms: number;
+  standingDeadCulms: number;
+  stubs: number;
+  culmSegments: number;
+  /** `visibleLeaves` mirrors this for shared UI. */
+  visibleBlades: number;
+  visiblePanicles: number;
+  visiblePlumes: number;
+  floweringCulms: number;
+  silveredPanicles: number;
+  flowersOnCurrentSeasonCulms: true;
+  clump: MalepartusClump;
+  dimensions: PlantDimensions;
+  phenology: MalepartusPhenology;
+  careHints: readonly CareHint[];
+}
+
+export declare class Miscanthus extends PlantRenderer {
+  constructor(options?: MiscanthusOptions);
+  scenario: PlantScenario;
+  seasonProfile: MalepartusSeasonProfile;
+  offsetDays: number;
+
+  setState(patch: {
+    ageYears?: number;
+    dayOfYear?: number;
+    scenario?: PlantScenario;
+    seasonProfile?: MalepartusSeasonProfile;
+    offsetDays?: number;
+  }): this;
+  setScenario(scenario: PlantScenario): this;
+  setPhenologyProfile(profile: {
+    seasonProfile?: MalepartusSeasonProfile;
+    offsetDays?: number;
+  }): this;
+  stats(): MiscanthusStats;
+  serialize(): MiscanthusOptions & { schemaVersion: 1; type: 'Miscanthus' };
+}
+
+/* ==================================================================== *
  * Free functions
  * ==================================================================== */
 
@@ -570,10 +710,59 @@ export declare function evaluateLynwoodModel(
   [key: string]: unknown;
 };
 
+export declare function getMalepartusCalendar(options?: {
+  seasonProfile?: MalepartusSeasonProfile;
+  offsetDays?: number;
+}): Readonly<Record<string, number>>;
+
+export declare function getMalepartusPhenology(
+  value?: DayOfYearInput,
+  options?: {
+    seasonProfile?: MalepartusSeasonProfile;
+    offsetDays?: number;
+    scenario?: PlantScenario;
+  },
+): Readonly<MalepartusPhenology>;
+
+export declare function getMalepartusCareHints(
+  value?: DayOfYearInput,
+  options?: {
+    plantAgeYears?: number;
+    seasonProfile?: MalepartusSeasonProfile;
+    offsetDays?: number;
+    scenario?: PlantScenario;
+  },
+): readonly CareHint[];
+
 export declare function createLimelightModel(options?: {
   seed?: string | number;
   maxYears?: number;
 }): { kind: 'hydrangea-limelight-growth-model'; [key: string]: unknown };
+
+export declare function createMalepartusModel(options?: {
+  seed?: string | number;
+  maxYears?: number;
+}): { kind: 'miscanthus-malepartus-growth-model'; [key: string]: unknown };
+
+export declare function evaluateMalepartusModel(
+  model: { kind: string; [key: string]: unknown },
+  options?: {
+    ageYears?: number;
+    dayOfYear?: number;
+    /** Malepartus exposes scenarios, not destructive care events. */
+    events?: readonly [];
+    scenario?: PlantScenario;
+    seasonProfile?: MalepartusSeasonProfile;
+    offsetDays?: number;
+  },
+): {
+  clump: MalepartusClump;
+  dimensions: PlantDimensions;
+  phenology: MalepartusPhenology;
+  careHints: readonly CareHint[];
+  stats: Record<string, number | boolean>;
+  [key: string]: unknown;
+};
 
 export declare function evaluateLimelightModel(
   model: { kind: string; [key: string]: unknown },
@@ -635,4 +824,19 @@ export declare const LIMELIGHT_PHASE_ASSUMPTIONS: Readonly<
 >;
 export declare const LIMELIGHT_SEASON_PROFILES: Readonly<
   Record<LimelightSeasonProfile, Readonly<Record<string, unknown>>>
+>;
+
+export declare const MALEPARTUS_PROFILE: Readonly<Record<string, unknown>>;
+export declare const MALEPARTUS_SOURCES: Readonly<
+  Record<string, CultivarSource>
+>;
+export declare const MALEPARTUS_CALENDAR: Readonly<Record<string, number>>;
+export declare const MALEPARTUS_CALENDAR_PROVENANCE: Readonly<
+  Record<string, unknown>
+>;
+export declare const MALEPARTUS_PHASE_ASSUMPTIONS: Readonly<
+  Record<string, unknown>
+>;
+export declare const MALEPARTUS_SEASON_PROFILES: Readonly<
+  Record<MalepartusSeasonProfile, Readonly<Record<string, unknown>>>
 >;

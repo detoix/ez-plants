@@ -1,88 +1,30 @@
 import * as THREE from 'three';
-import RNG from '../../rng.js';
 import { growWoodyAxis } from '../../woody-axis.js';
 import {
   keyedInteger as randomInt,
   keyedRandom,
   keyedRange as randomRange,
 } from '../../keyed-random.js';
+import {
+  add,
+  axisRng,
+  clamp,
+  clamp01,
+  deepFreeze,
+  lerp,
+  normalize,
+  orientationFor,
+  progress,
+  sampleAnchors,
+  scale,
+  smoothstep01,
+  subtract,
+  tangentAt,
+  TAU,
+  vector,
+} from '../../model-math.js';
 import { getLimelightCareHints, getLimelightPhenology } from './phenology.js';
 import { LIMELIGHT_PROFILE, LIMELIGHT_SOURCES } from './limelight.js';
-
-const TAU = Math.PI * 2;
-const UP = new THREE.Vector3(0, 1, 0);
-const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
-const clamp01 = (value) => clamp(value, 0, 1);
-const vector = (x = 0, y = 0, z = 0) => ({ x, y, z });
-const add = (a, b) => vector(a.x + b.x, a.y + b.y, a.z + b.z);
-const subtract = (a, b) => vector(a.x - b.x, a.y - b.y, a.z - b.z);
-const scale = (value, amount) =>
-  vector(value.x * amount, value.y * amount, value.z * amount);
-const length = (value) => Math.hypot(value.x, value.y, value.z);
-const normalize = (value) => {
-  const magnitude = length(value) || 1;
-  return scale(value, 1 / magnitude);
-};
-const lerp = (a, b, amount) => a + (b - a) * amount;
-
-function smoothstep01(value) {
-  const amount = clamp01(value);
-  return amount * amount * (3 - 2 * amount);
-}
-
-function progress(value, start, end) {
-  return clamp01((value - start) / Math.max(0.0001, end - start));
-}
-
-function sampleAnchors(anchors, value) {
-  if (value <= anchors[0][0]) return anchors[0][1];
-  for (let index = 1; index < anchors.length; index += 1) {
-    const [endAge, endValue] = anchors[index];
-    const [startAge, startValue] = anchors[index - 1];
-    if (value <= endAge) {
-      return lerp(
-        startValue,
-        endValue,
-        (value - startAge) / Math.max(0.0001, endAge - startAge),
-      );
-    }
-  }
-  return anchors.at(-1)[1];
-}
-
-function tangentAt(points, index) {
-  const before = points[Math.max(0, index - 1)];
-  const after = points[Math.min(points.length - 1, index + 1)];
-  return normalize(subtract(after, before));
-}
-
-function deepFreeze(value) {
-  if (!value || typeof value !== 'object' || Object.isFrozen(value)) {
-    return value;
-  }
-  for (const child of Object.values(value)) deepFreeze(child);
-  return Object.freeze(value);
-}
-
-/**
- * EZ-Tree's axis grower takes a sequential RNG. Seeding one RNG from the
- * persistent organ id gives each axis its own reproducible stream, so adding
- * a leaf or a later axis cannot perturb any previously generated wood.
- */
-function axisRng(seed, axisId) {
-  const value = Math.floor(
-    keyedRandom(seed, axisId, 'ez-tree-axis-rng') * 0xffffffff,
-  );
-  return new RNG(value);
-}
-
-function orientationFor(direction) {
-  const quaternion = new THREE.Quaternion().setFromUnitVectors(
-    UP,
-    new THREE.Vector3(direction.x, direction.y, direction.z).normalize(),
-  );
-  return new THREE.Euler().setFromQuaternion(quaternion);
-}
 
 function growAxisPoints(
   seed,

@@ -13,6 +13,7 @@ export function createLeafMaterialSet({
   tint = 0xffffff,
   alphaTest = 0,
   roundedNormals = true,
+  vertexColors = false,
   wind = new LeafWind(),
   windVariant = 'leaves',
   surfaceWindVariant = `${windVariant}-rounded-normals`,
@@ -25,6 +26,10 @@ export function createLeafMaterialSet({
   const surface = new THREE.MeshStandardMaterial({
     name,
     map,
+    // Organs built as real geometry rather than textured cards carry their
+    // own pattern in vertex colours; the instance colour then supplies the
+    // season on top of it.
+    vertexColors,
     color: new THREE.Color(tint),
     side: THREE.DoubleSide,
     alphaTest,

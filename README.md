@@ -83,14 +83,35 @@ Alongside the procedural tree generator, this repository hosts a growing library
 cultivar-level digital twin: a persistent cane structure driven by an **age** and a
 **day of year**, with a phenology calendar built from cited real-world sources.
 
-| Plant                                      | Cultivar    | Habit                                                                  | Defining behaviour                                                                           |
-| ------------------------------------------ | ----------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| Blackcurrant (_Ribes nigrum_)              | 'Tisel'     | Upright multi-cane stool, ~1.3 m                                       | Fruits on young wood; renewal pruning in dormancy                                            |
-| Forsythia (_Forsythia × intermedia_)       | 'Lynwood'   | Upright-arching multi-cane, ~2.2 m                                     | **Flowers on bare 1–2 year old wood before any leaf**; prune immediately after flowering     |
-| Panicle hydrangea (_Hydrangea paniculata_) | 'Limelight' | Broad framework; 1.85 × 2.25 m renderer target within the RHS envelope | **Terminal panicles on current-season shoots**; lime → cream → dusty pink → dry winter heads |
+| Plant                                        | Cultivar     | Habit                                                                  | Defining behaviour                                                                                           |
+| -------------------------------------------- | ------------ | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Blackcurrant (_Ribes nigrum_)                | 'Tisel'      | Upright multi-cane stool, ~1.3 m                                       | Fruits on young wood; renewal pruning in dormancy                                                            |
+| Forsythia (_Forsythia × intermedia_)         | 'Lynwood'    | Upright-arching multi-cane, ~2.2 m                                     | **Flowers on bare 1–2 year old wood before any leaf**; prune immediately after flowering                     |
+| Panicle hydrangea (_Hydrangea paniculata_)   | 'Limelight'  | Broad framework; 1.85 × 2.25 m renderer target within the RHS envelope | **Terminal panicles on current-season shoots**; lime → cream → dusty pink → dry winter heads                 |
+| Chinese silver grass (_Miscanthus sinensis_) | 'Malepartus' | Caespitose warm-season grass clump, ~2.0 × 1.5 m                       | **No woody tissue at all**; the whole plant is rebuilt from the crown each year and cut to 10 cm each spring |
 
-All plants are modelled in **metres**, share the same EZ-Tree woody geometry, bark
-material, leaf cards and wind shader, and extend a common `PlantRenderer` base.
+All plants are modelled in **metres**, share the same wind shader, instance pools,
+LOD controller and validated state cycle, and extend a common `PlantRenderer` base.
+The three shrubs additionally share EZ-Tree's woody geometry, bark material and leaf
+cards. Miscanthus is the exception that proves the base is not shrub-shaped: a grass
+has no wood, so its culms, arching blades and silky plumes are instanced geometry with
+baked vertex colours. It ships no texture _files_ — the one map it uses, a 64x1 strip
+that lights the blades' white midribs, is generated in code at construction.
+
+### What the two sliders mean for a grass
+
+Everything in this library is driven by **plant age** and **day of year**, but the two
+sliders divide the work differently for a caespitose grass than for a shrub. On the
+shrubs, age grows a persistent woody framework and the day paints organs onto it. On
+Miscanthus there is no framework to grow:
+
+- **Age** shapes only the crown — how wide the clump of tillers is, how many culms it
+  carries, and (in the neglected scenario) whether it has started to die out in the
+  middle, the classic doughnut of an undivided clump.
+- **Day of year** builds and dismantles the entire visible plant, once. Nothing above
+  the crown is ever more than one season old. A C4 grass waits for warm soil, so the
+  clump is still bare stubble well into April; it reaches 2 m by August, heads in
+  mid-August, silvers through October and then stands dry all winter until the cut.
 
 ## Three.js usage
 
@@ -135,6 +156,14 @@ import { Hydrangea, type HydrangeaStats } from '@dgreenheck/ez-tree/react';
 </Canvas>;
 ```
 
+Every plant follows the same shape, so swapping one for another is a one-word change:
+
+```tsx
+import { Miscanthus } from '@dgreenheck/ez-tree/react';
+
+<Miscanthus ageYears={8} dayOfYear={250} seasonProfile="typical" />;
+```
+
 `react` and `@react-three/fiber` are optional peer dependencies; importing the root
 package never pulls React into your bundle.
 
@@ -162,6 +191,7 @@ profiles, care events and review cameras. State is reflected in the URL:
 
 ```
 http://localhost:5173/?plant=hydrangea&year=6&day=230&profile=typical&view=three-quarter
+http://localhost:5173/?plant=miscanthus&year=8&day=250&profile=typical&view=three-quarter
 ```
 
 # Running Standalone App Locally

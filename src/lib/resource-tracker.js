@@ -7,6 +7,9 @@ export class ResourceTracker {
     this.instancedMeshes = new Set();
     this.geometries = new Set();
     this.materials = new Set();
+    // Textures the plant generated itself. Caller-supplied maps are never
+    // tracked here: the plant does not own them and must not dispose them.
+    this.textures = new Set();
     this.disposed = false;
   }
 
@@ -75,6 +78,15 @@ export class ResourceTracker {
     return material;
   }
 
+  trackTexture(texture) {
+    this._assertActive();
+    if (!texture?.isTexture) {
+      throw new TypeError('Expected a THREE.Texture.');
+    }
+    this.textures.add(texture);
+    return texture;
+  }
+
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
@@ -82,9 +94,11 @@ export class ResourceTracker {
     for (const mesh of this.instancedMeshes) mesh.dispose();
     for (const geometry of this.geometries) geometry.dispose();
     for (const material of this.materials) material.dispose();
+    for (const texture of this.textures) texture.dispose();
 
     this.instancedMeshes.clear();
     this.geometries.clear();
     this.materials.clear();
+    this.textures.clear();
   }
 }

@@ -1,5 +1,13 @@
 import * as THREE from 'three';
 
+import {
+  appendTaperedTube,
+  finishGeometry,
+  fract,
+  GOLDEN_ANGLE,
+  validatePositiveInteger,
+} from '../../organ-geometry.js';
+
 // A Limelight panicle is overwhelmingly made from showy sterile flowers. The
 // neutral, slightly green vertex colours below are deliberately pale: an
 // InstancedMesh can multiply them by lime, cream, pink, or parchment instance
@@ -15,34 +23,8 @@ const BUD_BASE = new THREE.Color(0x755746);
 const BUD_MIDDLE = new THREE.Color(0x8d7952);
 const BUD_TIP = new THREE.Color(0x8a9362);
 
-const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const REGION_SPLIT = 0.58;
 const VALID_REGIONS = new Set(['all', 'lower', 'upper']);
-
-function fract(value) {
-  return value - Math.floor(value);
-}
-
-function validatePositiveInteger(value, name) {
-  if (!Number.isInteger(value) || value <= 0) {
-    throw new RangeError(`${name} must be a positive integer.`);
-  }
-}
-
-function finishGeometry({ positions, colors, indices, userData = {} }) {
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute(
-    'position',
-    new THREE.Float32BufferAttribute(positions, 3),
-  );
-  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-  geometry.computeBoundingBox();
-  geometry.computeBoundingSphere();
-  Object.assign(geometry.userData, userData);
-  return geometry;
-}
 
 // Broadest just above the base, then steadily tapering. The root remains
 // narrower than the lower third, which avoids the silhouette of a solid cone.
@@ -327,77 +309,6 @@ export function createFertilePanicleGeometry({ count = 52 } = {}) {
       representativeFlowerCount: count,
     },
   });
-}
-
-function appendTaperedTube(
-  buffers,
-  {
-    start,
-    end,
-    startRadius,
-    endRadius,
-    sides,
-    startColour,
-    endColour,
-    capStart = false,
-    capEnd = true,
-  },
-) {
-  const { positions, colors, indices } = buffers;
-  const pushVertex = (point, colour) => {
-    positions.push(point.x, point.y, point.z);
-    colors.push(colour.r, colour.g, colour.b);
-    return positions.length / 3 - 1;
-  };
-  const direction = end.clone().sub(start).normalize();
-  const reference =
-    Math.abs(direction.y) < 0.92
-      ? new THREE.Vector3(0, 1, 0)
-      : new THREE.Vector3(1, 0, 0);
-  const basisX = new THREE.Vector3()
-    .crossVectors(direction, reference)
-    .normalize();
-  const basisZ = new THREE.Vector3()
-    .crossVectors(direction, basisX)
-    .normalize();
-  const startRing = [];
-  const endRing = [];
-
-  for (let side = 0; side < sides; side += 1) {
-    const angle = (side / sides) * Math.PI * 2;
-    const radial = basisX
-      .clone()
-      .multiplyScalar(Math.cos(angle))
-      .addScaledVector(basisZ, Math.sin(angle));
-    startRing.push(
-      pushVertex(
-        start.clone().addScaledVector(radial, startRadius),
-        startColour,
-      ),
-    );
-    endRing.push(
-      pushVertex(end.clone().addScaledVector(radial, endRadius), endColour),
-    );
-  }
-  for (let side = 0; side < sides; side += 1) {
-    const next = (side + 1) % sides;
-    indices.push(startRing[side], startRing[next], endRing[side]);
-    indices.push(startRing[next], endRing[next], endRing[side]);
-  }
-  if (capStart) {
-    const centre = pushVertex(start, startColour.clone().multiplyScalar(0.78));
-    for (let side = 0; side < sides; side += 1) {
-      const next = (side + 1) % sides;
-      indices.push(centre, startRing[next], startRing[side]);
-    }
-  }
-  if (capEnd) {
-    const centre = pushVertex(end, endColour.clone().multiplyScalar(1.04));
-    for (let side = 0; side < sides; side += 1) {
-      const next = (side + 1) % sides;
-      indices.push(centre, endRing[side], endRing[next]);
-    }
-  }
 }
 
 /**

@@ -6,6 +6,9 @@ import {
   LIMELIGHT_SOURCES,
   LYNWOOD_PROFILE,
   LYNWOOD_SOURCES,
+  MALEPARTUS_PROFILE,
+  MALEPARTUS_SOURCES,
+  Miscanthus,
   TISEL_PROFILE,
   TISEL_SOURCES,
   TreePreset,
@@ -294,6 +297,82 @@ export const PLANTS = Object.freeze({
             roundedNormals: true,
           },
         },
+      });
+    },
+  }),
+
+  miscanthus: Object.freeze({
+    id: 'miscanthus',
+    label: 'Miscanthus',
+    labelPl: 'Miskant chinski',
+    cultivar: 'Malepartus',
+    species: MALEPARTUS_PROFILE.species,
+    kicker: 'Garden digital twin \u00b7 proof 04',
+    profile: MALEPARTUS_PROFILE,
+    sources: MALEPARTUS_SOURCES,
+    // Late September: plumes fully fluffed and just starting to silver, over
+    // foliage that has begun to turn. The cultivar at its best.
+    defaults: Object.freeze({ age: 6, day: 250 }),
+    maxYears: 25,
+    size: Object.freeze({
+      heightM: MALEPARTUS_PROFILE.architecture.matureHeightM,
+      radiusM: MALEPARTUS_PROFILE.architecture.matureRadiusM,
+    }),
+    bedRadiusM: 0.78,
+    profileControl: Object.freeze({
+      key: 'seasonProfile',
+      label: 'Season timing',
+      options: Object.freeze([
+        ['typical', 'Typical'],
+        ['early', 'Early'],
+        ['late', 'Late'],
+      ]),
+    }),
+    seasons: Object.freeze([
+      { label: 'Winter stand', day: 20 },
+      { label: 'Cut back', day: 78 },
+      { label: 'Bare crown', day: 104 },
+      { label: 'Emerging', day: 135 },
+      { label: 'Summer', day: 200 },
+      { label: 'Heading', day: 228 },
+      { label: 'Plumes', day: 250 },
+      { label: 'Silver', day: 290 },
+    ]),
+    stats: Object.freeze([
+      { key: 'visibleCulms', label: 'Culms' },
+      { key: 'visibleBlades', label: 'Blades' },
+      { key: 'visiblePlumes', label: 'Plumes' },
+      { key: 'standingDeadCulms', label: 'Last year' },
+    ]),
+    yieldLine: Object.freeze({
+      label: 'Modelled height \u00d7 spread',
+      key: 'dimensions',
+      unit: 'm',
+      format: (value) =>
+        value
+          ? `${value.heightM.toFixed(2)} \u00d7 ${value.spreadM.toFixed(2)} m`
+          : '\u2014',
+      note: 'The clump is a bounded 118-tiller sample of one that really carries hundreds, and each plume samples its silky spikelet hairs.',
+    }),
+    // The single annual cut is the scenario, not an event: there is nothing
+    // selective to prune on a grass.
+    actions: Object.freeze([]),
+    modelNote:
+      '<strong>Nothing here is woody, and nothing above the crown is older than one season.</strong> A C4 grass waits for warm soil, so the clump is still bare in April, then builds to 2\u00a0m by August and stands dry all winter. The maintained view cuts to 10&nbsp;cm in the March window and keeps the clump divided; neglected never cuts, so old culms lean among the new and the centre dies out after about nine years.',
+    create(state) {
+      return new Miscanthus({
+        cultivar: 'Malepartus',
+        seed: 19130212,
+        maxYears: 25,
+        ageYears: state.age,
+        dayOfYear: state.day,
+        scenario: state.scenario,
+        seasonProfile: state.phenologyProfile,
+        lod: true,
+        // A grass needs no bark or leaf plate: culms, blades and plumes are
+        // all geometry with baked vertex colours, so this plant ships with no
+        // texture files. It generates one small map itself — the strip that
+        // lights the white midribs — and owns its disposal.
       });
     },
   }),

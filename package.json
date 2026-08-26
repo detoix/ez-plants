@@ -76,7 +76,9 @@
     "phenology",
     "hydrangea",
     "forsythia",
-    "blackcurrant"
+    "blackcurrant",
+    "miscanthus",
+    "ornamental-grass"
   ],
   "peerDependenciesMeta": {
     "react": {
