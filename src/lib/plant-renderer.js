@@ -132,6 +132,28 @@ export class PlantRenderer extends THREE.Group {
     });
 
     this._createGroups();
+
+    // Renderer internals are protected, not public. Keeping them
+    // non-enumerable means `Object.keys(plant)` and object spreads show the
+    // plant's state -- age, day, cultivar, scenario -- and never its
+    // machinery, the same guarantee hard-private fields used to give.
+    this._protect(...Object.keys(this).filter((key) => key.startsWith('_')));
+  }
+
+  /**
+   * Declare protected slots so they stay off the enumerable public surface.
+   * Base fields are covered automatically; a subclass calls this for
+   * protected fields of its own, before or after assigning them.
+   */
+  _protect(...names) {
+    for (const name of names) {
+      Object.defineProperty(this, name, {
+        value: this[name],
+        writable: true,
+        enumerable: false,
+        configurable: true,
+      });
+    }
   }
 
   /* ------------------------------------------------------------------ *

@@ -388,13 +388,19 @@ test('renderer internals are absent from the ordinary plant surface', () => {
     'woodMeshes',
     'sculptRuntime',
     'model',
-    'events',
     'detail',
     'autoLOD',
   ]) {
     assert.equal(Object.hasOwn(plant, field), false, field);
     assert.equal(field in plant, false, field);
   }
+
+  // `events` is the one deliberate window onto internal state, shared with
+  // every other plant. It must hand out copies, never the live list.
+  assert.equal(Object.hasOwn(plant, 'events'), false);
+  assert.notEqual(plant.events, plant.events);
+  plant.events.push({ id: 'not-applied' });
+  assert.deepEqual(plant.events, []);
   assert.equal(
     Object.keys(plant).some((field) =>
       /resource|instancePool|runtime|material|woodMesh|model|events/i.test(

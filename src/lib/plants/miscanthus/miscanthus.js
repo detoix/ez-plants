@@ -215,6 +215,7 @@ export class Miscanthus extends PlantRenderer {
     // The ash-white midrib arrives as an additive term rather than as an
     // over-driven multiplier, so it survives being dropped into a scene whose
     // exposure and tone mapping this library does not control.
+    this._protect('_midribEmissive');
     this._midribEmissive = this._resources.trackTexture(
       createMidribEmissiveTexture(),
     );

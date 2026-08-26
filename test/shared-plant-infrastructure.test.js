@@ -24,6 +24,10 @@ import {
   vector,
 } from '../src/lib/plant-transforms.js';
 import { ResourceTracker } from '../src/lib/resource-tracker.js';
+import { Blackcurrant } from '../src/lib/plants/blackcurrant/blackcurrant.js';
+import { Forsythia } from '../src/lib/plants/forsythia/forsythia.js';
+import { Hydrangea } from '../src/lib/plants/hydrangea/hydrangea.js';
+import { Miscanthus } from '../src/lib/plants/miscanthus/miscanthus.js';
 
 test('shared detail sampling preserves endpoints and explicit landmarks', () => {
   const sections = Array.from({ length: 7 }, (_, index) => ({
@@ -440,4 +444,25 @@ test('resource tracker replaces geometry with exact-once ownership', () => {
   assert.equal(oldDisposals, 1);
   assert.equal(replacementDisposals, 1);
   mesh.material.dispose();
+});
+
+test('every plant keeps renderer internals off its public surface', () => {
+  const plants = [
+    new Blackcurrant({ seed: 'surface', maxYears: 8, ageYears: 5 }),
+    new Forsythia({ seed: 'surface', maxYears: 8, ageYears: 5 }),
+    new Hydrangea({ seed: 'surface', maxYears: 8, ageYears: 5 }),
+    new Miscanthus({ seed: 'surface', maxYears: 8, ageYears: 5 }),
+  ];
+
+  for (const plant of plants) {
+    const leaked = Object.keys(plant).filter((key) => key.startsWith('_'));
+    assert.deepEqual(leaked, [], `${plant.name} leaked ${leaked.join(', ')}`);
+
+    // The protected slots still exist and still work; they are simply not
+    // enumerable, so spreading a plant copies its state and not its machinery.
+    assert.equal(typeof plant.stats(), 'object');
+    assert.deepEqual(Object.keys({ ...plant }), Object.keys(plant));
+
+    plant.dispose();
+  }
 });

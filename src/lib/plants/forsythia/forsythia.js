@@ -186,6 +186,11 @@ export class Forsythia extends PlantRenderer {
     this._resources.trackMaterial(leafMaterials.surface);
     this._resources.trackMaterial(leafMaterials.depth);
     this._resources.trackMaterial(leafMaterials.distance);
+    this._protect(
+      '_leafBaseColor',
+      '_leafSeasonTint',
+      '_forsythiaRuntimeSignature',
+    );
     this._leafBaseColor = leafMaterials.surface.color.clone();
     this._leafSeasonTint = new THREE.Color();
 

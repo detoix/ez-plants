@@ -14,34 +14,14 @@ import {
 } from './geometry.js';
 import { createLeafCardGeometry } from '../../leaf-geometry.js';
 import { createLeafMaterialSet } from '../../leaf-material.js';
-import { LeafWind } from '../../leaf-wind.js';
 import { keyedRange } from '../../keyed-random.js';
-import { PlantInstancePool } from '../../plant-instance-pool.js';
 import {
   composeSegmentMatrix,
   createUnitStemGeometry,
   makeBasisQuaternion,
   vector,
 } from '../../plant-transforms.js';
-import { ResourceTracker } from '../../resource-tracker.js';
-import { PlantLODController } from '../../plant-lod.js';
-import {
-  normalizePlantDetail,
-  samplePlantDetailSections,
-  stablePlantOrganDetailScale,
-} from '../../plant-detail.js';
-import {
-  appendBranchTube,
-  BranchCap,
-  createBranchBufferGeometry,
-  createBranchGeometryData,
-  createCurveBranchSections,
-  sampleBranchSection,
-} from '../../woody-geometry.js';
-import {
-  calculateBarkTextureWraps,
-  createBarkMaterial,
-} from '../../woody-material.js';
+import { PlantRenderer } from '../../plant-renderer.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const GREEN_BERRY = new THREE.Color(0x91a862);
@@ -91,228 +71,115 @@ const DEFAULT_LOD_LEVELS = Object.freeze([
   }),
 ]);
 
-function emptyInstanceCounts() {
-  return Object.fromEntries(INSTANCE_KINDS.map((kind) => [kind, 0]));
-}
-
-function number(value, fallback) {
-  return Number.isFinite(value) ? value : fallback;
-}
-
-function simulationYear(value, fallback, maxYears, label = 'ageYears') {
-  const candidate = value == null ? fallback : value;
-  if (!Number.isInteger(candidate)) {
-    throw new RangeError(
-      `${label} must be an integer between 0 and ${maxYears}`,
-    );
-  }
-  return THREE.MathUtils.clamp(candidate, 0, maxYears);
-}
-
 /**
  * A persistent, cultivar-specific blackcurrant renderer. Stable organ pools
  * are sized from annual concurrency in the 50-year graph; each changed growth
  * snapshot repacks active instances and one combined EZ-Tree woody mesh.
+ *
+ * The currant's own contribution is the fruiting habit: alternate leaves on
+ * long renewal canes, pendent racemes that carry a flower and then a berry at
+ * every pedicel, and a retained calyx star on each ripening fruit. Everything
+ * else -- stable organ pools, the combined EZ-Tree woody mesh, distance LOD
+ * and the validated state cycle -- comes from PlantRenderer.
  */
-export class Blackcurrant extends THREE.Group {
-  #plantId;
-  #assets;
+
+export class Blackcurrant extends PlantRenderer {
   #model;
-  #events;
-  #snapshot;
-  #renderStats;
-  #resources;
-  #detail;
-  #woodSnapshotKey;
-  #lodController;
-  #runtime;
-  #leafWind;
-  #crown;
-  #woodyGroup;
-  #leafGroup;
-  #flowerGroup;
-  #fruitGroup;
-  #leafBaseColor;
-  #leafSeasonTint;
-  #materials;
-  #woodMesh;
-  #instancePool;
 
   constructor(options = {}) {
-    super();
-
     const requestedCultivar = options.cultivar ?? TISEL_PROFILE.cultivar;
     if (requestedCultivar !== TISEL_PROFILE.cultivar) {
       throw new RangeError(
         `This renderer currently supports only the ${TISEL_PROFILE.cultivar} cultivar profile.`,
       );
     }
-    this.cultivar = TISEL_PROFILE.cultivar;
-    this.name = `Blackcurrant_${this.cultivar}`;
-    this.seed = options.seed ?? 20260811;
-    this.#plantId = String(
-      options.plantId ?? `blackcurrant:${this.seed}`,
-    ).trim();
-    if (!this.#plantId) throw new TypeError('plantId cannot be empty');
-    this.maxYears = THREE.MathUtils.clamp(
-      Math.floor(number(options.maxYears, 50)),
-      1,
-      50,
-    );
-    this.ageYears = simulationYear(options.ageYears, 4, this.maxYears);
-    this.dayOfYear = THREE.MathUtils.clamp(
-      Math.floor(number(options.dayOfYear, 190)),
-      1,
-      365,
-    );
+
+    super({
+      profile: TISEL_PROFILE,
+      organKinds: INSTANCE_KINDS,
+      namePrefix: 'Blackcurrant',
+      detailStrideSalt: 'blackcurrant-plant-detail-leaf-stride',
+      plantId: options.plantId,
+      seed: options.seed ?? 20260811,
+      maxYears: PlantRenderer.number(options.maxYears, 50),
+      ageYears: options.ageYears ?? 4,
+      dayOfYear: PlantRenderer.number(options.dayOfYear, 190),
+      assets: options.assets ?? {},
+      events: options.events,
+      extraStateKeys: ['scenario', 'trialYear', 'offsetDays'],
+      lodLevels: DEFAULT_LOD_LEVELS,
+    });
+
     this.scenario = options.scenario ?? 'maintained';
     this.trialYear = options.trialYear ?? 'mean';
     this.offsetDays = options.offsetDays ?? 0;
-    const assets = options.assets ?? {};
-    const leaf = assets.leaf ?? {};
-    this.#assets = {
-      bark: assets.bark ?? null,
-      leaf: Object.freeze({
-        map: leaf.map ?? null,
-        tint: leaf.tint ?? 0xffffff,
-        alphaTest: leaf.alphaTest ?? 0.5,
-        roundedNormals: leaf.roundedNormals ?? true,
-      }),
-    };
+
     this.#model = createTiselModel({
       seed: this.seed,
       maxYears: this.maxYears,
     });
-    if (options.events != null && !Array.isArray(options.events)) {
-      throw new TypeError('events must be an array of care event objects.');
-    }
-    this.#events = (options.events ?? []).map((event, index) =>
-      this.#normaliseEvent(event, index),
-    );
-    if (
-      new Set(this.#events.map((event) => event.id)).size !==
-      this.#events.length
-    ) {
-      throw new Error('Initial care event ids must be unique.');
-    }
-    this.#snapshot = null;
-    this.#renderStats = {};
-    this.#resources = new ResourceTracker();
-    this.#detail = Object.freeze(normalizePlantDetail());
-    this.#woodSnapshotKey = null;
-    this.#lodController = null;
 
-    this.#runtime = {
-      axes: new Map(),
-      leaves: new Map(),
-      racemes: new Map(),
-    };
-    this.userData.species = 'Ribes nigrum';
-    this.userData.cultivar = this.cultivar;
-    this.userData.units = 'metres';
+    this._initialiseEvents(options.events ?? []);
 
-    this.#leafWind = new LeafWind({
-      // Instancing scales this leaf-local displacement into model metres.
-      strength: new THREE.Vector3(0.085, 0, 0.085),
-      frequency: 0.5,
-      scale: 1.4,
-    });
+    this._runtime.leaves = new Map();
+    this._runtime.racemes = new Map();
 
-    this.#createGroups();
     this.#createMaterials();
     this.#buildStableGraph();
-    this.#createWoodMesh();
+    this._createWoodMesh(this._materials.cane);
     this.#createInstances();
     this.setTime({ ageYears: this.ageYears, dayOfYear: this.dayOfYear });
-    if (options.lod) this.#enableLOD();
-  }
-
-  #createGroups() {
-    this.#crown = new THREE.Group();
-    this.#crown.name = 'Blackcurrant_Crown';
-
-    this.#woodyGroup = new THREE.Group();
-    this.#woodyGroup.name = 'Blackcurrant_WoodyArchitecture';
-    this.#leafGroup = new THREE.Group();
-    this.#leafGroup.name = 'Blackcurrant_Leaves';
-    this.#flowerGroup = new THREE.Group();
-    this.#flowerGroup.name = 'Blackcurrant_Inflorescences';
-    this.#fruitGroup = new THREE.Group();
-    this.#fruitGroup.name = 'Blackcurrant_Fruit';
-
-    this.#crown.add(
-      this.#woodyGroup,
-      this.#leafGroup,
-      this.#flowerGroup,
-      this.#fruitGroup,
-    );
-    this.add(this.#crown);
-  }
-
-  #material(parameters) {
-    return this.#resources.trackMaterial(
-      new THREE.MeshStandardMaterial(parameters),
-    );
-  }
-
-  #barkMaterial(parameters) {
-    return this.#resources.trackMaterial(
-      createBarkMaterial({
-        textured: false,
-        tint: 0x5b5247,
-        ...this.#assets.bark,
-        ...parameters,
-      }),
-    );
+    if (options.lod) this._enableLOD();
   }
 
   #createMaterials() {
-    const cane = this.#barkMaterial();
+    const cane = this._barkMaterial();
     const leafMaterials = createLeafMaterialSet({
       name: 'Blackcurrant_Leaves',
-      map: this.#assets.leaf.map,
-      tint: this.#assets.leaf.tint,
-      alphaTest: this.#assets.leaf.alphaTest,
-      roundedNormals: this.#assets.leaf.roundedNormals,
-      wind: this.#leafWind,
+      map: this._assets.leaf.map,
+      tint: this._assets.leaf.tint,
+      alphaTest: this._assets.leaf.alphaTest,
+      roundedNormals: this._assets.leaf.roundedNormals,
+      wind: this._leafWind,
       windVariant: 'blackcurrant-leaves',
     });
-    this.#resources.trackMaterial(leafMaterials.surface);
-    this.#resources.trackMaterial(leafMaterials.depth);
-    this.#resources.trackMaterial(leafMaterials.distance);
-    this.#leafBaseColor = leafMaterials.surface.color.clone();
-    this.#leafSeasonTint = new THREE.Color();
+    this._resources.trackMaterial(leafMaterials.surface);
+    this._resources.trackMaterial(leafMaterials.depth);
+    this._resources.trackMaterial(leafMaterials.distance);
+    this._protect('_leafBaseColor', '_leafSeasonTint');
+    this._leafBaseColor = leafMaterials.surface.color.clone();
+    this._leafSeasonTint = new THREE.Color();
 
-    this.#materials = {
+    this._materials = {
       cane,
       leaf: leafMaterials.surface,
       leafDepth: leafMaterials.depth,
       leafDistance: leafMaterials.distance,
-      petiole: this.#material({
+      petiole: this._material({
         color: 0xffffff,
         roughness: 0.82,
         metalness: 0,
       }),
-      bud: this.#material({ color: 0x75464a, roughness: 0.9, metalness: 0 }),
-      flowerBud: this.#material({
+      bud: this._material({ color: 0x75464a, roughness: 0.9, metalness: 0 }),
+      flowerBud: this._material({
         color: 0x9b7e75,
         roughness: 0.88,
         metalness: 0,
       }),
-      flower: this.#material({
+      flower: this._material({
         color: 0xffffff,
         vertexColors: true,
         roughness: 0.76,
         metalness: 0,
         side: THREE.DoubleSide,
       }),
-      fruit: this.#material({
+      fruit: this._material({
         color: 0xffffff,
         vertexColors: true,
         roughness: 0.68,
         metalness: 0,
       }),
-      calyx: this.#material({
+      calyx: this._material({
         color: 0xffffff,
         roughness: 0.96,
         metalness: 0,
@@ -321,25 +188,11 @@ export class Blackcurrant extends THREE.Group {
     };
   }
 
-  #createWoodMesh() {
-    const geometry = this.#geometry(
-      createBranchBufferGeometry(createBranchGeometryData()),
-    );
-    const mesh = new THREE.Mesh(geometry, this.#materials.cane);
-    mesh.name = 'Blackcurrant_Wood';
-    mesh.visible = false;
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    mesh.userData.kind = 'woody-architecture-batch';
-    this.#woodMesh = mesh;
-    this.#woodyGroup.add(mesh);
-  }
-
   #buildStableGraph() {
     const canes = this.#model.canes;
     const annualOrganCounts = new Map();
-    const unknownYearCounts = emptyInstanceCounts();
-    const historicalCounts = emptyInstanceCounts();
+    const unknownYearCounts = this._emptyInstanceCounts();
+    const historicalCounts = this._emptyInstanceCounts();
     const addHistoricalOrgans = (additions) => {
       for (const [kind, amount] of Object.entries(additions)) {
         historicalCounts[kind] += amount;
@@ -350,7 +203,7 @@ export class Blackcurrant extends THREE.Group {
       if (Number.isFinite(year)) {
         counts = annualOrganCounts.get(year);
         if (!counts) {
-          counts = emptyInstanceCounts();
+          counts = this._emptyInstanceCounts();
           annualOrganCounts.set(year, counts);
         }
       } else {
@@ -364,93 +217,10 @@ export class Blackcurrant extends THREE.Group {
     for (const cane of canes) {
       const nodeAttachments = new Map();
 
-      const axes = cane.axes;
-      axes.forEach((axis, axisIndex) => {
-        const points = axis.points.map((point) => vector(point));
-        const axisNodes = axis.nodes;
-        const root = points[0].clone();
-        // Every woody axis owns its mature shape in local coordinates. The
-        // evaluated snapshot supplies the moving root and growth scale, so a
-        // young lateral extends from its parent instead of popping in at full
-        // length or floating above a shortened main cane.
-        const localPoints = points.map((point) => point.clone().sub(root));
-        const isPrimary = axisIndex === 0 || !axis.parentId;
-        const axisOrder = axis.order;
-        const radiusFactors = TISEL_PROFILE.cane.axisRadiusFactors;
-        const radiusFactor =
-          axisOrder <= 0
-            ? radiusFactors.primary
-            : axisOrder === 1
-              ? radiusFactors.lateral
-              : radiusFactors.higherOrder;
-        const nominalBaseRadius = cane.baseRadiusM * radiusFactor;
-        const parentAttachment = nodeAttachments.get(axis.parentId);
-        const parentSection = parentAttachment
-          ? sampleBranchSection(
-              parentAttachment.axisRuntime.sections,
-              parentAttachment.position,
-            )
-          : null;
-        const baseRadius = parentSection
-          ? Math.min(
-              nominalBaseRadius,
-              parentSection.radius * TISEL_PROFILE.cane.childParentRadiusRatio,
-            )
-          : nominalBaseRadius;
-        const tubularSegments = isPrimary ? 12 : 7;
-        const radialSegments = isPrimary ? 7 : 5;
-        const sections = createCurveBranchSections(
-          localPoints,
-          TISEL_PROFILE.cane.axisTaperRatios.map((ratio) => baseRadius * ratio),
-          { tubularSegments },
-        );
-        const caps = isPrimary ? BranchCap.Both : BranchCap.End;
-        const landmarks = [
-          {
-            position: 0,
-            origin: localPoints[0].clone(),
-            organId: axis.id,
-            kind: 'base',
-          },
-          ...axisNodes.map((node) => ({
-            position: THREE.MathUtils.clamp(
-              (node.index + 1) / Math.max(1, points.length - 1),
-              0,
-              1,
-            ),
-            origin: vector(node.position).sub(root),
-            organId: node.id,
-            kind: 'node',
-          })),
-          {
-            position: 1,
-            origin: localPoints.at(-1).clone(),
-            organId: axis.id,
-            kind: 'tip',
-          },
-        ];
+      cane.axes.forEach((axis, axisIndex) => {
+        this._buildAxisRuntime({ cane, axis, axisIndex, nodeAttachments });
 
-        const axisRuntime = {
-          id: axis.id,
-          sections,
-          baseRadius,
-          parentRadiusAtAttachment: parentSection?.radius ?? null,
-          parentAxisId: parentAttachment?.axisRuntime.id ?? null,
-          caps,
-          radialSegments,
-          landmarks,
-        };
-        this.#runtime.axes.set(axis.id, axisRuntime);
-
-        for (const node of axisNodes) {
-          nodeAttachments.set(node.id, {
-            axisRuntime,
-            position: THREE.MathUtils.clamp(
-              (node.index + 1) / Math.max(1, points.length - 1),
-              0,
-              1,
-            ),
-          });
+        for (const node of axis.nodes) {
           const nodePosition = vector(node.position);
           let tangent = vector(node.tangent);
           if (tangent.lengthSq() < 1e-6) tangent.set(0, 1, 0);
@@ -502,7 +272,7 @@ export class Blackcurrant extends THREE.Group {
             };
             addHistoricalOrgans(leafOrgans);
             addAnnualOrgans(leaf.year, leafOrgans);
-            this.#runtime.leaves.set(leafId, runtime);
+            this._runtime.leaves.set(leafId, runtime);
           }
 
           for (const raceme of node.racemes) {
@@ -512,7 +282,7 @@ export class Blackcurrant extends THREE.Group {
               berries: [],
             };
             addHistoricalOrgans({ racemeAxes: 1 });
-            this.#runtime.racemes.set(racemeId, racemeRuntime);
+            this._runtime.racemes.set(racemeId, racemeRuntime);
 
             const berries = raceme.berries;
             const racemeOrgans = {
@@ -547,114 +317,82 @@ export class Blackcurrant extends THREE.Group {
       });
     }
 
-    // The unpruned graph is the conservative neglected scenario; maintenance,
-    // pruning and harvest can only remove organs. Absolute source years make
-    // the largest annual bucket a safe concurrent bound for every season.
-    const maximumConcurrent = { ...unknownYearCounts };
-    for (const counts of annualOrganCounts.values()) {
-      for (const kind of INSTANCE_KINDS) {
-        maximumConcurrent[kind] = Math.max(
-          maximumConcurrent[kind],
-          counts[kind] + unknownYearCounts[kind],
-        );
-      }
-    }
-    this.#instancePool = new PlantInstancePool({
-      capacities: Object.fromEntries(
-        INSTANCE_KINDS.map((kind) => {
-          const historicalCount = historicalCounts[kind];
-          const activeBound = maximumConcurrent[kind];
-          const withHeadroom =
-            activeBound === 0 ? 0 : Math.ceil(activeBound * 1.15) + 8;
-          return [kind, Math.min(historicalCount, withHeadroom)];
-        }),
-      ),
+    this._sizeInstancePool({
+      historicalCounts,
+      annualOrganCounts,
+      unknownYearCounts,
     });
-  }
-
-  #geometry(geometry) {
-    return this.#resources.trackGeometry(geometry);
-  }
-
-  #renderIdentity(organId, kind) {
-    return Object.freeze({ plantId: this.#plantId, organId, kind });
-  }
-
-  #writeInstance(kind, identity, matrix, color = null) {
-    return this.#instancePool.write(kind, identity, matrix, color);
   }
 
   #createInstances() {
-    const stemGeometry = this.#geometry(createUnitStemGeometry(5));
-    const berryGeometry = this.#geometry(createBerryGeometry());
-    const add = (kind, options) =>
-      this.#resources.trackInstancedMesh(this.#instancePool.add(kind, options));
+    const stemGeometry = this._geometry(createUnitStemGeometry(5));
+    const berryGeometry = this._geometry(createBerryGeometry());
 
-    add('leaves', {
+    this._addInstancedOrgan('leaves', {
       name: 'Blackcurrant_Leaves',
-      geometry: this.#geometry(
+      geometry: this._geometry(
         createLeafCardGeometry({
-          roundedNormals: this.#assets.leaf.roundedNormals,
+          roundedNormals: this._assets.leaf.roundedNormals,
         }),
       ),
-      material: this.#materials.leaf,
-      group: this.#leafGroup,
+      material: this._materials.leaf,
+      group: this._leafGroup,
     });
-    add('petioles', {
+    this._addInstancedOrgan('petioles', {
       name: 'Blackcurrant_Petioles_RedGreen',
       geometry: stemGeometry,
-      material: this.#materials.petiole,
-      group: this.#leafGroup,
+      material: this._materials.petiole,
+      group: this._leafGroup,
     });
-    add('buds', {
+    this._addInstancedOrgan('buds', {
       name: 'Blackcurrant_DormantBuds',
       geometry: berryGeometry,
-      material: this.#materials.bud,
-      group: this.#woodyGroup,
+      material: this._materials.bud,
+      group: this._woodyGroup,
     });
-    add('racemeAxes', {
+    this._addInstancedOrgan('racemeAxes', {
       name: 'Blackcurrant_RacemeAxes_RedGreen',
       geometry: stemGeometry,
-      material: this.#materials.petiole,
-      group: this.#flowerGroup,
+      material: this._materials.petiole,
+      group: this._flowerGroup,
     });
-    add('pedicels', {
+    this._addInstancedOrgan('pedicels', {
       name: 'Blackcurrant_Pedicels_RedGreen',
       geometry: stemGeometry,
-      material: this.#materials.petiole,
-      group: this.#flowerGroup,
+      material: this._materials.petiole,
+      group: this._flowerGroup,
     });
-    add('flowerBuds', {
+    this._addInstancedOrgan('flowerBuds', {
       name: 'Blackcurrant_InflorescenceBuds',
       geometry: berryGeometry,
-      material: this.#materials.flowerBud,
-      group: this.#flowerGroup,
+      material: this._materials.flowerBud,
+      group: this._flowerGroup,
     });
-    add('flowers', {
+    this._addInstancedOrgan('flowers', {
       name: 'Blackcurrant_Flowers_GreenMauve',
-      geometry: this.#geometry(createFlowerGeometry()),
-      material: this.#materials.flower,
-      group: this.#flowerGroup,
+      geometry: this._geometry(createFlowerGeometry()),
+      material: this._materials.flower,
+      group: this._flowerGroup,
     });
-    add('berries', {
+    this._addInstancedOrgan('berries', {
       name: 'Blackcurrant_Berries',
       geometry: berryGeometry,
-      material: this.#materials.fruit,
-      group: this.#fruitGroup,
+      material: this._materials.fruit,
+      group: this._fruitGroup,
     });
-    add('calyces', {
+    this._addInstancedOrgan('calyces', {
       name: 'Blackcurrant_RetainedCalyxStars',
-      geometry: this.#geometry(createCalyxStarGeometry()),
-      material: this.#materials.calyx,
-      group: this.#fruitGroup,
+      geometry: this._geometry(createCalyxStarGeometry()),
+      material: this._materials.calyx,
+      group: this._fruitGroup,
     });
-    const leafInstances = this.#instancePool.mesh('leaves');
-    leafInstances.customDepthMaterial = this.#materials.leafDepth;
-    leafInstances.customDistanceMaterial = this.#materials.leafDistance;
+    const leafInstances = this._instancePool.mesh('leaves');
+    leafInstances.customDepthMaterial = this._materials.leafDepth;
+    leafInstances.customDistanceMaterial = this._materials.leafDistance;
   }
 
   #setLeaf(leafRuntime, leafState, nodeState, detailScale = 1) {
-    const identity = (leafRuntime.identity ??= this.#renderIdentity(
+    const identity = (leafRuntime.identity ??= this._renderIdentity(
       leafRuntime.id,
       'leaf',
     ));
@@ -689,11 +427,11 @@ export class Blackcurrant extends THREE.Group {
       leafQuaternion,
       new THREE.Vector3(scale, scale, scale),
     );
-    this.#writeInstance('leaves', identity, matrix);
+    this._writeInstance('leaves', identity, matrix);
 
     const petioleDummy = new THREE.Object3D();
     composeSegmentMatrix(petioleDummy, petioleStart, position, 0.0013);
-    this.#writeInstance(
+    this._writeInstance(
       'petioles',
       identity,
       petioleDummy.matrix,
@@ -713,25 +451,25 @@ export class Blackcurrant extends THREE.Group {
       1,
     );
     const springMix = THREE.MathUtils.smoothstep(leafProgress, 0.15, 0.85);
-    this.#leafSeasonTint
+    this._leafSeasonTint
       .copy(SPRING_LEAF_TINT)
       .lerp(SUMMER_LEAF_TINT, springMix)
       .lerp(AUTUMN_LEAF_TINT, autumnProgress);
-    this.#materials.leaf.color
-      .copy(this.#leafBaseColor)
-      .multiply(this.#leafSeasonTint);
+    this._materials.leaf.color
+      .copy(this._leafBaseColor)
+      .multiply(this._leafSeasonTint);
   }
 
   #setBud(leafRuntime, nodeState, visible) {
     if (!visible) return;
-    const identity = (leafRuntime.identity ??= this.#renderIdentity(
+    const identity = (leafRuntime.identity ??= this._renderIdentity(
       leafRuntime.id,
       'leaf',
     ));
     const position = vector(nodeState.position);
     const quaternion = leafRuntime.currentQuaternion ?? leafRuntime.quaternion;
     const scale = new THREE.Vector3(0.007, 0.012, 0.007);
-    this.#writeInstance(
+    this._writeInstance(
       'buds',
       identity,
       new THREE.Matrix4().compose(position, quaternion, scale),
@@ -784,7 +522,7 @@ export class Blackcurrant extends THREE.Group {
       racemeState.visible !== false && flowerVisibility > 0.015;
     const showFruit = racemeState.visible !== false && berryVisibility > 0.015;
     if (!showFlowers && !showFruit) return;
-    const racemeIdentity = (racemeRuntime.identity ??= this.#renderIdentity(
+    const racemeIdentity = (racemeRuntime.identity ??= this._renderIdentity(
       racemeRuntime.id,
       'raceme',
     ));
@@ -797,7 +535,7 @@ export class Blackcurrant extends THREE.Group {
     const end = start.clone().addScaledVector(direction, length);
     const axisDummy = new THREE.Object3D();
     composeSegmentMatrix(axisDummy, start, end, 0.00075);
-    this.#writeInstance(
+    this._writeInstance(
       'racemeAxes',
       racemeIdentity,
       axisDummy.matrix,
@@ -809,7 +547,7 @@ export class Blackcurrant extends THREE.Group {
     );
     for (const [berryIndex, berryRuntime] of racemeRuntime.berries.entries()) {
       const berryState = stateById.get(berryRuntime.id);
-      const berryIdentity = (berryRuntime.identity ??= this.#renderIdentity(
+      const berryIdentity = (berryRuntime.identity ??= this._renderIdentity(
         berryRuntime.id,
         'berry',
       ));
@@ -818,7 +556,7 @@ export class Blackcurrant extends THREE.Group {
       const berryPosition = vector(berryState.position);
       const pedicelDummy = new THREE.Object3D();
       composeSegmentMatrix(pedicelDummy, pedicelStart, berryPosition, 0.00045);
-      this.#writeInstance(
+      this._writeInstance(
         'pedicels',
         berryIdentity,
         pedicelDummy.matrix,
@@ -827,7 +565,7 @@ export class Blackcurrant extends THREE.Group {
 
       if (showFlowers) {
         const flowerIdentity = (berryRuntime.flowerIdentity ??=
-          this.#renderIdentity(berryRuntime.id, 'flower'));
+          this._renderIdentity(berryRuntime.id, 'flower'));
         const flowerQuaternion = makeBasisQuaternion(
           berryPosition.clone().sub(pedicelStart).normalize().negate(),
           new THREE.Vector3(0, 0, 1),
@@ -837,7 +575,7 @@ export class Blackcurrant extends THREE.Group {
             0.0125 *
             THREE.MathUtils.lerp(0.45, 1, flowerProgress) *
             Math.sqrt(flowerOpenVisibility);
-          this.#writeInstance(
+          this._writeInstance(
             'flowers',
             flowerIdentity,
             new THREE.Matrix4().compose(
@@ -848,7 +586,7 @@ export class Blackcurrant extends THREE.Group {
           );
         } else {
           const budScale = 0.0055 * Math.sqrt(flowerVisibility);
-          this.#writeInstance(
+          this._writeInstance(
             'flowerBuds',
             flowerIdentity,
             new THREE.Matrix4().compose(
@@ -875,7 +613,7 @@ export class Blackcurrant extends THREE.Group {
             keyedRange(this.seed, [berryRuntime.id, 'rz'], -0.16, 0.16),
           ),
         );
-        this.#writeInstance(
+        this._writeInstance(
           'berries',
           berryIdentity,
           new THREE.Matrix4().compose(
@@ -894,7 +632,7 @@ export class Blackcurrant extends THREE.Group {
           .clone()
           .addScaledVector(distalDirection, diameter * 0.51);
         const calyxScale = diameter * 0.38;
-        this.#writeInstance(
+        this._writeInstance(
           'calyces',
           berryIdentity,
           new THREE.Matrix4().compose(
@@ -908,194 +646,9 @@ export class Blackcurrant extends THREE.Group {
     }
   }
 
-  /** Build the cheap, geometry-free state plan and cache signature. */
-  #planWoodySnapshot(snapshot, detail = this.#detail) {
-    if (!snapshot || !Array.isArray(snapshot.canes)) {
-      throw new TypeError('A Blackcurrant snapshot is required.');
-    }
-
-    const resolved = normalizePlantDetail(detail, this.#detail);
-    const states = new Map();
-
-    for (const cane of snapshot.canes) {
-      if (cane.removed) continue;
-      for (const axis of cane.axes) {
-        const runtime = this.#runtime.axes.get(axis.id);
-        if (!runtime) {
-          throw new Error(`Missing render axis for model organ ${axis.id}.`);
-        }
-        const growth = THREE.MathUtils.clamp(axis.growthScale, 0, 1);
-        states.set(axis.id, {
-          axis,
-          cane,
-          runtime,
-          root: vector(axis.root),
-          growth,
-          radiusScale: null,
-          parentRadiusAtAttachment: null,
-          resolvingRadius: false,
-        });
-      }
-    }
-
-    const resolveRadiusScale = (state) => {
-      if (state.radiusScale != null) return state.radiusScale;
-      if (state.resolvingRadius) {
-        throw new Error(`Cyclic woody parentage at ${state.axis.id}.`);
-      }
-      state.resolvingRadius = true;
-
-      let baseRadius = state.runtime.baseRadius * state.growth;
-      const parentState = states.get(state.runtime.parentAxisId);
-      if (parentState) {
-        const parentRadiusScale = resolveRadiusScale(parentState);
-        state.parentRadiusAtAttachment =
-          state.runtime.parentRadiusAtAttachment * parentRadiusScale;
-        baseRadius = Math.min(
-          baseRadius,
-          state.parentRadiusAtAttachment *
-            TISEL_PROFILE.cane.childParentRadiusRatio,
-        );
-      }
-
-      state.radiusScale =
-        state.runtime.baseRadius > 0
-          ? baseRadius / state.runtime.baseRadius
-          : 0;
-      state.resolvingRadius = false;
-      return state.radiusScale;
-    };
-
-    const signatureAxes = [];
-    for (const state of states.values()) {
-      resolveRadiusScale(state);
-      const { axis, root, growth, radiusScale } = state;
-      signatureAxes.push([
-        axis.id,
-        root.x,
-        root.y,
-        root.z,
-        growth,
-        radiusScale,
-      ]);
-    }
-
-    return {
-      states,
-      detail: resolved,
-      signature: JSON.stringify([
-        resolved.sectionStride,
-        resolved.segmentFactor,
-        signatureAxes,
-      ]),
-    };
-  }
-
-  /**
-   * Pack one planned snapshot into the shared EZ-Tree branch buffer.
-   * This is the only CPU-heavy woody meshing pass.
-   */
-  #meshWoodyPlan(plan) {
-    const { states, detail: resolved } = plan;
-    const data = createBranchGeometryData();
-
-    for (const state of states.values()) {
-      const { runtime, root, growth, radiusScale } = state;
-      const radialSegments = Math.max(
-        3,
-        Math.round(runtime.radialSegments * resolved.segmentFactor),
-      );
-      const zeroGrowth = growth <= 1e-9 || radiusScale <= 1e-9;
-
-      if (!zeroGrowth) {
-        const transformedSections = runtime.sections.map((section) => ({
-          origin: section.origin.clone().multiplyScalar(growth).add(root),
-          tangent: section.tangent.clone(),
-          normal: section.normal.clone(),
-          binormal: section.binormal.clone(),
-          radius: section.radius * radiusScale,
-        }));
-        const transformedLandmarks = runtime.landmarks.map((landmark) => {
-          const sampled = sampleBranchSection(
-            transformedSections,
-            landmark.position,
-          );
-          sampled.origin = landmark.origin
-            .clone()
-            .multiplyScalar(growth)
-            .add(root);
-          return {
-            position: landmark.position,
-            section: sampled,
-          };
-        });
-        const sampled = samplePlantDetailSections(
-          transformedSections,
-          resolved.sectionStride,
-          transformedLandmarks,
-        );
-        const textureWraps = calculateBarkTextureWraps(
-          transformedSections[0].radius,
-          this.#assets.bark?.textureScale?.x ?? 1,
-        );
-        appendBranchTube(data, sampled.sections, {
-          radialSegments,
-          textureWraps,
-          caps: runtime.caps,
-        });
-      }
-    }
-
-    return {
-      data,
-      signature: plan.signature,
-    };
-  }
-
-  /** Repack the live wood mesh at a new private PlantDetail level. */
-  #setDetail(detail = {}) {
-    const resolved = Object.freeze(normalizePlantDetail(detail, this.#detail));
-    const unchanged =
-      resolved.sectionStride === this.#detail.sectionStride &&
-      resolved.segmentFactor === this.#detail.segmentFactor &&
-      resolved.leafStride === this.#detail.leafStride &&
-      resolved.leafScale === this.#detail.leafScale &&
-      resolved.billboard === this.#detail.billboard;
-    if (unchanged) return this;
-
-    const woodChanged =
-      resolved.sectionStride !== this.#detail.sectionStride ||
-      resolved.segmentFactor !== this.#detail.segmentFactor;
-    this.#detail = resolved;
-    if (woodChanged) this.#woodSnapshotKey = null;
-    if (this.#snapshot) this.#applySnapshot(this.#snapshot);
-    return this;
-  }
-
-  #enableLOD() {
-    this.#lodController?.dispose();
-    this.#lodController = new PlantLODController({
-      target: this,
-      detail: this.#detail,
-      levels: DEFAULT_LOD_LEVELS,
-      applyDetail: (detail) => this.#setDetail(detail),
-    });
-  }
-
-  #rebuildWoodyGeometry(snapshot) {
-    const plan = this.#planWoodySnapshot(snapshot, this.#detail);
-    if (plan.signature === this.#woodSnapshotKey) return false;
-    const meshed = this.#meshWoodyPlan(plan);
-    const replacement = createBranchBufferGeometry(meshed.data);
-    this.#resources.replaceGeometry(this.#woodMesh, replacement);
-    this.#woodMesh.visible = meshed.data.indices.length > 0;
-    this.#woodSnapshotKey = meshed.signature;
-    return true;
-  }
-
-  #applySnapshot(snapshot) {
-    this.#instancePool.beginFrame();
-    this.#rebuildWoodyGeometry(snapshot);
+  _applySnapshot(snapshot) {
+    this._instancePool.beginFrame();
+    this._rebuildWoodyGeometry(snapshot);
 
     const phenology = snapshot.phenology;
     this.#setLeafMaterialPhenology(phenology);
@@ -1111,7 +664,7 @@ export class Blackcurrant extends THREE.Group {
       if (cane.removed) continue;
       visibleCanes++;
       for (const axis of cane.axes) {
-        const axisRuntime = this.#runtime.axes.get(axis.id);
+        const axisRuntime = this._runtime.axes.get(axis.id);
         if (!axisRuntime) {
           throw new Error(`Missing render axis for model organ ${axis.id}.`);
         }
@@ -1120,20 +673,14 @@ export class Blackcurrant extends THREE.Group {
 
         for (const node of axis.nodes) {
           for (const state of node.leaves) {
-            const leafRuntime = this.#runtime.leaves.get(state.id);
+            const leafRuntime = this._runtime.leaves.get(state.id);
             if (!leafRuntime) {
               throw new Error(
                 `Missing render leaf for model organ ${state.id}.`,
               );
             }
             const biologicallyVisible = state.visible;
-            const detailScale = stablePlantOrganDetailScale(
-              this.seed,
-              state.id,
-              this.#detail.leafStride,
-              this.#detail.leafScale,
-              'blackcurrant-plant-detail-leaf-stride',
-            );
+            const detailScale = this._organDetailScale(state.id);
             const visible = biologicallyVisible && detailScale > 0;
             if (visible) {
               this.#setLeaf(leafRuntime, state, node, detailScale);
@@ -1147,7 +694,7 @@ export class Blackcurrant extends THREE.Group {
           }
 
           for (const state of node.racemes) {
-            const racemeRuntime = this.#runtime.racemes.get(state.id);
+            const racemeRuntime = this._runtime.racemes.get(state.id);
             if (!racemeRuntime) {
               throw new Error(
                 `Missing render raceme for model organ ${state.id}.`,
@@ -1178,14 +725,9 @@ export class Blackcurrant extends THREE.Group {
       }
     }
 
-    this.#instancePool.commitFrame();
+    this._instancePool.commitFrame();
 
-    const woodyDrawCalls =
-      this.#woodMesh.visible && this.#woodMesh.geometry.index?.count > 0
-        ? 1
-        : 0;
-
-    this.#renderStats = {
+    this._renderStats = {
       visibleCanes,
       visibleAxes,
       visibleLeaves,
@@ -1194,62 +736,19 @@ export class Blackcurrant extends THREE.Group {
       visibleBerries,
       visibleGreenBerries,
       visibleRipeBerries,
-      woodyDrawCalls,
-      drawCalls:
-        woodyDrawCalls +
-        this.#instancePool.activeMeshes().filter((mesh) => mesh.count > 0)
-          .length,
+      ...this._drawCallStats(),
     };
   }
 
-  #evaluate() {
+  _evaluate() {
     return evaluateTiselModel(this.#model, {
       ageYears: this.ageYears,
       dayOfYear: this.dayOfYear,
-      events: this.#events,
+      events: this._events,
       scenario: this.scenario,
       trialYear: this.trialYear,
       offsetDays: this.offsetDays,
     });
-  }
-
-  setTime({ ageYears = this.ageYears, dayOfYear = this.dayOfYear } = {}) {
-    return this.setState({ ageYears, dayOfYear });
-  }
-
-  setState({
-    ageYears = this.ageYears,
-    dayOfYear = this.dayOfYear,
-    scenario = this.scenario,
-    trialYear = this.trialYear,
-    offsetDays = this.offsetDays,
-  } = {}) {
-    const previousAge = this.ageYears;
-    const previousDay = this.dayOfYear;
-    const previousScenario = this.scenario;
-    const previousTrialYear = this.trialYear;
-    const previousOffsetDays = this.offsetDays;
-    this.ageYears = simulationYear(ageYears, this.ageYears, this.maxYears);
-    this.dayOfYear = THREE.MathUtils.clamp(
-      Math.floor(number(dayOfYear, this.dayOfYear)),
-      1,
-      365,
-    );
-    this.scenario = scenario;
-    this.trialYear = trialYear;
-    this.offsetDays = offsetDays;
-    try {
-      this.#snapshot = this.#evaluate();
-    } catch (error) {
-      this.ageYears = previousAge;
-      this.dayOfYear = previousDay;
-      this.scenario = previousScenario;
-      this.trialYear = previousTrialYear;
-      this.offsetDays = previousOffsetDays;
-      throw error;
-    }
-    this.#applySnapshot(this.#snapshot);
-    return this;
   }
 
   setScenario(scenario) {
@@ -1263,73 +762,21 @@ export class Blackcurrant extends THREE.Group {
     return this.setState({ trialYear, offsetDays });
   }
 
-  #normaliseEvent(event, index = 0) {
-    if (!event || typeof event !== 'object' || Array.isArray(event)) {
-      throw new TypeError('A care event object is required.');
+  /** Blackcurrant care events carry harvest and whole-cane pruning payloads. */
+  _decorateEvent(event) {
+    if (event.type === 'harvest') {
+      return { ...event, ...createHarvestEvent(event) };
     }
-    const ageYears =
-      event.ageYears == null
-        ? this.ageYears
-        : Number.isFinite(event.ageYears)
-          ? event.ageYears
-          : NaN;
-    const dayOfYear =
-      event.dayOfYear == null
-        ? this.dayOfYear
-        : Number.isFinite(event.dayOfYear)
-          ? Math.floor(event.dayOfYear)
-          : NaN;
-    if (
-      !Number.isInteger(ageYears) ||
-      ageYears < 0 ||
-      ageYears > this.maxYears
-    ) {
-      throw new RangeError(
-        `event ageYears must be an integer between 0 and ${this.maxYears}`,
-      );
+    if (event.type === 'prune') {
+      return { ...event, ...createPruneEvent(event) };
     }
-    if (!Number.isInteger(dayOfYear) || dayOfYear < 1 || dayOfYear > 365) {
-      throw new RangeError('event dayOfYear must be an integer from 1 to 365');
-    }
-    const id = String(
-      event.id ?? `event:${this.seed}:${index}:${event.type ?? 'care'}`,
-    );
-    if (!id) throw new TypeError('event id cannot be empty');
-    const normalised = {
-      ...event,
-      id,
-      ageYears,
-      dayOfYear,
-    };
-    if (normalised.type === 'harvest') {
-      return { ...normalised, ...createHarvestEvent(normalised) };
-    }
-    if (normalised.type === 'prune') {
-      return { ...normalised, ...createPruneEvent(normalised) };
-    }
-    return normalised;
-  }
-
-  addEvent(event) {
-    const normalised = this.#normaliseEvent(event, this.#events.length);
-    if (this.#events.some((existing) => existing.id === normalised.id)) {
-      throw new Error(`Duplicate care event id: ${normalised.id}`);
-    }
-    this.#events.push(normalised);
-    try {
-      this.#snapshot = this.#evaluate();
-    } catch (error) {
-      this.#events.pop();
-      throw error;
-    }
-    this.#applySnapshot(this.#snapshot);
-    return normalised;
+    return event;
   }
 
   pruneOldestCane(options = {}) {
-    const targetAge = number(options.ageYears, this.ageYears);
+    const targetAge = PlantRenderer.number(options.ageYears, this.ageYears);
     const targetDay = THREE.MathUtils.clamp(
-      Math.floor(number(options.dayOfYear, this.dayOfYear)),
+      Math.floor(PlantRenderer.number(options.dayOfYear, this.dayOfYear)),
       1,
       365,
     );
@@ -1346,7 +793,7 @@ export class Blackcurrant extends THREE.Group {
     const targetSnapshot = evaluateTiselModel(this.#model, {
       ageYears: targetAge,
       dayOfYear: targetDay,
-      events: this.#events,
+      events: this._events,
       scenario: this.scenario,
       trialYear: this.trialYear,
       offsetDays: this.offsetDays,
@@ -1369,10 +816,11 @@ export class Blackcurrant extends THREE.Group {
     // year happens to be on screen. This keeps back-dated or scheduled care
     // events from targeting canes that do not yet exist (or no longer exist).
     const currentYear = Math.floor(targetAge);
-    const sameYearPrunes = this.#events.filter(
+    const sameYearPrunes = this._events.filter(
       (event) =>
         event.type === 'prune' &&
-        Math.floor(number(event.ageYears, event.year)) === currentYear,
+        Math.floor(PlantRenderer.number(event.ageYears, event.year)) ===
+          currentYear,
     );
     const reservedCaneIds = new Set(
       sameYearPrunes.map((event) => event.caneId).filter(Boolean),
@@ -1381,7 +829,7 @@ export class Blackcurrant extends THREE.Group {
     const unprunedYearEnd = evaluateTiselModel(this.#model, {
       ageYears: currentYear,
       dayOfYear: 365,
-      events: this.#events.filter((event) => !sameYearPrunes.includes(event)),
+      events: this._events.filter((event) => !sameYearPrunes.includes(event)),
       scenario: this.scenario,
       trialYear: this.trialYear,
       offsetDays: this.offsetDays,
@@ -1418,9 +866,14 @@ export class Blackcurrant extends THREE.Group {
         (cane) =>
           !cane.removed &&
           !reservedCaneIds.has(cane.id) &&
-          (options.force || number(cane.ageYears, 0) >= minimumAge),
+          (options.force ||
+            PlantRenderer.number(cane.ageYears, 0) >= minimumAge),
       )
-      .sort((a, b) => number(b.ageYears, 0) - number(a.ageYears, 0));
+      .sort(
+        (a, b) =>
+          PlantRenderer.number(b.ageYears, 0) -
+          PlantRenderer.number(a.ageYears, 0),
+      );
     const cane = options.caneId
       ? candidates.find((candidate) => candidate.id === options.caneId)
       : candidates[0];
@@ -1464,21 +917,9 @@ export class Blackcurrant extends THREE.Group {
     return { event: added, amountKg: payload.amountKg };
   }
 
-  resetEvents() {
-    this.#events.length = 0;
-    this.#snapshot = this.#evaluate();
-    this.#applySnapshot(this.#snapshot);
-    return this;
-  }
-
-  update(deltaSeconds = 0, elapsedSeconds, camera) {
-    this.#leafWind.advance(deltaSeconds, elapsedSeconds);
-    if (camera && this.#lodController) this.#lodController.update(camera);
-  }
-
   stats() {
-    const source = this.#snapshot.stats;
-    const harvestedYieldKg = this.#events
+    const source = this._snapshot.stats;
+    const harvestedYieldKg = this._events
       .filter(
         (event) =>
           event.type === 'harvest' &&
@@ -1488,18 +929,18 @@ export class Blackcurrant extends THREE.Group {
               dayOfYear: this.dayOfYear,
             }),
       )
-      .reduce((sum, event) => sum + number(event.amountKg, 0), 0);
+      .reduce((sum, event) => sum + PlantRenderer.number(event.amountKg, 0), 0);
 
     return {
       ...source,
-      ...this.#renderStats,
-      species: this.#snapshot.species,
+      ...this._renderStats,
+      species: this._snapshot.species,
       cultivar: this.cultivar,
       ageYears: this.ageYears,
       dayOfYear: this.dayOfYear,
       scenario: this.scenario,
-      phenology: this.#snapshot.phenology,
-      careHints: this.#snapshot.careHints,
+      phenology: this._snapshot.phenology,
+      careHints: this._snapshot.careHints,
       estimatedYieldKg: source.estimatedYieldKg,
       harvestedYieldKg,
     };
@@ -1509,7 +950,7 @@ export class Blackcurrant extends THREE.Group {
     return {
       schemaVersion: 1,
       type: 'Blackcurrant',
-      plantId: this.#plantId,
+      plantId: this._plantId,
       species: 'Ribes nigrum',
       cultivar: this.cultivar,
       seed: this.seed,
@@ -1519,16 +960,8 @@ export class Blackcurrant extends THREE.Group {
       scenario: this.scenario,
       trialYear: this.trialYear,
       offsetDays: this.offsetDays,
-      events: this.#events.map((event) => ({ ...event })),
+      events: this._events.map((event) => ({ ...event })),
     };
-  }
-
-  dispose() {
-    if (this.#resources.disposed) return;
-    this.#lodController?.dispose({ restore: false });
-    this.#lodController = null;
-    this.#resources.dispose();
-    this.clear();
   }
 }
 
