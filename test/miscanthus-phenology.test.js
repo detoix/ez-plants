@@ -149,7 +149,9 @@ test('season profiles shift the whole calendar together', () => {
 
 test('care hints are cited, and only appear when they are actionable', () => {
   const known = new Set(
-    Object.values(MALEPARTUS_SOURCES).map((source) => source.url),
+    Object.values(MALEPARTUS_SOURCES)
+      .map((source) => source.url)
+      .filter(Boolean),
   );
   const seen = new Set();
   for (let day = 1; day <= 365; day += 1) {
@@ -198,7 +200,10 @@ test('provenance separates what is observed from what is assumed', () => {
   assert.equal(MALEPARTUS_SEASON_PROFILES.typical.observedAnchor, true);
   assert.equal(MALEPARTUS_SEASON_PROFILES.early.observedAnchor, false);
   for (const source of Object.values(MALEPARTUS_SOURCES)) {
-    assert.match(source.url, /^https:\/\//);
+    // Entries without a url are first-hand observations rather than citable
+    // documents (library rule 4: the repo records what looking taught us, not
+    // links to particular images). Either way the entry must state its claim.
+    if (source.url !== undefined) assert.match(source.url, /^https:\/\//);
     assert.ok(source.supports.length > 40, `${source.title} needs a claim`);
   }
 });

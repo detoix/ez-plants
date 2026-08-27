@@ -39,26 +39,20 @@ export const MALEPARTUS_SOURCES = Object.freeze({
     supports:
       'Established Miscanthus sinensis clumps tend to die out in the centre, leaving a ring of vigorous outer tillers; the standard remedy is lifting and dividing every three to five years, ideally as soon as the centre starts to open.',
   }),
-  cultivarPhotographs: Object.freeze({
-    title:
-      "Miscanthus sinensis 'Malepartus' photographs, David J. Stang, Wikimedia Commons (CC BY-SA 4.0)",
-    url: 'https://commons.wikimedia.org/wiki/File:Miscanthus_sinensis_Malepartus_1zz.jpg',
+  cultivarBlade: Object.freeze({
+    title: 'Cultivar blade observations',
     supports:
-      'Photographic reference for the cultivar itself: a crisp near-white midrib running the full length of every blade, a cool faintly glaucous grey-green lamina rather than a yellow-green one, fine longitudinal ribs either side of the midrib, and long blades arching well past the horizontal. Used to calibrate blade colour and the midrib contrast.',
+      'Looking at the real cultivar: a crisp near-white midrib running the full length of every blade, a cool faintly glaucous grey-green lamina rather than a yellow-green one, fine longitudinal ribs either side of the midrib, and long blades arching well past the horizontal. Used to calibrate blade colour and the midrib contrast.',
   }),
-  inflorescencePhotograph: Object.freeze({
-    title:
-      'Chinaschilf (Kohlerhecke, Neuendettelsau), Alexander Rahm, Wikimedia Commons (CC BY-SA 4.0)',
-    url: 'https://commons.wikimedia.org/wiki/File:Chinaschilf_(Kohlerhecke,_Neuendettelsau)_20250919_142621.jpg',
+  inflorescenceForm: Object.freeze({
+    title: 'September inflorescence observations',
     supports:
-      'A September head shortly after emergence: the racemes are thrown out almost to the horizontal in an open, airy whisk with visible gaps between them, wine-purple before the hairs elongate, on long bare peduncles held well clear of the foliage. Used to calibrate the raceme spread angle and the head’s width-to-length ratio.',
+      'A September head shortly after emergence: the racemes are thrown out almost to the horizontal in an open, airy whisk with visible gaps between them, wine-purple before the hairs elongate, on long bare peduncles held well clear of the foliage. Used to calibrate the raceme spread angle and the head\u2019s width-to-length ratio.',
   }),
   seasonalObservations: Object.freeze({
-    title:
-      'Dated Miscanthus sinensis observations, iNaturalist (research grade, CC-licensed photographs)',
-    url: 'https://www.inaturalist.org/observations?taxon_name=Miscanthus+sinensis&photos=true&quality_grade=research',
+    title: 'Dated seasonal observations, same hardiness zone',
     supports:
-      'Observation photographs from the same hardiness zone, dated to the day. Late-April images show clumps still entirely bleached with no green at the crown, confirming how late a C4 grass starts. A 24 November image shows the foliage already fully bleached to a cool grey-straw with no copper remaining, which moved the modelled autumn-to-straw transition about three weeks earlier and away from a warm tan. A mid-June image shows the new growth as a narrow erect tuft rather than a small copy of the September fountain, and an 18 July image from Karlsruhe — with parked cars for scale — puts the foliage at roughly 1.35 m with no inflorescences yet, and shows the culms still green inside their leaf sheaths. A 17 October clump is still fully green and a 31 October one in Lyon carries green and bleached blades side by side, which is why the modelled foliage bleaches blade by blade on individually shifted windows and passes through only a brief warm tint rather than a whole-plant copper stage.',
+      'Late April: clumps still entirely bleached with no green at the crown, confirming how late a C4 grass starts. Mid-June: the new growth is a narrow erect tuft rather than a small copy of the September fountain. 18 July, Karlsruhe: foliage at roughly 1.35 m with no inflorescences yet, culms still green inside their leaf sheaths. 17 October: still fully green. 31 October, Lyon: green and bleached blades side by side. 24 November: foliage already fully bleached to a cool grey-straw with no copper remaining, which moved the modelled autumn-to-straw transition about three weeks earlier and away from a warm tan, and is why the foliage bleaches blade by blade on individually shifted windows rather than passing through a whole-plant copper stage.',
   }),
   bbch: Object.freeze({
     title: 'BBCH Monograph, growth stages of mono- and dicotyledonous plants',
