@@ -12,15 +12,25 @@ export function markAttributeRange(attribute, componentCount) {
   attribute.needsUpdate = true;
 }
 
-/** Configure an InstancedMesh for repeatedly repacked plant-organ prefixes. */
-export function configureDynamicInstanceMesh(mesh) {
+/**
+ * Configure an InstancedMesh for repeatedly repacked plant-organ prefixes.
+ *
+ * Shadow flags are arguments rather than constants: casting is an extra draw
+ * per shadow-casting light, and whether a given organ kind is worth that at a
+ * given LOD band is a decision for the caller, not for the pool. See
+ * `ShadowCast` and `PlantRenderer._applyShadowDetail`.
+ */
+export function configureDynamicInstanceMesh(
+  mesh,
+  { castShadow = true, receiveShadow = true } = {},
+) {
   if (!mesh?.isInstancedMesh) {
     throw new TypeError('Expected a THREE.InstancedMesh.');
   }
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.frustumCulled = false;
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
+  mesh.castShadow = castShadow;
+  mesh.receiveShadow = receiveShadow;
   return mesh;
 }
 
@@ -38,9 +48,21 @@ export class PlantInstancePool {
     this._kindByMesh = new WeakMap();
     this._cursors = {};
     this._identityAt = {};
+    this._shadowEligible = {};
   }
 
-  add(kind, { name, geometry, material, group, capacity } = {}) {
+  /**
+   * @param {string} kind
+   * @param {object} [options]
+   * @param {boolean} [options.castsShadow] Whether this organ kind is ever
+   *   worth a shadow-map draw. A per-kind capability, fixed at construction —
+   *   petioles and other hidden structure can opt out permanently. The LOD
+   *   band decides whether an eligible kind casts *right now*.
+   */
+  add(
+    kind,
+    { name, geometry, material, group, capacity, castsShadow = true } = {},
+  ) {
     if (!kind) throw new TypeError('An instance-pool kind is required.');
     if (this._meshes[kind]) {
       throw new Error(`Instance pool already contains kind: ${kind}`);
@@ -54,6 +76,7 @@ export class PlantInstancePool {
     }
     const mesh = configureDynamicInstanceMesh(
       new THREE.InstancedMesh(geometry, material, Math.max(1, activeCapacity)),
+      { castShadow: castsShadow },
     );
     mesh.name = name ?? String(kind);
     mesh.count = 0;
@@ -63,8 +86,26 @@ export class PlantInstancePool {
     this._kindByMesh.set(mesh, kind);
     this._cursors[kind] = 0;
     this._identityAt[kind] = [];
+    this._shadowEligible[kind] = castsShadow;
     group?.add(mesh);
     return mesh;
+  }
+
+  /**
+   * Apply one LOD band's shadow policy across every pooled organ kind.
+   *
+   * `cast` is the band's answer; a kind that opted out at construction stays
+   * out regardless. Flipping these flags is free — no buffer touches the GPU,
+   * three simply stops collecting the mesh for the shadow pass.
+   *
+   * @param {{ cast?: boolean, receive?: boolean }} policy
+   */
+  applyShadowPolicy({ cast = true, receive = true } = {}) {
+    for (const [kind, mesh] of Object.entries(this._meshes)) {
+      mesh.castShadow = cast && this._shadowEligible[kind] !== false;
+      mesh.receiveShadow = receive;
+    }
+    return this;
   }
 
   beginFrame() {
@@ -126,6 +167,11 @@ export class PlantInstancePool {
     const mesh = this._meshes[kind];
     if (!mesh) throw new RangeError(`Unknown instance-pool kind: ${kind}`);
     return mesh;
+  }
+
+  /** The organ kind a pooled mesh was registered under, or null. */
+  kindOf(mesh) {
+    return this._kindByMesh.get(mesh) ?? null;
   }
 
   activeMeshes() {

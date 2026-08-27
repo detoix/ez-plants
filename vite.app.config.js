@@ -16,10 +16,18 @@ export default ({ command }) => ({
   root: './src/app',
   resolve: {
     alias: {
-      '@detoix/ez-plants': command === 'serve'
-        ? path.resolve(__dirname, 'src/lib/index.js')
-        : path.resolve(__dirname, 'build/ez-plants.es.js'),
+      '@detoix/ez-plants':
+        command === 'serve'
+          ? path.resolve(__dirname, 'src/lib/index.js')
+          : path.resolve(__dirname, 'build/ez-plants.es.js'),
     },
+    // Mandatory, not cosmetic. `@three.ez/instanced-mesh` installs its own
+    // nested `three`, and with two copies loaded it patches ShaderChunks the
+    // active renderer never reads: `USE_INSTANCING_INDIRECT` never reaches the
+    // shader and the leaf-wind counter-rotation degrades silently, with no
+    // error. Dedupe, never an alias — aliasing `three` to a directory breaks
+    // the `three/addons/*` subpath exports.
+    dedupe: ['three'],
   },
   server: {
     hmr: true,

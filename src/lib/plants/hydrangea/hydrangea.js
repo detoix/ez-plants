@@ -7,7 +7,6 @@ import { PlantRenderer } from '../../plant-renderer.js';
 import { loadLeafPlate } from '../../leaf-plate.js';
 import {
   composeSegmentMatrix,
-  createUnitStemGeometry,
   makeBasisQuaternion,
   vector,
 } from '../../plant-transforms.js';
@@ -121,7 +120,11 @@ export class Hydrangea extends PlantRenderer {
       assets: options.assets ?? {},
       defaultLeafPlate: LEAF_PLATE,
       extraStateKeys: ['seasonProfile', 'offsetDays'],
-      lodLevels: DEFAULT_LOD_LEVELS,
+      // A caller may state its own bands; the cultivar's are the default,
+      // not a ceiling. The distances that suit a garden close-up are not the
+      // ones that suit a landscape, and only the application knows which it
+      // is looking at.
+      lodLevels: options.lodLevels ?? DEFAULT_LOD_LEVELS,
       leafWind: {
         // Thick blades move less than forsythia's lighter foliage, while the
         // broad cards still need visible gust variation at canopy scale.
@@ -202,14 +205,14 @@ export class Hydrangea extends PlantRenderer {
   }
 
   #createInstances() {
-    const stemGeometry = this._geometry(createUnitStemGeometry(5));
+    const stemGeometry = this._stemGeometry(5);
 
     this._addInstancedOrgan('leaves', {
       name: 'Hydrangea_Leaves_Opposite_Ovate',
-      geometry: this._geometry(
-        createLeafCardGeometry({
-          roundedNormals: this._assets.leaf.roundedNormals,
-        }),
+      geometry: this._sharedGeometry(
+        'shared/leaf-card',
+        { roundedNormals: this._assets.leaf.roundedNormals },
+        createLeafCardGeometry,
       ),
       material: this._materials.leaf,
       group: this._leafGroup,
@@ -222,7 +225,11 @@ export class Hydrangea extends PlantRenderer {
     });
     this._addInstancedOrgan('buds', {
       name: 'Hydrangea_VegetativeBuds',
-      geometry: this._geometry(createVegetativeBudGeometry()),
+      geometry: this._sharedGeometry(
+        'hydrangea/vegetative-bud',
+        {},
+        createVegetativeBudGeometry,
+      ),
       material: this._materials.bud,
       group: this._woodyGroup,
     });
@@ -240,28 +247,40 @@ export class Hydrangea extends PlantRenderer {
     });
     this._addInstancedOrgan('panicleStems', {
       name: 'Hydrangea_PanicleRachises',
-      geometry: this._geometry(createPanicleStemGeometry()),
+      geometry: this._sharedGeometry(
+        'hydrangea/panicle-stem',
+        {},
+        createPanicleStemGeometry,
+      ),
       material: this._materials.panicleStem,
       group: this._flowerGroup,
     });
     this._addInstancedOrgan('fertilePanicles', {
       name: 'Hydrangea_Panicles_FertileInterior',
-      geometry: this._geometry(createFertilePanicleGeometry()),
+      geometry: this._sharedGeometry(
+        'hydrangea/fertile-panicle',
+        {},
+        createFertilePanicleGeometry,
+      ),
       material: this._materials.fertile,
       group: this._flowerGroup,
     });
     this._addInstancedOrgan('sterileLower', {
       name: 'Hydrangea_Panicles_SterileLower',
-      geometry: this._geometry(
-        createSterilePanicleGeometry({ region: 'lower' }),
+      geometry: this._sharedGeometry(
+        'hydrangea/sterile-panicle',
+        { region: 'lower' },
+        createSterilePanicleGeometry,
       ),
       material: this._materials.sterile,
       group: this._flowerGroup,
     });
     this._addInstancedOrgan('sterileUpper', {
       name: 'Hydrangea_Panicles_SterileUpper',
-      geometry: this._geometry(
-        createSterilePanicleGeometry({ region: 'upper' }),
+      geometry: this._sharedGeometry(
+        'hydrangea/sterile-panicle',
+        { region: 'upper' },
+        createSterilePanicleGeometry,
       ),
       material: this._materials.sterile,
       group: this._flowerGroup,

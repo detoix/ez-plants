@@ -17,7 +17,6 @@ import { createLeafMaterialSet } from '../../leaf-material.js';
 import { keyedRange } from '../../keyed-random.js';
 import {
   composeSegmentMatrix,
-  createUnitStemGeometry,
   makeBasisQuaternion,
   vector,
 } from '../../plant-transforms.js';
@@ -112,7 +111,11 @@ export class Blackcurrant extends PlantRenderer {
       defaultLeafPlate: LEAF_PLATE,
       events: options.events,
       extraStateKeys: ['trialYear', 'offsetDays'],
-      lodLevels: DEFAULT_LOD_LEVELS,
+      // A caller may state its own bands; the cultivar's are the default,
+      // not a ceiling. The distances that suit a garden close-up are not the
+      // ones that suit a landscape, and only the application knows which it
+      // is looking at.
+      lodLevels: options.lodLevels ?? DEFAULT_LOD_LEVELS,
     });
 
     this.trialYear = options.trialYear ?? 'mean';
@@ -329,15 +332,19 @@ export class Blackcurrant extends PlantRenderer {
   }
 
   #createInstances() {
-    const stemGeometry = this._geometry(createUnitStemGeometry(5));
-    const berryGeometry = this._geometry(createBerryGeometry());
+    const stemGeometry = this._stemGeometry(5);
+    const berryGeometry = this._sharedGeometry(
+      'blackcurrant/berry',
+      {},
+      createBerryGeometry,
+    );
 
     this._addInstancedOrgan('leaves', {
       name: 'Blackcurrant_Leaves',
-      geometry: this._geometry(
-        createLeafCardGeometry({
-          roundedNormals: this._assets.leaf.roundedNormals,
-        }),
+      geometry: this._sharedGeometry(
+        'shared/leaf-card',
+        { roundedNormals: this._assets.leaf.roundedNormals },
+        createLeafCardGeometry,
       ),
       material: this._materials.leaf,
       group: this._leafGroup,
@@ -374,7 +381,11 @@ export class Blackcurrant extends PlantRenderer {
     });
     this._addInstancedOrgan('flowers', {
       name: 'Blackcurrant_Flowers_GreenMauve',
-      geometry: this._geometry(createFlowerGeometry()),
+      geometry: this._sharedGeometry(
+        'blackcurrant/flower',
+        {},
+        createFlowerGeometry,
+      ),
       material: this._materials.flower,
       group: this._flowerGroup,
     });
@@ -386,7 +397,11 @@ export class Blackcurrant extends PlantRenderer {
     });
     this._addInstancedOrgan('calyces', {
       name: 'Blackcurrant_RetainedCalyxStars',
-      geometry: this._geometry(createCalyxStarGeometry()),
+      geometry: this._sharedGeometry(
+        'blackcurrant/calyx-star',
+        {},
+        createCalyxStarGeometry,
+      ),
       material: this._materials.calyx,
       group: this._fruitGroup,
     });

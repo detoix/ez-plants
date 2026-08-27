@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-import { Billboard } from './enums.js';
+import { Billboard, ShadowCast } from './enums.js';
 import { keyedRandom } from './keyed-random.js';
 import { sampleBranchSection } from './woody-geometry.js';
 
@@ -11,7 +11,11 @@ export const DEFAULT_PLANT_DETAIL = Object.freeze({
   leafStride: 1,
   leafScale: 1,
   billboard: null,
+  shadowCast: ShadowCast.All,
+  shadowReceive: true,
 });
+
+const SHADOW_CAST_VALUES = Object.freeze(Object.values(ShadowCast));
 
 function positiveInteger(value, fallback, name) {
   const resolved = value ?? fallback;
@@ -49,6 +53,20 @@ export function normalizePlantDetail(detail = {}, fallback = {}) {
     throw new RangeError(`Unknown leaf billboard mode: ${billboard}.`);
   }
 
+  const shadowCast =
+    detail.shadowCast ?? fallback.shadowCast ?? DEFAULT_PLANT_DETAIL.shadowCast;
+  if (!SHADOW_CAST_VALUES.includes(shadowCast)) {
+    throw new RangeError(`Unknown shadow cast mode: ${shadowCast}.`);
+  }
+
+  const shadowReceive =
+    detail.shadowReceive ??
+    fallback.shadowReceive ??
+    DEFAULT_PLANT_DETAIL.shadowReceive;
+  if (typeof shadowReceive !== 'boolean') {
+    throw new TypeError('shadowReceive must be a boolean.');
+  }
+
   return {
     sectionStride: positiveInteger(
       detail.sectionStride,
@@ -71,6 +89,8 @@ export function normalizePlantDetail(detail = {}, fallback = {}) {
       'leafScale',
     ),
     billboard,
+    shadowCast,
+    shadowReceive,
   };
 }
 

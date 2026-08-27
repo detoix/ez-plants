@@ -5,6 +5,7 @@ import * as THREE from 'three';
 
 import { Blackcurrant } from '../src/lib/plants/blackcurrant/blackcurrant.js';
 import { TISEL_CALENDAR } from '../src/lib/plants/blackcurrant/phenology.js';
+import { isSharedResource } from '../src/lib/shared-resources.js';
 
 const MESH_NAMES = Object.freeze({
   wood: 'Blackcurrant_Wood',
@@ -715,7 +716,23 @@ test('dispose releases every unique renderer allocation exactly once', () => {
   plant.dispose();
   plant.dispose();
   assert.equal(plant.children.length, 0);
+
+  // Two ownership rules, one traversal. A resource the plant allocated is
+  // disposed exactly once, however many times `dispose()` is called; a
+  // resource the shared cache owns is never disposed by a plant at all, or a
+  // sibling plant would go blank when this one is removed.
+  let sharedSeen = 0;
   for (const [resource, count] of disposeCounts) {
-    assert.equal(count, 1, resource.name || resource.type);
+    const shared = isSharedResource(resource);
+    if (shared) sharedSeen += 1;
+    assert.equal(
+      count,
+      shared ? 0 : 1,
+      `${shared ? 'shared' : 'owned'} ${resource.name || resource.type}`,
+    );
   }
+  assert.ok(
+    sharedSeen > 0,
+    'the plant must reuse at least one shared resource',
+  );
 });

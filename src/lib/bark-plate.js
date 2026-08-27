@@ -233,3 +233,40 @@ export function createBarkMaps() {
   cached.roughness.name = 'ProceduralBark_Roughness';
   return cached;
 }
+
+const scaledSets = new Map();
+
+/**
+ * The shared set, prepared for one longitudinal repeat.
+ *
+ * `configureBarkTexture` writes `repeat` onto the texture it is handed, and
+ * these textures are shared by every plant — so two plants asking for
+ * different scales would otherwise fight over one `repeat`, last construction
+ * winning for both. Each distinct scale gets its own clone instead. Clones
+ * share the underlying `Source`, so this costs an object, not an upload, and
+ * in practice there is exactly one scale in play.
+ *
+ * @param {number} [textureScaleY]
+ * @returns {{ color: THREE.Texture, normal: THREE.Texture, roughness: THREE.Texture }}
+ */
+export function barkMapsForScale(textureScaleY = 1) {
+  if (!Number.isFinite(textureScaleY) || textureScaleY <= 0) {
+    throw new RangeError('Bark textureScale.y must be a positive number.');
+  }
+
+  const base = createBarkMaps();
+  const existing = scaledSets.get(textureScaleY);
+  if (existing) return existing;
+
+  const set = Object.fromEntries(
+    Object.entries(base).map(([slot, map]) => {
+      const clone = map.clone();
+      clone.name = `${map.name}@${textureScaleY}`;
+      clone.repeat.set(1, 1 / textureScaleY);
+      clone.needsUpdate = true;
+      return [slot, clone];
+    }),
+  );
+  scaledSets.set(textureScaleY, set);
+  return set;
+}

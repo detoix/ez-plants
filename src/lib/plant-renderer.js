@@ -1,14 +1,15 @@
 import * as THREE from 'three';
+import { ShadowCast } from './enums.js';
 import { LeafWind } from './leaf-wind.js';
 import { PlantInstancePool } from './plant-instance-pool.js';
 import { ResourceTracker } from './resource-tracker.js';
-import { PlantLODController } from './plant-lod.js';
+import { normalizePlantLODLevels, PlantLODController } from './plant-lod.js';
 import {
   normalizePlantDetail,
   samplePlantDetailSections,
   stablePlantOrganDetailScale,
 } from './plant-detail.js';
-import { vector } from './plant-transforms.js';
+import { createUnitStemGeometry, vector } from './plant-transforms.js';
 import {
   appendBranchTube,
   BranchCap,
@@ -21,11 +22,18 @@ import {
   calculateBarkTextureWraps,
   createBarkMaterial,
 } from './woody-material.js';
-import { createBarkMaps } from './bark-plate.js';
+import { barkMapsForScale } from './bark-plate.js';
+import { sharedGeometry, sharedMaterial } from './shared-resources.js';
 
 // EZ-Tree expresses bark textureScale.x per unit of branch radius; the plants
 // in this library are modelled in metres, so this is wraps per metre of radius.
 const DEFAULT_BARK_WRAPS_PER_METRE_RADIUS = 250;
+
+// One module-level adapter, deliberately. The shared cache identifies a
+// resource by its factory as well as its id, so an arrow written at each call
+// site would look like a different factory every time and trip the collision
+// guard rather than share anything.
+const unitStem = ({ segments }) => createUnitStemGeometry(segments);
 
 /**
  * Machinery shared by every multi-cane shrub renderer in this library.
@@ -221,34 +229,73 @@ export class PlantRenderer extends THREE.Group {
 
   /**
    * Bark for a plant whose caller supplied none. Unlike a leaf plate, bark is
-   * not cultivar-specific -- all three shrubs borrow one generic set -- so it
+   * not cultivar-specific -- every woody plant borrows one generic set -- so it
    * is generated and shared rather than carried in each plant's folder. A
    * caller-supplied bark set replaces it wholesale.
    */
   _defaultBark() {
     if (this._assets.bark?.maps) return { textured: false };
+    // The wraps-per-metre-of-radius the demo app applies to the photographed
+    // set, so procedural and supplied bark sit at the same scale.
+    const textureScale = { x: DEFAULT_BARK_WRAPS_PER_METRE_RADIUS, y: 5 };
+    const scaleY = this._assets.bark?.textureScale?.y ?? textureScale.y;
     return {
       textured: true,
-      maps: createBarkMaps(),
-      // The wraps-per-metre-of-radius the demo app applies to the photographed
-      // set, so procedural and supplied bark sit at the same scale.
-      textureScale: { x: DEFAULT_BARK_WRAPS_PER_METRE_RADIUS, y: 5 },
+      maps: barkMapsForScale(scaleY),
+      textureScale,
     };
   }
 
+  /**
+   * Bark is shared, material and all.
+   *
+   * The textures were already memoised; the material wrapping them was not, so
+   * every plant allocated its own copy of an identical object. Nothing
+   * recolours bark after construction — unlike foliage, which is rewritten on
+   * every change of day — so one material serves every plant that asks for the
+   * same options, and plants with different tints simply key differently.
+   *
+   * Deliberately not tracked: the cache owns it, and one plant's `dispose()`
+   * must leave its neighbours rendering.
+   */
   _barkMaterial(parameters) {
-    return this._resources.trackMaterial(
-      createBarkMaterial({
-        ...this._defaultBark(),
-        tint: this._barkTint,
-        ...this._assets.bark,
-        ...parameters,
-      }),
-    );
+    const options = {
+      ...this._defaultBark(),
+      tint: this._barkTint,
+      ...this._assets.bark,
+      ...parameters,
+    };
+    return sharedMaterial('shared/bark', options, createBarkMaterial);
   }
 
   _geometry(geometry) {
     return this._resources.trackGeometry(geometry);
+  }
+
+  /**
+   * Organ geometry, built once for the whole library.
+   *
+   * Safe to share because the instance pools write matrices and never vertices,
+   * and because these factories are pure: the same options give the same
+   * buffers whatever the seed, age or day. Wood is the exception and stays
+   * per-plant — it is remeshed as the skeleton grows.
+   *
+   * @param {string} id Namespaced by the folder owning the factory, e.g.
+   *   `'forsythia/flower'`. Two species' `createFlowerGeometry` are different
+   *   functions, and the cache refuses to let them share an id.
+   * @param {object} options Serialisable factory options; part of the key.
+   * @param {(options: object) => THREE.BufferGeometry} factory
+   */
+  _sharedGeometry(id, options, factory) {
+    return sharedGeometry(id, options, factory);
+  }
+
+  /**
+   * The unit stem every plant extrudes its petioles, pedicels and rachises
+   * from. One geometry for the whole library, not one per plant per organ.
+   */
+  _stemGeometry(segments = 5) {
+    return this._sharedGeometry('shared/unit-stem', { segments }, unitStem);
   }
 
   _createWoodMesh(material) {
@@ -258,11 +305,10 @@ export class PlantRenderer extends THREE.Group {
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = `${this._namePrefix}_Wood`;
     mesh.visible = false;
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
     mesh.userData.kind = 'woody-architecture-batch';
     this._woodMesh = mesh;
     this._woodyGroup.add(mesh);
+    this._applyShadowDetail();
     return mesh;
   }
 
@@ -311,9 +357,12 @@ export class PlantRenderer extends THREE.Group {
   }
 
   _addInstancedOrgan(kind, options) {
-    return this._resources.trackInstancedMesh(
+    const mesh = this._resources.trackInstancedMesh(
       this._instancePool.add(kind, options),
     );
+    // The pool applied the kind's own eligibility; fold in the current band.
+    this._applyShadowDetail();
+    return mesh;
   }
 
   _renderIdentity(organId, kind) {
@@ -599,24 +648,69 @@ export class PlantRenderer extends THREE.Group {
     return true;
   }
 
+  /** Triangles one mesh contributes to a pass, instance count included. */
+  static _triangles(mesh) {
+    const geometry = mesh.geometry;
+    const vertices =
+      geometry?.index?.count ?? geometry?.attributes?.position?.count ?? 0;
+    const instances = mesh.isInstancedMesh ? mesh.count : 1;
+    return Math.floor(vertices / 3) * instances;
+  }
+
   /** Number of draw calls for the current frame's committed instances. */
   _drawCallStats() {
-    const woodyDrawCalls =
-      this._woodMesh.visible && this._woodMesh.geometry.index?.count > 0
-        ? 1
-        : 0;
+    const woodVisible =
+      this._woodMesh.visible && this._woodMesh.geometry.index?.count > 0;
+    const woodyDrawCalls = woodVisible ? 1 : 0;
+    const organMeshes = this._instancePool
+      .activeMeshes()
+      .filter((mesh) => mesh.count > 0);
+
+    // The shadow pass is a second traversal with its own budget, and it is the
+    // one LOD used to leave untouched. Reported separately so a caller — and
+    // rule 5's tests — can see it fall as bands coarsen.
+    const shadowMeshes = [
+      ...(woodVisible && this._woodMesh.castShadow ? [this._woodMesh] : []),
+      ...organMeshes.filter((mesh) => mesh.castShadow),
+    ];
+
     return {
       woodyDrawCalls,
-      drawCalls:
-        woodyDrawCalls +
-        this._instancePool.activeMeshes().filter((mesh) => mesh.count > 0)
-          .length,
+      drawCalls: woodyDrawCalls + organMeshes.length,
+      shadowDrawCalls: shadowMeshes.length,
+      shadowTriangles: shadowMeshes.reduce(
+        (total, mesh) => total + PlantRenderer._triangles(mesh),
+        0,
+      ),
     };
   }
 
   /* ------------------------------------------------------------------ *
    * Detail and LOD
    * ------------------------------------------------------------------ */
+
+  /**
+   * Push the current band's shadow policy onto the meshes that exist.
+   *
+   * Called whenever the detail changes and whenever a mesh is created, since
+   * construction interleaves the two. Cheap and idempotent: it sets flags,
+   * uploads nothing, and rebuilds nothing.
+   */
+  _applyShadowDetail() {
+    const { shadowCast, shadowReceive } = this._detail;
+    const woodCasts = shadowCast !== ShadowCast.None;
+    const organsCast = shadowCast === ShadowCast.All;
+
+    if (this._woodMesh) {
+      this._woodMesh.castShadow = woodCasts;
+      this._woodMesh.receiveShadow = shadowReceive;
+    }
+    this._instancePool?.applyShadowPolicy({
+      cast: organsCast,
+      receive: shadowReceive,
+    });
+    return this;
+  }
 
   /** Repack the live wood mesh at a new private PlantDetail level. */
   _setDetail(detail = {}) {
@@ -626,16 +720,34 @@ export class PlantRenderer extends THREE.Group {
       resolved.segmentFactor === this._detail.segmentFactor &&
       resolved.leafStride === this._detail.leafStride &&
       resolved.leafScale === this._detail.leafScale &&
-      resolved.billboard === this._detail.billboard;
+      resolved.billboard === this._detail.billboard &&
+      resolved.shadowCast === this._detail.shadowCast &&
+      resolved.shadowReceive === this._detail.shadowReceive;
     if (unchanged) return this;
 
     const woodChanged =
       resolved.sectionStride !== this._detail.sectionStride ||
       resolved.segmentFactor !== this._detail.segmentFactor;
+    const shadowsChanged =
+      resolved.shadowCast !== this._detail.shadowCast ||
+      resolved.shadowReceive !== this._detail.shadowReceive;
     this._detail = resolved;
+    if (shadowsChanged) this._applyShadowDetail();
     if (woodChanged) this._woodSnapshotKey = null;
     if (this._snapshot) this._applySnapshot(this._snapshot);
     return this;
+  }
+
+  /**
+   * The plant's distance bands, normalized, or null if it declares none.
+   *
+   * Public because a field renderer needs to know the bands to bake at, and
+   * must bake at exactly the ones this plant would have switched between.
+   */
+  get lodLevels() {
+    if (this._lodController) return this._lodController.levels;
+    if (!this._lodLevels) return null;
+    return normalizePlantLODLevels(this._lodLevels, normalizePlantDetail());
   }
 
   _enableLOD(levels = this._lodLevels) {
@@ -648,6 +760,119 @@ export class PlantRenderer extends THREE.Group {
       applyDetail: (detail) => this._setDetail(detail),
     });
     return this._lodController;
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Baking
+   * ------------------------------------------------------------------ */
+
+  /**
+   * Freeze this plant, exactly as it stands, into buffers something else can
+   * instance.
+   *
+   * The plant is a live simulation: its wood is remeshed as the skeleton grows,
+   * its organ pools are repacked whenever the day changes, and its leaf
+   * material is repainted by the calendar. None of that is much use to a field
+   * renderer, which wants one immovable prototype it can draw five hundred
+   * copies of. `bake()` is the boundary between the two.
+   *
+   * Mirrors upstream's `tree.createGeometry(detail)` — *"if you have your own
+   * LOD or instancing system"* — in shape and in guarantee: baking at a detail
+   * other than the current one leaves the plant exactly as it was found.
+   *
+   * Emits **plain three types only**: `BufferGeometry`, `Float32Array`,
+   * `Box3`. No instancing library appears in the result, which is what keeps
+   * the field layer optional and `three` the only thing an extracted plant
+   * needs.
+   *
+   * @param {object} [detail] PlantDetail overrides to bake at; omit for the
+   *   plant's current detail.
+   * @returns {{
+   *   plantId: string,
+   *   name: string,
+   *   seed: unknown,
+   *   ageYears: number,
+   *   dayOfYear: number,
+   *   detail: object,
+   *   wood: { geometry: THREE.BufferGeometry, material: THREE.Material } | null,
+   *   organs: Array<object>,
+   *   bounds: THREE.Box3,
+   *   dispose: () => void,
+   * }}
+   */
+  bake(detail = null) {
+    const restore = this._detail;
+    if (detail) this._setDetail(detail);
+
+    try {
+      const owned = [];
+      const bounds = new THREE.Box3();
+
+      // Wood is per-plant and about to be remeshed the next time anything
+      // moves, so the bake takes a copy it owns. Organ geometry is immutable
+      // and already shared, so it is handed over as-is.
+      const woodVisible =
+        this._woodMesh.visible && this._woodMesh.geometry.index?.count > 0;
+      let wood = null;
+      if (woodVisible) {
+        const geometry = this._woodMesh.geometry.clone();
+        geometry.name = this._woodMesh.name;
+        owned.push(geometry);
+        geometry.computeBoundingBox();
+        bounds.union(geometry.boundingBox);
+        wood = { geometry, material: this._woodMesh.material };
+      }
+
+      const organs = [];
+      const box = new THREE.Box3();
+      const matrix = new THREE.Matrix4();
+      for (const mesh of this._instancePool.activeMeshes()) {
+        if (mesh.count === 0) continue;
+
+        const matrices = mesh.instanceMatrix.array.slice(0, mesh.count * 16);
+        const colors =
+          mesh.instanceColor?.array.slice(0, mesh.count * 3) ?? null;
+
+        if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+        for (let index = 0; index < mesh.count; index += 1) {
+          matrix.fromArray(matrices, index * 16);
+          box.copy(mesh.geometry.boundingBox).applyMatrix4(matrix);
+          bounds.union(box);
+        }
+
+        organs.push({
+          kind: this._instancePool.kindOf(mesh),
+          name: mesh.name,
+          geometry: mesh.geometry,
+          material: mesh.material,
+          count: mesh.count,
+          matrices,
+          colors,
+          castShadow: mesh.castShadow,
+          receiveShadow: mesh.receiveShadow,
+        });
+      }
+
+      return {
+        plantId: this._plantId,
+        name: this.name,
+        seed: this.seed,
+        ageYears: this.ageYears,
+        dayOfYear: this.dayOfYear,
+        detail: this._detail,
+        wood,
+        organs,
+        bounds,
+        // Disposes only what the bake allocated. Organ geometry belongs to the
+        // shared cache and materials belong to the plant; a bake never owns
+        // either, and disposing them here would blank every other plant.
+        dispose: () => {
+          for (const geometry of owned.splice(0)) geometry.dispose();
+        },
+      };
+    } finally {
+      if (detail) this._setDetail(restore);
+    }
   }
 
   /* ------------------------------------------------------------------ *

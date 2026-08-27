@@ -3,9 +3,9 @@ import * as THREE from 'three';
 import { createLeafMaterialSet } from '../../leaf-material.js';
 import { keyedRange } from '../../keyed-random.js';
 import { PlantRenderer } from '../../plant-renderer.js';
+import { sharedTexture } from '../../shared-resources.js';
 import {
   composeSegmentMatrix,
-  createUnitStemGeometry,
   makeBasisQuaternion,
   vector,
 } from '../../plant-transforms.js';
@@ -157,7 +157,11 @@ export class Miscanthus extends PlantRenderer {
       dayOfYear: options.dayOfYear ?? 250,
       assets: options.assets ?? {},
       extraStateKeys: ['seasonProfile', 'offsetDays'],
-      lodLevels: DEFAULT_LOD_LEVELS,
+      // A caller may state its own bands; the cultivar's are the default,
+      // not a ceiling. The distances that suit a garden close-up are not the
+      // ones that suit a landscape, and only the application knows which it
+      // is looking at.
+      lodLevels: options.lodLevels ?? DEFAULT_LOD_LEVELS,
       leafWind: {
         // Long thin blades and silky plumes are the most mobile foliage in
         // this library; a still Miscanthus reads as plastic.
@@ -214,9 +218,13 @@ export class Miscanthus extends PlantRenderer {
     // The ash-white midrib arrives as an additive term rather than as an
     // over-driven multiplier, so it survives being dropped into a scene whose
     // exposure and tone mapping this library does not control.
+    // Shared, not tracked: the map is one texel row of the same values for
+    // every plant, and a per-plant copy is a distinct GPU binding for nothing.
     this._protect('_midribEmissive');
-    this._midribEmissive = this._resources.trackTexture(
-      createMidribEmissiveTexture(),
+    this._midribEmissive = sharedTexture(
+      'miscanthus/midrib-emissive',
+      {},
+      createMidribEmissiveTexture,
     );
     foliage.surface.emissiveMap = this._midribEmissive;
     foliage.surface.emissive = new THREE.Color(MIDRIB_SILVER);
@@ -257,7 +265,7 @@ export class Miscanthus extends PlantRenderer {
 
     this._addInstancedOrgan('culms', {
       name: 'Miscanthus_Culms',
-      geometry: this._geometry(createUnitStemGeometry(5)),
+      geometry: this._stemGeometry(5),
       material: this._materials.culm,
       group: this._woodyGroup,
     });
@@ -265,12 +273,14 @@ export class Miscanthus extends PlantRenderer {
     BLADE_KINDS.forEach((kind, variant) => {
       this._addInstancedOrgan(kind, {
         name: `Miscanthus_Blades_${kind.slice('blades'.length)}`,
-        geometry: this._geometry(
-          createBladeGeometry({
+        geometry: this._sharedGeometry(
+          'miscanthus/blade',
+          {
             arch: BLADE_ARCH_VARIANTS[variant],
             twist: BLADE_TWIST_VARIANTS[variant],
             widthRatio: BLADE_WIDTH_RATIOS[variant],
-          }),
+          },
+          createBladeGeometry,
         ),
         material: this._materials.blade,
         group: this._leafGroup,
@@ -282,23 +292,31 @@ export class Miscanthus extends PlantRenderer {
 
     this._addInstancedOrgan('racemeFans', {
       name: 'Miscanthus_Panicle_RacemeFans',
-      geometry: this._geometry(
-        createRacemeFanGeometry({ racemes: racemeCount }),
+      geometry: this._sharedGeometry(
+        'miscanthus/raceme-fan',
+        { racemes: racemeCount },
+        createRacemeFanGeometry,
       ),
       material: this._materials.panicle,
       group: this._flowerGroup,
     });
     this._addInstancedOrgan('spikelets', {
       name: 'Miscanthus_Panicle_Spikelets',
-      geometry: this._geometry(
-        createSpikeletGeometry({ racemes: racemeCount }),
+      geometry: this._sharedGeometry(
+        'miscanthus/spikelet',
+        { racemes: racemeCount },
+        createSpikeletGeometry,
       ),
       material: this._materials.panicle,
       group: this._flowerGroup,
     });
     this._addInstancedOrgan('plumes', {
       name: 'Miscanthus_Panicle_Plumes',
-      geometry: this._geometry(createPlumeGeometry({ racemes: racemeCount })),
+      geometry: this._sharedGeometry(
+        'miscanthus/plume',
+        { racemes: racemeCount },
+        createPlumeGeometry,
+      ),
       material: this._materials.panicle,
       group: this._flowerGroup,
     });

@@ -8,6 +8,7 @@ import {
   LYNWOOD_PROFILE,
   LYNWOOD_RENDER_PRIORS,
 } from '../src/lib/plants/forsythia/lynwood.js';
+import { isSharedResource } from '../src/lib/shared-resources.js';
 
 const MESH_NAMES = Object.freeze({
   wood: 'Forsythia_Wood',
@@ -455,6 +456,10 @@ test('stats report rendered organs, dimensions and sourced care hints', () => {
     const stats = plant.stats();
     assert.equal(stats.cultivar, 'Lynwood');
     assert.ok(stats.visibleLeaves > 0);
+    // A real bound, not "> 0": one draw per organ kind plus one for the wood
+    // is the ceiling rule 5 sets. test/draw-call-budget.test.js holds every
+    // plant in the library to it across the whole year.
+    assert.ok(stats.drawCalls <= plant._organKinds.length + 1);
     assert.ok(stats.drawCalls > 0);
     assert.ok(stats.dimensions.heightM > 1);
     assert.ok(Array.isArray(stats.careHints));
@@ -481,17 +486,27 @@ test('dispose releases GPU resources once and is safe to repeat', () => {
     geometries.add(mesh.geometry);
     materials.add(mesh.material);
   }
+  // A resource the shared cache owns must survive one plant's disposal, so it
+  // is counted separately rather than expected to dispose.
+  const owned = (set) => [...set].filter((item) => !isSharedResource(item));
+  const shared = (set) => [...set].filter((item) => isSharedResource(item));
+  let disposedShared = 0;
+
   for (const geometry of geometries) {
     const original = geometry.dispose.bind(geometry);
+    const counts = isSharedResource(geometry);
     geometry.dispose = () => {
-      disposedGeometries += 1;
+      if (counts) disposedShared += 1;
+      else disposedGeometries += 1;
       original();
     };
   }
   for (const material of materials) {
     const original = material.dispose.bind(material);
+    const counts = isSharedResource(material);
     material.dispose = () => {
-      disposedMaterials += 1;
+      if (counts) disposedShared += 1;
+      else disposedMaterials += 1;
       original();
     };
   }
@@ -499,8 +514,13 @@ test('dispose releases GPU resources once and is safe to repeat', () => {
   plant.dispose();
   plant.dispose();
 
-  assert.equal(disposedGeometries, geometries.size);
-  assert.equal(disposedMaterials, materials.size);
+  assert.equal(disposedGeometries, owned(geometries).length);
+  assert.equal(disposedMaterials, owned(materials).length);
+  assert.equal(disposedShared, 0, 'a plant must not dispose shared resources');
+  assert.ok(
+    shared(geometries).length + shared(materials).length > 0,
+    'the plant must reuse at least one shared resource',
+  );
   assert.equal(plant.children.length, 0);
 });
 

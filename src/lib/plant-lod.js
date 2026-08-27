@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ShadowCast } from './enums.js';
 import { normalizePlantDetail } from './plant-detail.js';
 
 const cameraPosition = new THREE.Vector3();
@@ -39,9 +40,10 @@ export function normalizePlantLODLevels(levels, baseDetail = {}) {
       return {
         distance,
         hysteresis,
-        detail: Object.freeze(
-          normalizePlantDetail(level.detail ?? {}, normalizedBase),
-        ),
+        detail: normalizePlantDetail(level.detail ?? {}, normalizedBase),
+        // Captured before sorting: whether this level chose its own shadow
+        // policy, as opposed to inheriting the base detail's.
+        declaresShadowCast: level.detail?.shadowCast != null,
         sourceIndex: index,
       };
     })
@@ -58,11 +60,66 @@ export function normalizePlantLODLevels(levels, baseDetail = {}) {
     }
   }
 
+  // Shadow LOD is derived from band position rather than spelled out per
+  // species, so a plant added tomorrow gets it without touching its level
+  // table -- and a species that wants something else just says so, in which
+  // case `declaresShadowCast` keeps this off its back.
+  //
+  // The ladder: the near band casts everything, the far band casts nothing,
+  // and the bands in between keep only the woody silhouette. Casting is an
+  // extra draw per shadow-casting light, and a leaf contributes almost
+  // nothing to a distant silhouette, so organs are what drops out first.
+  const lastIndex = ordered.length - 1;
+  for (const [index, level] of ordered.entries()) {
+    if (level.declaresShadowCast) continue;
+    const derived =
+      index === 0
+        ? ShadowCast.All
+        : index === lastIndex
+          ? ShadowCast.None
+          : ShadowCast.Wood;
+    level.detail = { ...level.detail, shadowCast: derived };
+  }
+
   return Object.freeze(
-    ordered.map(({ sourceIndex: _sourceIndex, ...level }) =>
-      Object.freeze(level),
+    ordered.map(
+      ({
+        sourceIndex: _sourceIndex,
+        declaresShadowCast: _declared,
+        ...level
+      }) => Object.freeze({ ...level, detail: Object.freeze(level.detail) }),
     ),
   );
+}
+
+/**
+ * Choose a band for one distance, honouring per-level hysteresis.
+ *
+ * Split out because the field layer assigns bands for hundreds of plants and
+ * must make exactly the same choice a single plant would: hysteresis is easy
+ * to get subtly wrong, and the failure mode is visible popping. `previous` is
+ * the band currently in effect, or null when nothing has been selected yet —
+ * a first selection has no band to be sticky about.
+ *
+ * @param {number} distance
+ * @param {readonly object[]} levels Normalized, ascending by distance.
+ * @param {number|null} [previous]
+ * @returns {number} index into `levels`
+ */
+export function selectPlantLODLevel(distance, levels, previous = null) {
+  let next = previous ?? 0;
+  while (next + 1 < levels.length && distance >= levels[next + 1].distance) {
+    next++;
+  }
+  if (previous == null) return next;
+
+  while (
+    next > 0 &&
+    distance < levels[next].distance * (1 - levels[next].hysteresis)
+  ) {
+    next--;
+  }
+  return next;
 }
 
 /**
@@ -97,31 +154,11 @@ export class PlantLODController {
       throw new RangeError('Plant LOD distance must be non-negative.');
     }
 
-    let nextLevel = this.currentLevel;
-    if (nextLevel == null) {
-      nextLevel = 0;
-      while (
-        nextLevel + 1 < this.levels.length &&
-        distance >= this.levels[nextLevel + 1].distance
-      ) {
-        nextLevel++;
-      }
-    } else {
-      while (
-        nextLevel + 1 < this.levels.length &&
-        distance >= this.levels[nextLevel + 1].distance
-      ) {
-        nextLevel++;
-      }
-      while (
-        nextLevel > 0 &&
-        distance <
-          this.levels[nextLevel].distance *
-            (1 - this.levels[nextLevel].hysteresis)
-      ) {
-        nextLevel--;
-      }
-    }
+    const nextLevel = selectPlantLODLevel(
+      distance,
+      this.levels,
+      this.currentLevel,
+    );
 
     this.currentDistance = distance;
     if (nextLevel === this.currentLevel) return false;

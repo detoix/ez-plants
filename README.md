@@ -34,6 +34,37 @@ pools and LOD. The tree generator is still here and still works — see
 npm i @detoix/ez-plants
 ```
 
+`three` is the only dependency a plant needs. Everything else the package
+declares is an optional peer, installed only if you use the front door that
+wants it.
+
+### Optional peers
+
+| Peer                          | Needed for                         |
+| ----------------------------- | ---------------------------------- |
+| `react`, `@react-three/fiber` | the R3F components (rule 8)        |
+| `@three.ez/instanced-mesh`    | the field layer (`src/lib/field/`) |
+
+**If you install `@three.ez/instanced-mesh`, deduplicate `three`.** It patches
+`THREE.ShaderChunk` at import time, and those patches are what carry a
+per-instance transform into the shader. If your bundler hands the library a
+different `three` module instance than the one instanced-mesh imported, the
+patches land where nothing reads them — and nothing throws. Materials compile,
+instances draw, and per-instance effects such as the leaf-wind counter-rotation
+are quietly wrong.
+
+```js
+// vite.config.js
+export default {
+  resolve: { dedupe: ['three'] },
+};
+```
+
+Do not use an alias instead. Pointing `three` at a directory breaks the
+`three/addons/*` subpath exports. The field layer asserts this at construction
+(`src/lib/field/three-copy-guard.js`) so the failure is loud rather than silent,
+but the fix is always bundler-side.
+
 # The plants
 
 Four cultivars so far, each a digital twin rather than a generic species: a
@@ -156,6 +187,20 @@ never rebuild it.
 - Every plant supports distance LOD and reports `stats().drawCalls`.
 - Every plant owns a `ResourceTracker` and a working `dispose()`.
 
+The budget has a second half, at field scale: **a field of plants is a handful
+of draw calls too, and the number does not grow with the number of plants.**
+
+- Two plants of a species share every seed-independent geometry, and their bark
+  material, through a cache that owns them (`src/lib/shared-resources.js`).
+  Foliage materials are deliberately _not_ shared: a plant repaints its leaves
+  as the day changes, and two plants sharing one would drag each other through
+  the seasons.
+- Shadows are their own budget. The shadow pass is a second traversal, so it
+  coarsens on its own ladder: the near band casts everything, the middle bands
+  keep only the woody silhouette, the far band casts nothing.
+- The optional field layer draws hundreds of plants in one instanced mesh per
+  organ kind. See [Fields](#fields).
+
 ### 6. Stay on EZ-Tree; diverge only where morphology forces it
 
 This repo is a fork. Shared machinery — woody geometry and axes, bark and leaf
@@ -163,8 +208,10 @@ materials, leaf cards, wind, instance pools, LOD, detail levels, RNG — is reus
 extended or generalised in place. Write plant-specific code only for what a
 species genuinely does differently. `PlantRenderer` owns everything common; a
 plant subclass implements only `_buildStableGraph`, `_applySnapshot` and
-`_evaluate`. Miscanthus is the licensed exception: a grass has no wood, so it
-uses instanced vertex-coloured organ geometry instead of bark and leaf cards.
+`_evaluate`. Where a plant's morphology has no use for part of the base — a
+grass has no wood, so Miscanthus uses instanced vertex-coloured organ geometry
+instead of bark and leaf cards — it simply declares fewer organ kinds. Nothing
+in the library branches on which plant it is holding.
 
 ### 7. One plant is one self-contained folder
 
@@ -199,6 +246,11 @@ two accept the same options under the same names. Swapping one plant for another
 is a one-word change in either. React and `@react-three/fiber` stay optional peer
 dependencies — importing the root package must never pull React into a bundle.
 
+The field layer is arranged the same way: `@three.ez/instanced-mesh` is an
+optional peer, reachable only through `src/lib/field/`, and the dependency arrow
+points **field → plant, never plant → field**. That is what keeps `three` the
+only dependency an extracted plant needs.
+
 ## Where the library stands today
 
 Measured against the rules above, at four plants and 264 passing tests
@@ -210,7 +262,7 @@ Measured against the rules above, at four plants and 264 passing tests
 | 2 — curated               | Held, and now structural: a looked-after plant is the only plant the model can produce.                                                                                                                                                                                                                                                                                                                                          |
 | 3 — botany as spec        | Held. All four are cultivar-level with cited sources and separately labelled assumptions.                                                                                                                                                                                                                                                                                                                                        |
 | 4 — photo comparison      | A standing working practice, not a repo artifact: it asks whoever builds a plant to go and look at photographs first. `scripts/shoot.mjs` renders the comparison shot. Nothing to audit here by design — the rule is satisfied while the plant is being built, or not at all.                                                                                                                                                    |
-| 5 — fast                  | Held in the renderers. Barely enforced: `test/miscanthus-renderer.test.js` asserts a real draw-call bound, but `test/forsythia-renderer.test.js` only asserts `drawCalls > 0`, and the other two have no budget test.                                                                                                                                                                                                            |
+| 5 — fast                  | Held, and now enforced. `test/draw-call-budget.test.js` holds every plant to one draw per organ kind plus one for the wood, across the whole year and the whole modelled life, and pins that scrubbing allocates no new mesh. `test/plant-field.test.js` adds the field-scale bound: draw calls do not move between 10, 100 and 400 plants. Both read the roster from the plants directory rather than listing it.               |
 | 6 — stay on EZ-Tree       | Held. All four plants extend `PlantRenderer` and add only their own morphology; nothing in `src/lib/` imports from `src/app/`.                                                                                                                                                                                                                                                                                                   |
 | 7 — self-contained folder | Held. No plant imports another — the shared calendar lives in `src/lib/calendar.js`. Each shrub carries its own `leaf.webp` and loads it itself; bark is generated in `src/lib/bark-plate.js` and shared, since no plant owns it. All four models are Three.js-free and their snapshots survive a JSON round-trip. `npm run plant:add` copies a plant that renders textured standing alone, with `three` as its only dependency. |
 | 8 — two front doors       | Held. All four plants ship a three.js class and an R3F component with matching props.                                                                                                                                                                                                                                                                                                                                            |
@@ -237,11 +289,11 @@ still resolves at the destination without rewriting.
 | forsythia    | 6         | 18          | 24    |
 | hydrangea    | 6         | 19          | 25    |
 
-`three` is the only dependency an extracted plant needs.
+`three` is the only dependency an extracted plant needs, and that includes the
+field layer: it is opt-in, lives outside every plant's import graph, and
+`test/field-instancing.test.js` fails the build if a renderer ever reaches it.
 `test/plant-extraction.test.js` extracts into a fresh directory and renders the
-result, so a reintroduced cross-plant import fails the build.
-
-The open work: give rule 5 the draw-call budget tests it asks for.
+result, so a reintroduced cross-plant import fails the build too.
 
 ### What the two sliders mean for a grass
 
@@ -284,6 +336,124 @@ bush.dispose();
 At day 230 the Hydrangea is fully leafed and its terminal panicles are near the
 cream-white peak. Day 30 instead shows bare framework with last season's dry tan heads;
 they are removed through the modeled spring pruning window.
+
+## Levels of detail
+
+Pass `lod: true` and a camera to `update()`, and the plant coarsens with
+distance: fewer ring segments in the wood, fewer leaves — scaled up to
+compensate, so the canopy keeps its density — and a shadow pass that thins out
+faster than the colour pass does.
+
+Unlike `THREE.LOD`, nothing is duplicated. The plant is remeshed in place, so
+three bands cost one plant's memory rather than three.
+
+```js
+const bush = new Hydrangea({ ageYears: 6, dayOfYear: 230, lod: true });
+bush.update(delta, elapsed, camera); // per frame; the camera selects the band
+```
+
+The cultivar's own bands are the default, not a ceiling — the distances that
+suit a garden close-up are not the ones that suit a landscape:
+
+```js
+new Hydrangea({
+  lod: true,
+  lodLevels: [
+    { distance: 0 },
+    {
+      distance: 25,
+      hysteresis: 0.1,
+      detail: { leafStride: 2, leafScale: 1.2 },
+    },
+    {
+      distance: 90,
+      hysteresis: 0.1,
+      detail: { sectionStride: 4, leafStride: 6 },
+    },
+  ],
+});
+```
+
+Each level may state a `shadowCast` of `'all'`, `'wood'` or `'none'`. Left
+unset — which is the normal case — it is derived from the band's position:
+nearest casts everything, furthest casts nothing, the ones between keep only the
+woody silhouette. `stats().shadowDrawCalls` and `stats().shadowTriangles` report
+what that is currently costing.
+
+(The `Tree` generator has its own, separate LOD mechanism; see
+[Levels of Detail (LODs)](#levels-of-detail-lods) under Tree generator.)
+
+## Fields
+
+For hundreds of plants rather than one, there is an opt-in field renderer. It is
+the only part of the library that depends on `@three.ez/instanced-mesh`, which is
+an optional peer — **install it, and deduplicate `three`, or per-instance
+transforms silently stop reaching the shader.** See
+[Installation](#installation).
+
+```js
+import { Forsythia } from '@detoix/ez-plants';
+import { createPrototypePool, PlantField } from '@detoix/ez-plants/field';
+
+// A pool of seeds. Wood depends on the seed, so a field takes its variety from
+// a handful of distinct skeletons plus per-placement yaw and scale — not from
+// a unique plant per position.
+const seeds = [1, 2, 3, 4].map(
+  (seed) => new Forsythia({ seed, ageYears: 6, dayOfYear: 200, lod: true }),
+);
+const prototypes = createPrototypePool(seeds);
+
+const field = new PlantField({
+  prototypes,
+  placements: positions.map((position, index) => ({
+    position,
+    rotationY: Math.random() * Math.PI * 2,
+    scale: 0.9 + Math.random() * 0.2,
+  })),
+  renderer, // pass it: without one, nothing draws on the first frame
+});
+scene.add(field);
+
+field.update(delta, elapsed, camera); // advances wind, re-assigns bands
+```
+
+**Keep the prototype plants alive.** A field draws their materials, and the wind
+lives on those materials' compiled shaders. Dispose in order — field,
+prototypes, then plants.
+
+Two families, two strategies, because they want opposite answers:
+
+- **Organs** are one instanced mesh for the whole field, spanning every band.
+  Organ LOD here does not simplify geometry, it draws fewer organs, so a near
+  plant and a far one share a buffer and a draw call.
+- **Wood** is one mesh per prototype with real geometry LODs, because the
+  buffers genuinely differ between bands.
+
+`stats()` reports what the field costs — `drawCalls`, `organInstances`,
+`bandCounts`, and how many plants were `demoted` or `dropped` to stay inside the
+budget:
+
+| Plants | Draw calls |
+| ------ | ---------- |
+| 10     | 7          |
+| 100    | 7          |
+| 400    | 7          |
+
+### The budget, and what it is really telling you
+
+A shared organ buffer is sized for peak concurrency, not for the field's total
+organ count. When too many plants are near at once, band assignment pushes the
+furthest ones one band out; if everything is already at its coarsest and it
+still does not fit, the furthest plants are dropped rather than silently
+overflowing the buffer. `stats().dropped` says so when it happens.
+
+That ceiling is worth reading honestly. A mature Forsythia still draws around
+2,100 organ instances at its **coarsest** band, because the far band coarsens
+the wood but keeps every surviving leaf as real geometry. So the default budget
+seats a few hundred plants, and raising it costs memory proportionally. The real
+fix is a far band that is a card rather than a canopy — an imposter — which the
+library does not have yet. Until it does, a large field either pays for its
+distant plants or loses them, and no choice of budget changes that.
 
 ## React Three Fiber usage
 

@@ -29,12 +29,26 @@ export interface PlantAssets {
   };
 }
 
+/**
+ * How much of a plant is rendered into the shadow map at one LOD band.
+ * An ordered ladder: organs drop out before the woody silhouette does.
+ */
+export type ShadowCastMode = 'all' | 'wood' | 'none';
+
 export interface PlantDetail {
   sectionStride: number;
   segmentFactor: number;
   leafStride: number;
   leafScale: number;
   billboard: unknown;
+  /**
+   * Which mesh families cast into the shadow map. Left unset on a LOD level,
+   * it is derived from the band's position: `all` nearest, `none` furthest,
+   * `wood` in between.
+   */
+  shadowCast: ShadowCastMode;
+  /** Whether the plant's meshes receive shadows at this band. */
+  shadowReceive: boolean;
 }
 
 export interface PlantLODLevel {
@@ -99,6 +113,10 @@ export interface PlantRenderStats {
   visibleLeaves: number;
   woodyDrawCalls: number;
   drawCalls: number;
+  /** Meshes collected for the shadow pass at the current LOD band. */
+  shadowDrawCalls: number;
+  /** Triangles those meshes contribute, instance counts included. */
+  shadowTriangles: number;
 }
 
 /* ==================================================================== *
@@ -135,7 +153,51 @@ export declare class PlantRenderer extends THREE.Group {
     camera?: THREE.Camera,
   ): void;
 
+  /**
+   * Freeze the plant into buffers something else can instance.
+   *
+   * Baking at a detail other than the current one restores the plant exactly
+   * as it was found. The result is plain three — no instancing library appears
+   * in it — so a field renderer stays an optional extra rather than a
+   * dependency of the plant.
+   */
+  bake(detail?: Partial<PlantDetail> | null): BakedPlant;
+
   /** Release every geometry, material and texture this plant owns. */
+  dispose(): void;
+}
+
+/** One instanced organ kind, frozen at a moment. */
+export interface BakedOrgan {
+  /** The pool kind, e.g. `'leaves'`. */
+  kind: string;
+  name: string;
+  /** Owned by the shared cache, not by the bake. Never dispose it. */
+  geometry: THREE.BufferGeometry;
+  /** The plant's live material, not a copy. */
+  material: THREE.Material;
+  count: number;
+  /** `count * 16` floats, row-major, as `InstancedMesh.instanceMatrix`. */
+  matrices: Float32Array;
+  /** `count * 3` floats, or null when the organ carries no instance colour. */
+  colors: Float32Array | null;
+  castShadow: boolean;
+  receiveShadow: boolean;
+}
+
+export interface BakedPlant {
+  plantId: string;
+  name: string;
+  seed: string | number;
+  ageYears: number;
+  dayOfYear: number;
+  detail: PlantDetail;
+  /** Null when no woody geometry is drawn at this state. A private copy. */
+  wood: { geometry: THREE.BufferGeometry; material: THREE.Material } | null;
+  organs: BakedOrgan[];
+  /** Real world-space bounds, instance transforms included. */
+  bounds: THREE.Box3;
+  /** Disposes the bake's own wood copy. Idempotent; touches nothing else. */
   dispose(): void;
 }
 
@@ -185,6 +247,13 @@ export interface BlackcurrantOptions {
   events?: Partial<CareEvent>[];
   /** Enable camera-distance level of detail. */
   lod?: boolean;
+  /**
+   * Distance bands to switch between. Defaults to the cultivar's own, which
+   * suit a garden close-up; a landscape wants different ones. Each level may
+   * set `shadowCast` explicitly, or leave it to be derived from the band's
+   * position — nearest casts everything, furthest casts nothing.
+   */
+  lodLevels?: PlantLODLevel[];
 }
 
 export interface BlackcurrantStats extends PlantRenderStats {
@@ -305,6 +374,13 @@ export interface ForsythiaOptions {
   assets?: PlantAssets;
   events?: Partial<CareEvent>[];
   lod?: boolean;
+  /**
+   * Distance bands to switch between. Defaults to the cultivar's own, which
+   * suit a garden close-up; a landscape wants different ones. Each level may
+   * set `shadowCast` explicitly, or leave it to be derived from the band's
+   * position — nearest casts everything, furthest casts nothing.
+   */
+  lodLevels?: PlantLODLevel[];
 }
 
 export interface ForsythiaStats extends PlantRenderStats {
@@ -433,6 +509,13 @@ export interface HydrangeaOptions {
   assets?: PlantAssets;
   events?: readonly [];
   lod?: boolean;
+  /**
+   * Distance bands to switch between. Defaults to the cultivar's own, which
+   * suit a garden close-up; a landscape wants different ones. Each level may
+   * set `shadowCast` explicitly, or leave it to be derived from the band's
+   * position — nearest casts everything, furthest casts nothing.
+   */
+  lodLevels?: PlantLODLevel[];
 }
 
 export interface HydrangeaStats extends PlantRenderStats {
@@ -558,6 +641,13 @@ export interface MiscanthusOptions {
    */
   events?: readonly [];
   lod?: boolean;
+  /**
+   * Distance bands to switch between. Defaults to the cultivar's own, which
+   * suit a garden close-up; a landscape wants different ones. Each level may
+   * set `shadowCast` explicitly, or leave it to be derived from the band's
+   * position — nearest casts everything, furthest casts nothing.
+   */
+  lodLevels?: PlantLODLevel[];
 }
 
 export interface MiscanthusStats extends PlantRenderStats {

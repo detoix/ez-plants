@@ -33,6 +33,9 @@ export default {
       // Type-only import of the core package resolves to the public surface.
       '@detoix/ez-plants': path.resolve(__dirname, 'build/ez-plants.es.js'),
     },
+    // See vite.app.config.js — a second `three` copy silently disables
+    // instanced-mesh shader patching.
+    dedupe: ['three'],
   },
   // Declarations are emitted by `tsc -p tsconfig.react.json` rather than
   // vite-plugin-dts: the bundled v3 compiler cannot parse a JSX tsconfig.

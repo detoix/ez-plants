@@ -10,6 +10,7 @@ import {
   evaluateLimelightModel,
 } from '../src/lib/plants/hydrangea/model.js';
 import { LIMELIGHT_CALENDAR } from '../src/lib/plants/hydrangea/phenology.js';
+import { isSharedResource } from '../src/lib/shared-resources.js';
 
 const MESH_NAMES = Object.freeze({
   wood: 'Hydrangea_Wood',
@@ -743,9 +744,15 @@ test('dispose releases each owned GPU allocation exactly once and is idempotent'
   materials.add(leaves.customDistanceMaterial);
 
   const counts = new Map();
+  const expected = new Map();
   const instrument = (resource, kind) => {
-    const label = `${kind}:${resource.name || resource.uuid}`;
+    // Owned resources dispose exactly once no matter how often `dispose()` is
+    // called. Shared ones belong to the cache and must not dispose at all, or
+    // every other plant in the scene loses them too.
+    const shared = isSharedResource(resource);
+    const label = `${shared ? 'shared ' : ''}${kind}:${resource.name || resource.uuid}`;
     counts.set(label, 0);
+    expected.set(label, shared ? 0 : 1);
     const original = resource.dispose.bind(resource);
     resource.dispose = () => {
       counts.set(label, counts.get(label) + 1);
@@ -760,7 +767,15 @@ test('dispose releases each owned GPU allocation exactly once and is idempotent'
   plant.dispose();
 
   for (const [label, count] of counts) {
-    assert.equal(count, 1, `${label} disposed ${count} times`);
+    assert.equal(
+      count,
+      expected.get(label),
+      `${label} disposed ${count} times`,
+    );
   }
+  assert.ok(
+    [...expected.values()].some((value) => value === 0),
+    'the plant must reuse at least one shared resource',
+  );
   assert.equal(plant.children.length, 0);
 });

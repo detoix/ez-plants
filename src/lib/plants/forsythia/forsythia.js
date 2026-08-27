@@ -14,11 +14,7 @@ import {
 import { createLeafCardGeometry } from '../../leaf-geometry.js';
 import { createLeafMaterialSet } from '../../leaf-material.js';
 import { keyedRange } from '../../keyed-random.js';
-import {
-  createUnitStemGeometry,
-  makeBasisQuaternion,
-  vector,
-} from '../../plant-transforms.js';
+import { makeBasisQuaternion, vector } from '../../plant-transforms.js';
 import { PlantRenderer } from '../../plant-renderer.js';
 import { loadLeafPlate } from '../../leaf-plate.js';
 
@@ -139,7 +135,11 @@ export class Forsythia extends PlantRenderer {
       assets: options.assets ?? {},
       defaultLeafPlate: LEAF_PLATE,
       extraStateKeys: ['region', 'offsetDays'],
-      lodLevels: DEFAULT_LOD_LEVELS,
+      // A caller may state its own bands; the cultivar's are the default,
+      // not a ceiling. The distances that suit a garden close-up are not the
+      // ones that suit a landscape, and only the application knows which it
+      // is looking at.
+      lodLevels: options.lodLevels ?? DEFAULT_LOD_LEVELS,
       // The blades are broad and the shoots are long and springy, so the wind
       // displacement is wider than the currant's.
       leafWind: {
@@ -237,14 +237,14 @@ export class Forsythia extends PlantRenderer {
   }
 
   #createInstances() {
-    const stemGeometry = this._geometry(createUnitStemGeometry(5));
+    const stemGeometry = this._stemGeometry(5);
 
     this._addInstancedOrgan('leaves', {
       name: 'Forsythia_Leaves_Opposite',
-      geometry: this._geometry(
-        createLeafCardGeometry({
-          roundedNormals: this._assets.leaf.roundedNormals,
-        }),
+      geometry: this._sharedGeometry(
+        'shared/leaf-card',
+        { roundedNormals: this._assets.leaf.roundedNormals },
+        createLeafCardGeometry,
       ),
       material: this._materials.leaf,
       group: this._leafGroup,
@@ -257,8 +257,10 @@ export class Forsythia extends PlantRenderer {
     });
     this._addInstancedOrgan('buds', {
       name: 'Forsythia_DormantBuds',
-      geometry: this._geometry(
-        createFlowerBudGeometry({ segments: 5, rings: 3 }),
+      geometry: this._sharedGeometry(
+        'forsythia/flower-bud',
+        { segments: 5, rings: 3 },
+        createFlowerBudGeometry,
       ),
       material: this._materials.bud,
       group: this._woodyGroup,
@@ -271,19 +273,31 @@ export class Forsythia extends PlantRenderer {
     });
     this._addInstancedOrgan('flowerBuds', {
       name: 'Forsythia_FlowerBuds',
-      geometry: this._geometry(createFlowerBudGeometry()),
+      geometry: this._sharedGeometry(
+        'forsythia/flower-bud',
+        {},
+        createFlowerBudGeometry,
+      ),
       material: this._materials.flowerBud,
       group: this._flowerGroup,
     });
     this._addInstancedOrgan('flowers', {
       name: 'Forsythia_Flowers_FourLobed',
-      geometry: this._geometry(createFlowerGeometry()),
+      geometry: this._sharedGeometry(
+        'forsythia/flower',
+        {},
+        createFlowerGeometry,
+      ),
       material: this._materials.flower,
       group: this._flowerGroup,
     });
     this._addInstancedOrgan('capsules', {
       name: 'Forsythia_Capsules',
-      geometry: this._geometry(createCapsuleGeometry()),
+      geometry: this._sharedGeometry(
+        'forsythia/capsule',
+        {},
+        createCapsuleGeometry,
+      ),
       material: this._materials.capsule,
       group: this._fruitGroup,
     });

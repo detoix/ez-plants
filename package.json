@@ -23,6 +23,10 @@
     "./react": {
       "types": "./build/react/index.d.ts",
       "import": "./build/react/index.js"
+    },
+    "./field": {
+      "types": "./types/field.d.ts",
+      "import": "./build/field/index.js"
     }
   },
   "files": [
@@ -37,18 +41,20 @@
   "scripts": {
     "dev": "vite --config vite.app.config.js",
     "test": "node --test",
-    "build": "npm run build:lib && npm run build:react && npm run build:app",
+    "build": "npm run build:lib && npm run build:react && npm run build:field && npm run build:app",
     "build:app": "vite build --config vite.app.config.js",
     "build:lib": "vite build --config vite.lib.config.js && tsc -p tsconfig.json",
     "build:watch": "vite build --config vite.lib.config.js --watch",
     "app": "npm run build:lib && vite --config vite.app.config.js",
     "preview": "vite preview",
     "build:react": "vite build --config vite.react.config.js && tsc -p tsconfig.react.json",
+    "build:field": "vite build --config vite.field.config.js",
     "typecheck": "tsc -p tsconfig.react.json --noEmit",
     "plant:add": "node scripts/add-plant.mjs"
   },
   "devDependencies": {
     "@react-three/fiber": "^9.7.0",
+    "@three.ez/instanced-mesh": "^0.3.16",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@types/three": "^0.169.0",
@@ -63,6 +69,7 @@
   },
   "peerDependencies": {
     "@react-three/fiber": ">=8",
+    "@three.ez/instanced-mesh": ">=0.3",
     "react": ">=18",
     "three": ">=0.167"
   },
@@ -86,6 +93,9 @@
       "optional": true
     },
     "@react-three/fiber": {
+      "optional": true
+    },
+    "@three.ez/instanced-mesh": {
       "optional": true
     }
   }

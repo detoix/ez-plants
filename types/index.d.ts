@@ -7,6 +7,13 @@
  * `{}` and its cultivar unions to `any`.
  */
 
-export { Tree, Trellis, TreePreset, Billboard, TreeType } from '../build/index';
+export {
+  Tree,
+  Trellis,
+  TreePreset,
+  Billboard,
+  ShadowCast,
+  TreeType,
+} from '../build/index';
 
 export * from './plants';

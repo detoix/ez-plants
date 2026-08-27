@@ -7,7 +7,16 @@ import test from 'node:test';
 
 const REPO = new URL('..', import.meta.url).pathname;
 const SCRIPT = join(REPO, 'scripts/add-plant.mjs');
-const PLANTS = ['blackcurrant', 'forsythia', 'hydrangea', 'miscanthus'];
+
+// Read the roster rather than listing it. The library is expected to grow, and
+// a new plant should be covered by these guarantees the day its folder lands,
+// without anyone remembering to edit a test.
+const PLANTS = readdirSync(join(REPO, 'src/lib/plants'), {
+  withFileTypes: true,
+})
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => entry.name)
+  .sort();
 
 /** Runs the extractor and returns the file list it reports. */
 function plan(plant) {
@@ -42,8 +51,10 @@ test('an extracted plant carries its own leaf plate', () => {
     const hasPlate = existsSync(
       join(REPO, 'src/lib/plants', plant, 'leaf.webp'),
     );
-    // Miscanthus is the licensed exception: a grass has no leaf cards, so it
-    // generates the one map it needs in code instead of carrying a plate.
+    // A plant ships a plate only if its leaves are broad enough to render as
+    // cards; a plant whose organs are geometry generates the maps it needs in
+    // code and carries no binary. Both are normal, so the assertion follows
+    // whichever the plant actually is rather than naming names.
     assert.equal(
       files.includes(`plants/${plant}/leaf.webp`),
       hasPlate,
