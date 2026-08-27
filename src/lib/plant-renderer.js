@@ -21,6 +21,11 @@ import {
   calculateBarkTextureWraps,
   createBarkMaterial,
 } from './woody-material.js';
+import { createBarkMaps } from './bark-plate.js';
+
+// EZ-Tree expresses bark textureScale.x per unit of branch radius; the plants
+// in this library are modelled in metres, so this is wraps per metre of radius.
+const DEFAULT_BARK_WRAPS_PER_METRE_RADIUS = 250;
 
 /**
  * Machinery shared by every multi-cane shrub renderer in this library.
@@ -214,10 +219,27 @@ export class PlantRenderer extends THREE.Group {
     );
   }
 
+  /**
+   * Bark for a plant whose caller supplied none. Unlike a leaf plate, bark is
+   * not cultivar-specific -- all three shrubs borrow one generic set -- so it
+   * is generated and shared rather than carried in each plant's folder. A
+   * caller-supplied bark set replaces it wholesale.
+   */
+  _defaultBark() {
+    if (this._assets.bark?.maps) return { textured: false };
+    return {
+      textured: true,
+      maps: createBarkMaps(),
+      // The wraps-per-metre-of-radius the demo app applies to the photographed
+      // set, so procedural and supplied bark sit at the same scale.
+      textureScale: { x: DEFAULT_BARK_WRAPS_PER_METRE_RADIUS, y: 5 },
+    };
+  }
+
   _barkMaterial(parameters) {
     return this._resources.trackMaterial(
       createBarkMaterial({
-        textured: false,
+        ...this._defaultBark(),
         tint: this._barkTint,
         ...this._assets.bark,
         ...parameters,
@@ -549,7 +571,8 @@ export class PlantRenderer extends THREE.Group {
         );
         const textureWraps = calculateBarkTextureWraps(
           transformedSections[0].radius,
-          this._assets.bark?.textureScale?.x ?? 1,
+          this._assets.bark?.textureScale?.x ??
+            DEFAULT_BARK_WRAPS_PER_METRE_RADIUS,
         );
         appendBranchTube(data, sampled.sections, {
           radialSegments,
