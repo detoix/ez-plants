@@ -61,8 +61,20 @@ export function growWoodyAxis({
     throw new RangeError('sectionCount must be a positive integer.');
   }
 
-  const sectionOrientation = orientation.clone();
-  const sectionOrigin = origin.clone();
+  // Accept plain `{x, y, z}` records as well as Three.js objects. The growth
+  // models in this library are deliberately Three.js-free (library rule 7),
+  // so they describe where an axis starts and which way it leans as plain
+  // data; the tree generator passes Vector3/Euler. Both read the same fields.
+  const sectionOrientation = new THREE.Euler(
+    orientation.x ?? 0,
+    orientation.y ?? 0,
+    orientation.z ?? 0,
+  );
+  const sectionOrigin = new THREE.Vector3(
+    origin.x ?? 0,
+    origin.y ?? 0,
+    origin.z ?? 0,
+  );
   const sectionLength = length / sectionCount;
   const sections = [];
 
@@ -114,7 +126,9 @@ export function growWoodyAxis({
         const fullAngle = Math.atan2(sinFull, sectionUp.dot(target));
         const step = force.strength / sectionRadius;
         const clamped = Math.max(-fullAngle, Math.min(fullAngle, step));
-        qSection.premultiply(new THREE.Quaternion().setFromAxisAngle(axis, clamped));
+        qSection.premultiply(
+          new THREE.Quaternion().setFromAxisAngle(axis, clamped),
+        );
       }
     }
 

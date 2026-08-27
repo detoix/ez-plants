@@ -1,4 +1,3 @@
-import * as THREE from 'three';
 import { growWoodyAxis } from '../../woody-axis.js';
 import {
   keyedInteger as randomInt,
@@ -41,7 +40,7 @@ function growAxisPoints(
   },
 ) {
   const sections = growWoodyAxis({
-    origin: new THREE.Vector3(origin.x, origin.y, origin.z),
+    origin: vector(origin.x, origin.y, origin.z),
     orientation: orientationFor(direction),
     length: axisLength,
     radius: baseRadius,
@@ -49,11 +48,7 @@ function growAxisPoints(
     gnarliness,
     taper: LIMELIGHT_PROFILE.cane.axisTaperRatios[1],
     force: {
-      direction: new THREE.Vector3(
-        forceDirection.x,
-        forceDirection.y,
-        forceDirection.z,
-      ),
+      direction: vector(forceDirection.x, forceDirection.y, forceDirection.z),
       // Normalise for point density: changing internode sampling must not
       // silently change the habit of the plant.
       strength: (forceStrength * 28) / sectionCount,

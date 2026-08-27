@@ -4,7 +4,6 @@ import {
   getLynwoodPhenology,
 } from './phenology.js';
 import { LYNWOOD_PROFILE, LYNWOOD_RENDER_PRIORS } from './lynwood.js';
-import * as THREE from 'three';
 import RNG from '../../rng.js';
 import { growWoodyAxis } from '../../woody-axis.js';
 import {
@@ -80,18 +79,14 @@ function mainAxisPoints(seed, cane) {
   const lean = upright
     ? randomRange(seed, [cane.id, 'lean'], 0.015, 0.08)
     : randomRange(seed, [cane.id, 'lean'], 0.07, 0.18);
-  const orientation = new THREE.Euler(
+  const orientation = vector(
     Math.sin(cane.azimuth) * lean,
     keyedRandom(seed, cane.id, 'sway-phase') * TAU,
     -Math.cos(cane.azimuth) * lean,
   );
 
   const sections = growWoodyAxis({
-    origin: new THREE.Vector3(
-      cane.position.x,
-      cane.position.y,
-      cane.position.z,
-    ),
+    origin: vector(cane.position.x, cane.position.y, cane.position.z),
     orientation,
     // The cane's arc is longer than its final height, because the arch trades
     // height for reach.
@@ -101,11 +96,7 @@ function mainAxisPoints(seed, cane) {
     gnarliness: architecture.caneGnarliness,
     taper: LYNWOOD_PROFILE.cane.axisTaperRatios[1],
     force: {
-      direction: new THREE.Vector3(
-        outward.x,
-        -architecture.archDrop,
-        outward.z,
-      ),
+      direction: vector(outward.x, -architecture.archDrop, outward.z),
       // Force is applied once per section, so without normalising by the
       // section count a denser cane would arch further for the same strength
       // and node spacing would silently change the plant's habit.

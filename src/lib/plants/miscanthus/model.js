@@ -1,4 +1,3 @@
-import * as THREE from 'three';
 import { growWoodyAxis } from '../../woody-axis.js';
 import {
   keyedInteger as randomInt,
@@ -206,11 +205,7 @@ function culmPoints(seed, tiller, axisLength) {
   );
 
   const sections = growWoodyAxis({
-    origin: new THREE.Vector3(
-      tiller.position.x,
-      tiller.position.y,
-      tiller.position.z,
-    ),
+    origin: vector(tiller.position.x, tiller.position.y, tiller.position.z),
     orientation: orientationFor(direction),
     length: axisLength,
     radius: tiller.baseRadiusM,
@@ -220,11 +215,10 @@ function culmPoints(seed, tiller, axisLength) {
     gnarliness: 0.00035,
     taper: 1 - MALEPARTUS_PROFILE.cane.axisTaperRatios[1],
     force: {
-      direction: new THREE.Vector3(
-        outward.x * 0.16,
-        1,
-        outward.z * 0.16,
-      ).normalize(),
+      // Normalised with sqrt rather than model-math's hypot-based `normalize`:
+      // the two disagree in the last bits, and this force direction shapes
+      // every culm, so the arithmetic is kept exactly as it was.
+      direction: unitVector(outward.x * 0.16, 1, outward.z * 0.16),
       strength: (0.0000075 * 28) / tiller.nodeCount,
     },
     rng: axisRng(seed, id),
@@ -568,6 +562,18 @@ function evaluatePanicle(panicle, tipPosition, currentYear, state, phenology) {
  * this season's growing culm, and last season's standing dead one. The two
  * only ever coexist as a live culm beside a freshly cut stub.
  */
+/**
+ * A unit vector built the way Three.js builds one, so a culm grown from it is
+ * bit-for-bit what it was before the model stopped importing Three.js.
+ */
+function unitVector(x, y, z) {
+  // Three.js divides by multiplying with the reciprocal, and `x * (1 / m)` is
+  // not always `x / m` in floating point.
+  const magnitude = Math.sqrt(x * x + y * y + z * z) || 1;
+  const inverse = 1 / magnitude;
+  return vector(x * inverse, y * inverse, z * inverse);
+}
+
 function evaluateTiller(
   tiller,
   seed,

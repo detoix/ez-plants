@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import * as THREE from 'three';
@@ -7,6 +8,14 @@ import {
   createLeafWindShadowMaterials,
   LeafWind,
 } from '../src/lib/leaf-wind.js';
+import {
+  createLimelightModel,
+  createLynwoodModel,
+  createMalepartusModel,
+  evaluateLimelightModel,
+  evaluateLynwoodModel,
+  evaluateMalepartusModel,
+} from '../src/lib/index.js';
 import {
   keyedInteger,
   keyedRandom,
@@ -464,5 +473,51 @@ test('every plant keeps renderer internals off its public surface', () => {
     assert.deepEqual(Object.keys({ ...plant }), Object.keys(plant));
 
     plant.dispose();
+  }
+});
+
+test('the model layer imports no Three.js', () => {
+  // Library rule 7: models are plain data, so a snapshot can be serialised,
+  // diffed and tested without a renderer. `growWoodyAxis` accepts plain
+  // `{x, y, z}` records precisely so a model never has to reach for a
+  // Vector3 to describe where an axis starts.
+  const models = readdirSync(new URL('../src/lib/plants/', import.meta.url), {
+    withFileTypes: true,
+  })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name);
+
+  assert.ok(models.length >= 4, 'expected every plant to be scanned');
+  for (const plant of models) {
+    const source = readFileSync(
+      new URL(`../src/lib/plants/${plant}/model.js`, import.meta.url),
+      'utf8',
+    );
+    assert.doesNotMatch(
+      source,
+      /from 'three'/,
+      `${plant}/model.js must not import Three.js`,
+    );
+    assert.doesNotMatch(
+      source,
+      /\bTHREE\./,
+      `${plant}/model.js must not construct Three.js objects`,
+    );
+  }
+});
+
+test('an evaluated snapshot survives a JSON round-trip unchanged', () => {
+  for (const [create, evaluate] of [
+    [createLynwoodModel, evaluateLynwoodModel],
+    [createLimelightModel, evaluateLimelightModel],
+    [createMalepartusModel, evaluateMalepartusModel],
+  ]) {
+    const model = create({ seed: 'plain-data', maxYears: 8 });
+    const snapshot = evaluate(model, { ageYears: 6, dayOfYear: 210 });
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(snapshot)),
+      snapshot,
+      'a snapshot carrying class instances would lose them here',
+    );
   }
 });
