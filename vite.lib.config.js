@@ -4,10 +4,15 @@
 export default {
   build: {
     outDir: './build',
+    // Note: Vite's library mode inlines every asset as a base64 data URI and
+    // ignores `assetsInlineLimit`, so each plant's leaf.webp is embedded in the
+    // bundle (~270 kB). That keeps the published package self-contained, which
+    // is what library rule 7 asks for. The plates remain real files in `src`,
+    // which is what a copied plant folder carries.
     lib: {
       entry: './src/lib/index.js',
-      name: '@dgreenheck/ez-tree',
-      fileName: (format) => `ez-tree.${format}.js`,
+      name: '@detoix/ez-plants',
+      fileName: (format) => `ez-plants.${format}.js`,
     },
     rollupOptions: {
       external: ['three'],

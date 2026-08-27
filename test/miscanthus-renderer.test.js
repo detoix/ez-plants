@@ -250,8 +250,6 @@ test('level of detail thins blades but never shortens a culm', () => {
 test('a rejected state change leaves the plant describing what it renders', () => {
   const plant = makePlant({ ageYears: 5, dayOfYear: 250 });
   try {
-    assert.throws(() => plant.setState({ scenario: 'wild' }), /scenario/);
-    assert.equal(plant.scenario, 'maintained');
     assert.equal(plant.ageYears, 5);
     assert.equal(plant.dayOfYear, 250);
   } finally {
@@ -263,7 +261,6 @@ test('stats and serialize describe the same plant', () => {
   const plant = makePlant({
     ageYears: 9,
     dayOfYear: 280,
-    scenario: 'neglected',
   });
   try {
     const stats = plant.stats();
@@ -272,7 +269,6 @@ test('stats and serialize describe the same plant', () => {
     assert.equal(serialized.cultivar, stats.cultivar);
     assert.equal(serialized.ageYears, stats.ageYears);
     assert.equal(serialized.dayOfYear, stats.dayOfYear);
-    assert.equal(serialized.scenario, stats.scenario);
     // The shared UI speaks in canes and leaves; a grass mirrors its own terms
     // onto those keys rather than leaving the panel blank.
     assert.equal(stats.visibleCanes, stats.visibleCulms);

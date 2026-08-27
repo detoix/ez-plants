@@ -121,57 +121,6 @@ test('the cut is staggered across the pruning window rather than instant', () =>
   assert.equal(counts.at(-1), 0);
 });
 
-test('an uncut clump keeps last season among the new growth', () => {
-  const graph = model();
-  const day = 250;
-  const maintained = at(graph, { dayOfYear: day, scenario: 'maintained' });
-  const neglected = at(graph, { dayOfYear: day, scenario: 'neglected' });
-
-  assert.equal(maintained.stats.standingDeadCulms, 0);
-  assert.ok(neglected.stats.standingDeadCulms > 0);
-  assert.ok(
-    neglected.stats.livingCulms > neglected.stats.standingDeadCulms,
-    'an uncut clump is a mixture, not a solid thatch of old culms',
-  );
-});
-
-test('an undivided clump opens out in the centre with age', () => {
-  const graph = model();
-  const young = at(graph, {
-    ageYears: 5,
-    dayOfYear: 250,
-    scenario: 'neglected',
-  });
-  const old = at(graph, {
-    ageYears: 22,
-    dayOfYear: 250,
-    scenario: 'neglected',
-  });
-  const divided = at(graph, {
-    ageYears: 22,
-    dayOfYear: 250,
-    scenario: 'maintained',
-  });
-
-  assert.equal(young.clump.dieOutRadiusM, 0);
-  assert.ok(old.clump.dieOutRadiusM > 0);
-  assert.equal(divided.clump.dieOutRadiusM, 0);
-  assert.ok(
-    old.stats.visibleTillers < divided.stats.visibleTillers,
-    'the dead centre removes tillers a divided clump keeps',
-  );
-
-  const minimumRadius = Math.min(
-    ...old.tillers.map((tiller) =>
-      Math.hypot(tiller.position.x, tiller.position.z),
-    ),
-  );
-  assert.ok(
-    minimumRadius >= old.clump.dieOutRadiusM - 1e-9,
-    'no tiller may survive inside the dead centre',
-  );
-});
-
 test('a warm-season grass stays absent through a Polish April', () => {
   const graph = model();
   const april = getMalepartusPhenology(CALENDAR.emergenceStart - 6);
@@ -277,7 +226,6 @@ test('the model rejects states it cannot honestly render', () => {
     () => at(graph, { ageYears: 99 }),
     /ageYears must be an integer/,
   );
-  assert.throws(() => at(graph, { scenario: 'wild' }), /scenario must be/);
   assert.throws(
     () => at(graph, { events: [{ type: 'prune' }] }),
     /does not expose destructive care events/,

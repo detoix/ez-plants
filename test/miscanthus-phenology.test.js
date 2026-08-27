@@ -68,9 +68,7 @@ test('every phase in the year is reachable and BBCH-labelled on the cereal scale
     assert.ok(phases.has(phase), `unreachable phase: ${phase}`);
   }
   // The cut phase only exists for a clump that is actually being cut.
-  const cut = getMalepartusPhenology(CALENDAR.cutbackEnd + 3, {
-    scenario: 'maintained',
-  });
+  const cut = getMalepartusPhenology(CALENDAR.cutbackEnd + 3, {});
   assert.equal(cut.phase, 'cut-back');
 });
 
@@ -130,18 +128,6 @@ test('every progress value stays inside 0..1 all year, in both scenarios', () =>
         }
       }
     }
-  }
-});
-
-test('an uncut clump never loses last season on its own', () => {
-  for (let day = 1; day <= 365; day += 1) {
-    const neglected = getMalepartusPhenology(day, { scenario: 'neglected' });
-    assert.equal(neglected.cutProgress, 0);
-    assert.equal(neglected.stubbleVisibility, 0);
-    assert.ok(
-      neglected.standingDryVisibility > 0.15,
-      `day ${day} lost every old culm without a cut`,
-    );
   }
 });
 

@@ -1,43 +1,10 @@
-import { dayOfYear } from '../blackcurrant/phenology.js';
+import { calendarLabel, dayOfYear, monthDayToDay } from '../../calendar.js';
 import { MALEPARTUS_PROFILE, MALEPARTUS_SOURCES } from './malepartus.js';
-
-export { dayOfYear };
-
-const MONTH_START = Object.freeze([
-  0, 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334,
-]);
-
-const MONTH_NAMES = Object.freeze([
-  '',
-  'January',
-  'February',
-  'March',
-  'April',
-  'May',
-  'June',
-  'July',
-  'August',
-  'September',
-  'October',
-  'November',
-  'December',
-]);
 
 const clamp01 = (value) => Math.max(0, Math.min(1, value));
 
 const progress = (value, start, end) =>
   clamp01((value - start) / Math.max(1, end - start));
-
-const monthDayToDay = (month, day) => MONTH_START[month] + day;
-
-function calendarLabel(dayOfYearValue) {
-  for (let month = 12; month >= 1; month -= 1) {
-    if (dayOfYearValue > MONTH_START[month]) {
-      return `${dayOfYearValue - MONTH_START[month]} ${MONTH_NAMES[month]}`;
-    }
-  }
-  return '1 January';
-}
 
 /**
  * Relative seasons for exploring weather timing around the central-Poland
@@ -226,17 +193,13 @@ function plumeColourStage(day, calendar) {
  */
 export function getMalepartusPhenology(
   value = 250,
-  { seasonProfile = 'typical', offsetDays = 0, scenario = 'maintained' } = {},
+  { seasonProfile = 'typical', offsetDays = 0 } = {},
 ) {
   const day = dayOfYear(value);
   const calendar = createCalendar(seasonProfile, offsetDays);
 
-  // A maintained clump loses last year's culms across the cutback window; an
-  // uncut clump keeps them, progressively collapsing, into the new season.
-  const cutProgress =
-    scenario === 'maintained'
-      ? progress(day, calendar.cutbackStart, calendar.cutbackEnd)
-      : 0;
+  // The clump loses last year's culms across the cutback window.
+  const cutProgress = progress(day, calendar.cutbackStart, calendar.cutbackEnd);
   const emergenceProgress = progress(
     day,
     calendar.emergenceStart,
@@ -249,20 +212,12 @@ export function getMalepartusPhenology(
     calendar.culmElongationStart,
     calendar.foliageFullExpansion,
   );
-  const standingDryVisibility =
-    scenario === 'maintained'
-      ? 1 - cutProgress
-      : // Uncut culms lean, shed blades and settle into the new growth, but
-        // never disappear on their own. By late summer roughly a third of the
-        // sites are still holding last season's culm above the new fan.
-        1 - 0.8 * progress(day, calendar.emergenceStart, calendar.autumnStart);
+  const standingDryVisibility = 1 - cutProgress;
+  // Fresh stubble is bare and obvious, then hidden as the canopy closes.
   const stubbleVisibility =
-    scenario === 'maintained'
-      ? // Fresh stubble is bare and obvious, then hidden as the canopy closes.
-        cutProgress *
-        (1 - progress(day, calendar.emergenceStart, calendar.tilleringStart))
-      : 0;
-  const cut = scenario === 'maintained' && day >= calendar.cutbackEnd;
+    cutProgress *
+    (1 - progress(day, calendar.emergenceStart, calendar.tilleringStart));
+  const cut = day >= calendar.cutbackEnd;
   const [phase, label, bbch] = stageFor(
     day,
     calendar,
@@ -328,7 +283,6 @@ export function getMalepartusPhenology(
     seasonProfile,
     seasonProfileLabel: MALEPARTUS_SEASON_PROFILES[seasonProfile].label,
     offsetDays: Math.round(offsetDays),
-    scenario,
     calendar,
     cutProgress,
     stubbleVisibility: clamp01(stubbleVisibility),
@@ -359,12 +313,7 @@ const hint = (id, category, priority, title, message, source) =>
 /** Returns Malepartus care guidance relevant to the selected day and age. */
 export function getMalepartusCareHints(
   value = 250,
-  {
-    plantAgeYears = 0,
-    seasonProfile = 'typical',
-    offsetDays = 0,
-    scenario = 'maintained',
-  } = {},
+  { plantAgeYears = 0, seasonProfile = 'typical', offsetDays = 0 } = {},
 ) {
   const day = dayOfYear(value);
   const calendar = createCalendar(seasonProfile, offsetDays);
@@ -442,7 +391,7 @@ export function getMalepartusCareHints(
       hint(
         'divide-open-centre',
         'renewal',
-        scenario === 'neglected' ? 'important' : 'recommended',
+        'recommended',
         'Lift and divide the opening centre',
         `An established clump dies out in the middle and becomes a ring of outer tillers. Lift it in early spring, cut vigorous outer sections away and discard the dead centre; every ${divideFrom}-${divideTo} years keeps it dense.`,
         MALEPARTUS_SOURCES.divisionPractice.url,
@@ -468,3 +417,5 @@ export function getMalepartusCareHints(
 
   return Object.freeze(hints);
 }
+
+export { dayOfYear };

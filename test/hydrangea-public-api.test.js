@@ -7,7 +7,7 @@ import * as publicApi from '../src/lib/index.js';
 const APP_SOURCE_URL = new URL('../src/app/plants.js', import.meta.url);
 const APP_HTML_URL = new URL('../src/app/index.html', import.meta.url);
 const HYDRANGEA_LEAF_URL = new URL(
-  '../src/app/public/textures/leaves/hydrangea-limelight.webp',
+  '../src/lib/plants/hydrangea/leaf.webp',
   import.meta.url,
 );
 const TYPES_SOURCE_URL = new URL('../types/plants.d.ts', import.meta.url);
@@ -30,7 +30,7 @@ function capturePlant(kind) {
 function loadPlantRegistry() {
   const source = readFileSync(APP_SOURCE_URL, 'utf8');
   const executable = source
-    .replace(/import\s*\{[\s\S]*?\}\s*from '@dgreenheck\/ez-tree';\s*/, '')
+    .replace(/import\s*\{[\s\S]*?\}\s*from '@detoix\/ez-plants';\s*/, '')
     .replace(/import\s*\{[^;]*\}\s*from '\.\/textures';\s*/, '')
     .replace(/\bexport\s+(?=(?:const|function)\b)/g, '');
 
@@ -207,7 +207,6 @@ test('app create functions preserve deep-linked phenology profiles at constructi
   const baseState = {
     age: 9.25,
     day: 263,
-    scenario: 'neglected',
   };
 
   const hydrangea = PLANTS.hydrangea.create({
@@ -219,17 +218,17 @@ test('app create functions preserve deep-linked phenology profiles at constructi
     {
       ageYears: hydrangea.options.ageYears,
       dayOfYear: hydrangea.options.dayOfYear,
-      scenario: hydrangea.options.scenario,
       seasonProfile: hydrangea.options.seasonProfile,
     },
     {
       ageYears: 9.25,
       dayOfYear: 263,
-      scenario: 'neglected',
       seasonProfile: 'late',
     },
   );
-  assert.equal(hydrangea.options.assets.leaf.map.id, 'hydrangea-leaf-map');
+  // The plant carries its own plate (library rule 7), so the demo app supplies
+  // only the look-and-feel overrides and never the map itself.
+  assert.equal(hydrangea.options.assets.leaf.map, undefined);
 
   const blackcurrant = PLANTS.blackcurrant.create({
     ...baseState,

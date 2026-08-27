@@ -23,7 +23,7 @@ export default {
         'react-dom',
         'three',
         '@react-three/fiber',
-        '@dgreenheck/ez-tree',
+        '@detoix/ez-plants',
       ],
     },
     sourcemap: true,
@@ -31,7 +31,7 @@ export default {
   resolve: {
     alias: {
       // Type-only import of the core package resolves to the public surface.
-      '@dgreenheck/ez-tree': path.resolve(__dirname, 'build/ez-tree.es.js'),
+      '@detoix/ez-plants': path.resolve(__dirname, 'build/ez-plants.es.js'),
     },
   },
   // Declarations are emitted by `tsc -p tsconfig.react.json` rather than

@@ -338,34 +338,6 @@ test('care age resets with each 15-year replacement stool', () => {
   }
 });
 
-test('neglected plants retain crowded old canes but still reset at replacement', () => {
-  const model = createTiselModel({ seed: 'scenario' });
-  const maintained = evaluateTiselModel(model, {
-    ageYears: 12,
-    dayOfYear: 172,
-    scenario: 'maintained',
-  });
-  const neglected = evaluateTiselModel(model, {
-    ageYears: 12,
-    dayOfYear: 172,
-    scenario: 'neglected',
-  });
-  assert.ok(neglected.stats.activeCanes > maintained.stats.activeCanes);
-  assert.notDeepEqual(neglected.canes, maintained.canes);
-
-  const reset = evaluateTiselModel(model, {
-    ageYears: 15,
-    dayOfYear: 172,
-    scenario: 'neglected',
-  });
-  assert.equal(reset.stats.activeCanes, 9);
-  assert.ok(reset.canes.every((cane) => cane.cycleIndex === 1));
-  assert.throws(
-    () => evaluateTiselModel(model, { scenario: 'impossible' }),
-    /scenario/,
-  );
-});
-
 test('whole-cane pruning is reversible when evaluating either side of the event', () => {
   const model = createTiselModel({ seed: 'pruning' });
   const baseline = evaluateTiselModel(model, { ageYears: 5, dayOfYear: 90 });

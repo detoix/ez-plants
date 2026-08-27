@@ -8,7 +8,6 @@ import * as THREE from 'three';
 export type DayOfYearInput = number | Date | string;
 
 /** How the plant has been looked after over its modelled life. */
-export type PlantScenario = 'maintained' | 'neglected';
 
 export interface PlantAssets {
   /**
@@ -180,7 +179,6 @@ export interface BlackcurrantOptions {
   maxYears?: number;
   ageYears?: number;
   dayOfYear?: number;
-  scenario?: PlantScenario;
   trialYear?: TiselTrialYear;
   offsetDays?: number;
   assets?: PlantAssets;
@@ -194,7 +192,6 @@ export interface BlackcurrantStats extends PlantRenderStats {
   cultivar: string;
   ageYears: number;
   dayOfYear: number;
-  scenario: PlantScenario;
   visibleFlowers: number;
   visibleFlowerBuds: number;
   visibleBerries: number;
@@ -209,18 +206,15 @@ export interface BlackcurrantStats extends PlantRenderStats {
 
 export declare class Blackcurrant extends PlantRenderer {
   constructor(options?: BlackcurrantOptions);
-  scenario: PlantScenario;
   trialYear: TiselTrialYear;
   offsetDays: number;
 
   setState(patch: {
     ageYears?: number;
     dayOfYear?: number;
-    scenario?: PlantScenario;
     trialYear?: TiselTrialYear;
     offsetDays?: number;
   }): this;
-  setScenario(scenario: PlantScenario): this;
   setPhenologyProfile(profile: {
     trialYear?: TiselTrialYear;
     offsetDays?: number;
@@ -306,7 +300,6 @@ export interface ForsythiaOptions {
   maxYears?: number;
   ageYears?: number;
   dayOfYear?: number;
-  scenario?: PlantScenario;
   region?: LynwoodRegion;
   offsetDays?: number;
   assets?: PlantAssets;
@@ -319,7 +312,6 @@ export interface ForsythiaStats extends PlantRenderStats {
   cultivar: string;
   ageYears: number;
   dayOfYear: number;
-  scenario: PlantScenario;
   renewalManagedAutomatically: boolean;
   region: LynwoodRegion;
   visibleFlowers: number;
@@ -340,18 +332,15 @@ export interface ForsythiaStats extends PlantRenderStats {
 
 export declare class Forsythia extends PlantRenderer {
   constructor(options?: ForsythiaOptions);
-  scenario: PlantScenario;
   region: LynwoodRegion;
   offsetDays: number;
 
   setState(patch: {
     ageYears?: number;
     dayOfYear?: number;
-    scenario?: PlantScenario;
     region?: LynwoodRegion;
     offsetDays?: number;
   }): this;
-  setScenario(scenario: PlantScenario): this;
   setPhenologyProfile(profile: {
     region?: LynwoodRegion;
     offsetDays?: number;
@@ -439,11 +428,9 @@ export interface HydrangeaOptions {
   maxYears?: number;
   ageYears?: number;
   dayOfYear?: number;
-  scenario?: PlantScenario;
   seasonProfile?: LimelightSeasonProfile;
   offsetDays?: number;
   assets?: PlantAssets;
-  /** Limelight currently exposes scenarios, not destructive care events. */
   events?: readonly [];
   lod?: boolean;
 }
@@ -453,7 +440,6 @@ export interface HydrangeaStats extends PlantRenderStats {
   cultivar: string;
   ageYears: number;
   dayOfYear: number;
-  scenario: PlantScenario;
   seasonProfile: LimelightSeasonProfile;
   visiblePanicles: number;
   visibleDryPanicles: number;
@@ -470,18 +456,15 @@ export interface HydrangeaStats extends PlantRenderStats {
 
 export declare class Hydrangea extends PlantRenderer {
   constructor(options?: HydrangeaOptions);
-  scenario: PlantScenario;
   seasonProfile: LimelightSeasonProfile;
   offsetDays: number;
 
   setState(patch: {
     ageYears?: number;
     dayOfYear?: number;
-    scenario?: PlantScenario;
     seasonProfile?: LimelightSeasonProfile;
     offsetDays?: number;
   }): this;
-  setScenario(scenario: PlantScenario): this;
   setPhenologyProfile(profile: {
     seasonProfile?: LimelightSeasonProfile;
     offsetDays?: number;
@@ -521,7 +504,6 @@ export interface MalepartusPhenology {
   seasonProfile: MalepartusSeasonProfile;
   seasonProfileLabel: string;
   offsetDays: number;
-  scenario: PlantScenario;
   calendar: Readonly<Record<string, number>>;
   /** How far through the modelled spring cut the clump is. */
   cutProgress: number;
@@ -557,8 +539,6 @@ export interface MalepartusPhenology {
 export interface MalepartusClump {
   /** Half-width of the crown of tillers, not of the arching foliage. */
   radiusM: number;
-  /** Radius of the dead centre of an undivided clump; 0 when maintained. */
-  dieOutRadiusM: number;
   tillerSites: number;
 }
 
@@ -569,13 +549,12 @@ export interface MiscanthusOptions {
   maxYears?: number;
   ageYears?: number;
   dayOfYear?: number;
-  scenario?: PlantScenario;
   seasonProfile?: MalepartusSeasonProfile;
   offsetDays?: number;
   assets?: PlantAssets;
   /**
-   * Malepartus exposes scenarios rather than care events: its single annual
-   * cut is modelled by the maintained scenario's pruning window.
+   * Malepartus exposes no destructive care events: its single annual cut is
+   * modelled by the calendar's cutback window.
    */
   events?: readonly [];
   lod?: boolean;
@@ -586,7 +565,6 @@ export interface MiscanthusStats extends PlantRenderStats {
   cultivar: string;
   ageYears: number;
   dayOfYear: number;
-  scenario: PlantScenario;
   seasonProfile: MalepartusSeasonProfile;
   visibleTillers: number;
   /** One culm is one cane; `visibleCanes` mirrors this for shared UI. */
@@ -610,18 +588,15 @@ export interface MiscanthusStats extends PlantRenderStats {
 
 export declare class Miscanthus extends PlantRenderer {
   constructor(options?: MiscanthusOptions);
-  scenario: PlantScenario;
   seasonProfile: MalepartusSeasonProfile;
   offsetDays: number;
 
   setState(patch: {
     ageYears?: number;
     dayOfYear?: number;
-    scenario?: PlantScenario;
     seasonProfile?: MalepartusSeasonProfile;
     offsetDays?: number;
   }): this;
-  setScenario(scenario: PlantScenario): this;
   setPhenologyProfile(profile: {
     seasonProfile?: MalepartusSeasonProfile;
     offsetDays?: number;
@@ -698,7 +673,6 @@ export declare function evaluateLynwoodModel(
     ageYears?: number;
     dayOfYear?: number;
     events?: Partial<CareEvent>[];
-    scenario?: PlantScenario;
     region?: LynwoodRegion;
     offsetDays?: number;
   },
@@ -720,7 +694,6 @@ export declare function getMalepartusPhenology(
   options?: {
     seasonProfile?: MalepartusSeasonProfile;
     offsetDays?: number;
-    scenario?: PlantScenario;
   },
 ): Readonly<MalepartusPhenology>;
 
@@ -730,7 +703,6 @@ export declare function getMalepartusCareHints(
     plantAgeYears?: number;
     seasonProfile?: MalepartusSeasonProfile;
     offsetDays?: number;
-    scenario?: PlantScenario;
   },
 ): readonly CareHint[];
 
@@ -749,9 +721,8 @@ export declare function evaluateMalepartusModel(
   options?: {
     ageYears?: number;
     dayOfYear?: number;
-    /** Malepartus exposes scenarios, not destructive care events. */
+    /** Malepartus exposes no destructive care events. */
     events?: readonly [];
-    scenario?: PlantScenario;
     seasonProfile?: MalepartusSeasonProfile;
     offsetDays?: number;
   },
@@ -769,9 +740,7 @@ export declare function evaluateLimelightModel(
   options?: {
     ageYears?: number;
     dayOfYear?: number;
-    /** Limelight currently exposes scenarios, not destructive care events. */
     events?: readonly [];
-    scenario?: PlantScenario;
     seasonProfile?: LimelightSeasonProfile;
     offsetDays?: number;
   },

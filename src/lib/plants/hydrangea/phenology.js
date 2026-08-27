@@ -1,43 +1,10 @@
-import { dayOfYear } from '../blackcurrant/phenology.js';
+import { calendarLabel, dayOfYear, monthDayToDay } from '../../calendar.js';
 import { LIMELIGHT_PROFILE, LIMELIGHT_SOURCES } from './limelight.js';
-
-export { dayOfYear };
-
-const MONTH_START = Object.freeze([
-  0, 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334,
-]);
-
-const MONTH_NAMES = Object.freeze([
-  '',
-  'January',
-  'February',
-  'March',
-  'April',
-  'May',
-  'June',
-  'July',
-  'August',
-  'September',
-  'October',
-  'November',
-  'December',
-]);
 
 const clamp01 = (value) => Math.max(0, Math.min(1, value));
 
 const progress = (value, start, end) =>
   clamp01((value - start) / Math.max(1, end - start));
-
-const monthDayToDay = (month, day) => MONTH_START[month] + day;
-
-function calendarLabel(dayOfYearValue) {
-  for (let month = 12; month >= 1; month -= 1) {
-    if (dayOfYearValue > MONTH_START[month]) {
-      return `${dayOfYearValue - MONTH_START[month]} ${MONTH_NAMES[month]}`;
-    }
-  }
-  return '1 January';
-}
 
 /**
  * Relative seasons for exploring weather timing around the central-Poland
@@ -286,7 +253,7 @@ export function getLimelightPhenology(
       : 0;
 
   // A maintained plant loses last year's heads progressively through its
-  // modeled pruning window. An unpruned scenario may override this value.
+  // modeled pruning window.
   const oldPanicleVisibility =
     day <= calendar.previousPaniclePruneEnd
       ? 1 -
@@ -460,3 +427,5 @@ export function getLimelightCareHints(
 
   return Object.freeze(hints);
 }
+
+export { dayOfYear };

@@ -441,72 +441,6 @@ test('a one-year plant can flower sparsely on its current-season shoots', () => 
   }
 });
 
-test('neglected overlap keeps old dry heads full-sized beside growing green current heads', () => {
-  const plant = makePlant({
-    ageYears: 8,
-    dayOfYear: LIMELIGHT_CALENDAR.panicleInitiationStart + 1,
-    scenario: 'neglected',
-  });
-  try {
-    const overlapStart = captureInstances(plant);
-    const startHeads = instancesByOrganId(plant, MESH_NAMES.panicleStems);
-    const startPrevious = new Map(
-      [...startHeads].filter(([id]) => id.endsWith(':previous')),
-    );
-    const startCurrent = new Map(
-      [...startHeads].filter(([id]) => id.endsWith(':current')),
-    );
-
-    assert.ok(startPrevious.size > 30);
-    assert.ok(startCurrent.size > 30);
-    assert.equal(
-      plant.stats().visiblePanicles,
-      startPrevious.size + startCurrent.size,
-    );
-    assert.equal(plant.stats().visibleDryPanicles, startPrevious.size);
-    assert.ok(meshNamed(plant, MESH_NAMES.currentShoots).count > 30);
-
-    const previousColour = startPrevious.values().next().value.colour;
-    const currentColour = startCurrent.values().next().value.colour;
-    assert.notDeepEqual(
-      currentColour,
-      previousColour,
-      'current heads must remain green beside tan retained heads',
-    );
-
-    plant.setTime({ dayOfYear: LIMELIGHT_CALENDAR.floweringStart - 6 });
-    const laterHeads = instancesByOrganId(plant, MESH_NAMES.panicleStems);
-    const laterPrevious = new Map(
-      [...laterHeads].filter(([id]) => id.endsWith(':previous')),
-    );
-    const laterCurrent = new Map(
-      [...laterHeads].filter(([id]) => id.endsWith(':current')),
-    );
-
-    assert.deepEqual([...laterPrevious.keys()], [...startPrevious.keys()]);
-    assert.deepEqual([...laterCurrent.keys()], [...startCurrent.keys()]);
-    for (const [id, previous] of startPrevious) {
-      assert.deepEqual(
-        laterPrevious.get(id),
-        previous,
-        `${id} shrank, moved, or recoloured during current-head emergence`,
-      );
-    }
-    assert.notDeepEqual(
-      laterCurrent.values().next().value.matrix,
-      startCurrent.values().next().value.matrix,
-      'the independent current head should keep growing before flowering',
-    );
-
-    plant.setTime({
-      dayOfYear: LIMELIGHT_CALENDAR.panicleInitiationStart + 1,
-    });
-    assert.deepEqual(captureInstances(plant), overlapStart);
-  } finally {
-    plant.dispose();
-  }
-});
-
 test('time scrubbing A-B-A restores exact active counts and matrices', () => {
   const plant = makePlant({ ageYears: 6, dayOfYear: 230 });
   try {
@@ -514,19 +448,16 @@ test('time scrubbing A-B-A restores exact active counts and matrices', () => {
     plant.setState({
       ageYears: 17,
       dayOfYear: 20,
-      scenario: 'neglected',
       seasonProfile: 'late',
     });
     plant.setState({
       ageYears: 2,
       dayOfYear: 112,
-      scenario: 'maintained',
       seasonProfile: 'early',
     });
     plant.setState({
       ageYears: 6,
       dayOfYear: 230,
-      scenario: 'maintained',
       seasonProfile: 'typical',
     });
     assert.deepEqual(captureInstances(plant), before);
@@ -553,31 +484,6 @@ test('early and late profiles shift opening without changing plant age', () => {
     assert.ok(early.calendar.floweringStart < late.calendar.floweringStart);
     assert.ok(earlyOpen > 0);
     assert.equal(lateOpen, 0);
-  } finally {
-    plant.dispose();
-  }
-});
-
-test('neglected plants retain more fine shoots and more, smaller heads', () => {
-  const plant = makePlant({ ageYears: 8, dayOfYear: 230 });
-  try {
-    const maintained = plant.stats();
-    const maintainedLengths = instanceScales(
-      plant,
-      MESH_NAMES.sterileLower,
-    ).map((scale) => scale.y);
-
-    plant.setScenario('neglected');
-    const neglected = plant.stats();
-    const neglectedLengths = instanceScales(plant, MESH_NAMES.sterileLower).map(
-      (scale) => scale.y,
-    );
-
-    assert.ok(neglected.visibleAxes > maintained.visibleAxes);
-    assert.ok(neglected.visibleLeaves > maintained.visibleLeaves);
-    assert.ok(neglected.visiblePanicles > maintained.visiblePanicles);
-    assert.ok(mean(neglectedLengths) < mean(maintainedLengths));
-    assert.equal(neglected.scenario, 'neglected');
   } finally {
     plant.dispose();
   }
@@ -702,7 +608,6 @@ test('a rejected state update rolls back fields and rendered instances', () => {
       () =>
         plant.setState({
           ageYears: 12,
-          scenario: 'neglected',
           seasonProfile: 'monsoon',
         }),
       /seasonProfile/,
@@ -725,7 +630,6 @@ test('serialize round-trips every state needed to reproduce the renderer', () =>
     plantId: 'garden:limelight:1',
     ageYears: 9,
     dayOfYear: 263,
-    scenario: 'neglected',
     seasonProfile: 'early',
     offsetDays: -4,
   });
@@ -741,7 +645,6 @@ test('serialize round-trips every state needed to reproduce the renderer', () =>
       maxYears: 30,
       ageYears: 9,
       dayOfYear: 263,
-      scenario: 'neglected',
       seasonProfile: 'early',
       offsetDays: -4,
       events: [],
@@ -786,11 +689,13 @@ test('distance LOD thins leaves and heads without erasing the cultivar display',
   }
 });
 
-test('distance LOD keeps overlapping head cohorts paired and restores exact near slots', () => {
+test('distance LOD thins the head cohort and restores exact near slots', () => {
+  // Previous- and current-season heads never coexist on a pruned plant: last
+  // year's are cleared in the spring window well before this year's initiate.
+  // So there is one cohort to thin, and it must come back byte-identical.
   const plant = makePlant({
     ageYears: 20,
-    dayOfYear: 181,
-    scenario: 'neglected',
+    dayOfYear: 230,
     lod: true,
   });
   try {
@@ -801,39 +706,20 @@ test('distance LOD keeps overlapping head cohorts paired and restores exact near
 
     const nearInstances = captureInstances(plant);
     const nearHeads = instancesByOrganId(plant, MESH_NAMES.panicleStems);
-    const nearPrevious = [...nearHeads.keys()].filter((id) =>
-      id.endsWith(':previous'),
-    );
-    const nearCurrent = [...nearHeads.keys()].filter((id) =>
-      id.endsWith(':current'),
-    );
-    assert.ok(nearPrevious.length > 0 && nearCurrent.length > 0);
+    assert.ok(nearHeads.size > 0);
+    for (const id of nearHeads.keys()) assert.match(id, /:current$/);
 
     camera.position.set(0, 1, 40);
     camera.updateMatrixWorld(true);
     plant.update(0, 0, camera);
     const farHeads = instancesByOrganId(plant, MESH_NAMES.panicleStems);
-    const farPrevious = [...farHeads.keys()].filter((id) =>
-      id.endsWith(':previous'),
-    );
-    const farCurrent = [...farHeads.keys()].filter((id) =>
-      id.endsWith(':current'),
-    );
-    const farCurrentBases = new Set(
-      farCurrent.map((id) => id.replace(/:current$/, '')),
-    );
 
-    assert.ok(farPrevious.length > 0 && farCurrent.length > 0);
-    assert.ok(farPrevious.length < nearPrevious.length);
-    assert.ok(farCurrent.length < nearCurrent.length);
-    for (const id of farPrevious) {
-      assert.ok(
-        farCurrentBases.has(id.replace(/:previous$/, '')),
-        `${id} was separated from its current cohort by LOD`,
-      );
+    assert.ok(farHeads.size > 0);
+    assert.ok(farHeads.size < nearHeads.size);
+    for (const id of farHeads.keys()) {
+      assert.ok(nearHeads.has(id), `${id} is not a near-detail head`);
     }
     assert.equal(plant.stats().visiblePanicles, farHeads.size);
-    assert.equal(plant.stats().visibleDryPanicles, farPrevious.length);
 
     camera.position.set(0, 1, 2);
     camera.updateMatrixWorld(true);

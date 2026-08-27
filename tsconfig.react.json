@@ -12,7 +12,7 @@
     "module": "ESNext",
     "lib": ["ESNext", "DOM"],
     "paths": {
-      "@dgreenheck/ez-tree": ["./types/index.d.ts"]
+      "@detoix/ez-plants": ["./types/index.d.ts"]
     }
   },
   "include": ["src/react/**/*"]

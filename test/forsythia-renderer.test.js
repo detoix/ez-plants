@@ -184,29 +184,6 @@ test('a dormant winter plant draws wood and buds but no soft organs', () => {
   }
 });
 
-test('a neglected mature shrub stays inside fixed pools in summer and winter', () => {
-  const plant = makePlant({
-    ageYears: 19,
-    dayOfYear: 200,
-    scenario: 'neglected',
-  });
-  try {
-    assert.ok(
-      plant.stats().biologicalVisibleLeaves >
-        LYNWOOD_RENDER_PRIORS.instanceCapacities.leaves,
-      'summer must exercise adaptive thinning',
-    );
-    assert.ok(meshNamed(plant, MESH_NAMES.leaves).count > 0);
-    assertInstancePoolsBounded(plant);
-
-    plant.setTime({ dayOfYear: 365 });
-    assert.ok(meshNamed(plant, MESH_NAMES.buds).count > 0);
-    assertInstancePoolsBounded(plant);
-  } finally {
-    plant.dispose();
-  }
-});
-
 /* -------------------------------------------------------------------- *
  * State cycle
  * -------------------------------------------------------------------- */
@@ -248,8 +225,6 @@ test('adjacent bloom scrubs reuse organ runtimes and woody geometry', () => {
 test('a rejected state change leaves the plant on its previous state', () => {
   const plant = makePlant({ ageYears: 6, dayOfYear: 200 });
   try {
-    assert.throws(() => plant.setState({ scenario: 'wild' }), RangeError);
-    assert.equal(plant.scenario, 'maintained');
     assert.equal(plant.ageYears, 6);
     assert.equal(plant.dayOfYear, 200);
 
@@ -314,10 +289,11 @@ test('pruning is refused during the display and after buds are set', () => {
 });
 
 test('pruning immediately after flowering removes one whole cane', () => {
+  // Young enough that scheduled renewal has not already spent the season's
+  // one-fifth quota; an older maintained shrub renews itself instead.
   const plant = makePlant({
-    ageYears: 8,
+    ageYears: 4,
     dayOfYear: 130,
-    scenario: 'neglected',
   });
   try {
     const before = plant.stats().visibleCanes;
@@ -344,10 +320,11 @@ test('a shrub younger than the renewal age is not pruned', () => {
 });
 
 test('renewal pruning stops at the one-fifth quota', () => {
+  // Before scheduled renewal starts consuming the quota itself, so the whole
+  // one-fifth allowance is still available to explicit cuts.
   const plant = makePlant({
-    ageYears: 8,
+    ageYears: 4,
     dayOfYear: 130,
-    scenario: 'neglected',
   });
   try {
     const canes = plant.stats().visibleCanes;
@@ -395,7 +372,6 @@ test('future pruning targets a cane alive in the requested year', () => {
   const plant = makePlant({
     ageYears: 8,
     dayOfYear: 130,
-    scenario: 'neglected',
   });
   try {
     const currentCanes = plant.stats().visibleCanes;
@@ -444,7 +420,6 @@ test('serialize round-trips the state needed to rebuild the same plant', () => {
     ageYears: 7,
     dayOfYear: 130,
     seed: 99,
-    scenario: 'neglected',
   });
   try {
     plant.pruneOldestCane({ dayOfYear: 130 });

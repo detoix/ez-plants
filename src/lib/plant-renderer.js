@@ -50,6 +50,7 @@ export class PlantRenderer extends THREE.Group {
     ageYears = 0,
     dayOfYear = 1,
     assets = {},
+    defaultLeafPlate = null,
     events = [],
     extraStateKeys = [],
     detailStrideSalt,
@@ -94,12 +95,18 @@ export class PlantRenderer extends THREE.Group {
     );
 
     const leaf = assets.leaf ?? {};
+    // The plant's own plate is the default; a caller-supplied map wins. Rule 7
+    // requires the plant to render correctly with nothing supplied at all.
+    const leafMap = leaf.map ?? defaultLeafPlate ?? null;
     this._assets = {
       bark: assets.bark ?? null,
       leaf: Object.freeze({
-        map: leaf.map ?? null,
+        map: leafMap,
         tint: leaf.tint ?? 0xffffff,
-        alphaTest: leaf.alphaTest ?? 0.5,
+        // An alpha test compares against alpha 1.0 when there is no map, so it
+        // discards nothing and every leaf card renders as an opaque rectangle.
+        // Without a plate the cards must stay untested rather than un-cut.
+        alphaTest: leafMap ? (leaf.alphaTest ?? 0.5) : 0,
         roundedNormals: leaf.roundedNormals ?? true,
       }),
     };
@@ -135,7 +142,7 @@ export class PlantRenderer extends THREE.Group {
 
     // Renderer internals are protected, not public. Keeping them
     // non-enumerable means `Object.keys(plant)` and object spreads show the
-    // plant's state -- age, day, cultivar, scenario -- and never its
+    // plant's state -- age, day, cultivar -- and never its
     // machinery, the same guarantee hard-private fields used to give.
     this._protect(...Object.keys(this).filter((key) => key.startsWith('_')));
   }
@@ -248,7 +255,7 @@ export class PlantRenderer extends THREE.Group {
   /**
    * Size stable organ pools from peak annual concurrency.
    *
-   * The unpruned graph is the conservative scenario: maintenance, pruning and
+   * The unpruned graph is the conservative case: maintenance, pruning and
    * harvest can only remove organs. Using absolute source years makes the
    * largest annual bucket a safe concurrent bound for every season, so pools
    * never reallocate while the twin is scrubbed through time.

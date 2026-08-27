@@ -28,7 +28,7 @@ export const LYNWOOD_RENDER_PRIORS = Object.freeze({
   // letting them appear during bare-wood bloom adds biologically impossible
   // empty twigs precisely when the cultivar should read as a yellow fountain.
   shootEmergenceDayRange: Object.freeze([102, 145]),
-  // Maintained snapshots fit at full detail. Denser neglected snapshots use
+  // Typical snapshots fit at full detail. Denser ones use
   // deterministic whole-organ thinning to stay inside these bounded pools;
   // the evaluator still reports the unthinned biological counts separately.
   instanceCapacities: Object.freeze({
@@ -143,7 +143,7 @@ export const LYNWOOD_PROFILE = Object.freeze({
     initialCaneCount: 4,
     renewalStartsAfterYear: 0,
     annualRenewalShootCount: 2,
-    // Individual neglected canes may persist long after their best flowering
+    // Individual canes may persist long after their best flowering
     // years, but the stool itself is continuous: it is not replanted or reset.
     naturalCaneLifeYears: 20,
     modelHorizonYears: 50,

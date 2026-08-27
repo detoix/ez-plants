@@ -199,7 +199,7 @@ test('types and the React entry point declare the plant', () => {
 test('the app registry carries a complete Miscanthus descriptor', () => {
   const source = readFileSync(APP_SOURCE_URL, 'utf8');
   const executable = source
-    .replace(/import\s*\{[\s\S]*?\}\s*from '@dgreenheck\/ez-tree';\s*/, '')
+    .replace(/import\s*\{[\s\S]*?\}\s*from '@detoix\/ez-plants';\s*/, '')
     .replace(/import\s*\{[^;]*\}\s*from '\.\/textures';\s*/, '')
     .replace(/\bexport\s+(?=(?:const|function)\b)/g, '');
   assert.doesNotMatch(executable, /^import\s/m);
@@ -283,7 +283,6 @@ test('the app registry carries a complete Miscanthus descriptor', () => {
   const built = descriptor.create({
     age: 9,
     day: 263,
-    scenario: 'neglected',
     phenologyProfile: 'late',
   });
   assert.equal(built.kind, 'Miscanthus');
@@ -291,13 +290,11 @@ test('the app registry carries a complete Miscanthus descriptor', () => {
     {
       ageYears: built.options.ageYears,
       dayOfYear: built.options.dayOfYear,
-      scenario: built.options.scenario,
       seasonProfile: built.options.seasonProfile,
     },
     {
       ageYears: 9,
       dayOfYear: 263,
-      scenario: 'neglected',
       seasonProfile: 'late',
     },
   );

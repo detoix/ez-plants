@@ -107,7 +107,7 @@ function addNeutralLighting(scene, descriptor) {
  *
  * @param {THREE.WebGLRenderer} renderer
  * @param {object} descriptor - a plant descriptor from ./plants
- * @param {{age:number, day:number, scenario:string, view?:string}} initialState
+ * @param {{age:number, day:number, view?:string}} initialState
  */
 export async function createScene(renderer, descriptor, initialState) {
   const scene = new THREE.Scene();

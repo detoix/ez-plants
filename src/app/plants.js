@@ -12,7 +12,7 @@ import {
   TISEL_PROFILE,
   TISEL_SOURCES,
   TreePreset,
-} from '@dgreenheck/ez-tree';
+} from '@detoix/ez-plants';
 import { getBarkMaps, getLeafMap, LeafType } from './textures';
 
 // EZ-Tree v2 expresses textureScale.x per unit of branch radius. The shrub
@@ -119,20 +119,18 @@ export const PLANTS = Object.freeze({
       { id: 'harvest', label: 'Harvest ripe' },
     ]),
     modelNote:
-      '<strong>50 years ≠ one immortal bush.</strong> After year 15 the maintained view represents replacement cycles; neglected shows an ageing, crowded scenario. These are visual hypotheses, not yield forecasts.',
+      '<strong>50 years ≠ one immortal bush.</strong> After year 15 the view represents replacement cycles rather than one continuously ageing plant. These are visual hypotheses, not yield forecasts.',
     create(state) {
       return new Blackcurrant({
         cultivar: 'Tisel',
         seed: 24051987,
         ageYears: state.age,
         dayOfYear: state.day,
-        scenario: state.scenario,
         trialYear: state.phenologyProfile,
         lod: true,
         assets: {
           bark: shrubBark('Bush 1'),
           leaf: {
-            map: getLeafMap(LeafType.BlackcurrantTisel),
             tint: 0xffffff,
             alphaTest: 0.5,
             roundedNormals: true,
@@ -197,14 +195,13 @@ export const PLANTS = Object.freeze({
     }),
     actions: Object.freeze([{ id: 'prune', label: 'Prune after flowering' }]),
     modelNote:
-      '<strong>Flowers open on bare, one- and two-year-old wood before any leaf.</strong> The maintained scenario renews its oldest canes automatically after the display; in either scenario, pruning after mid-July removes the wood carrying next spring&rsquo;s flowers.',
+      '<strong>Flowers open on bare, one- and two-year-old wood before any leaf.</strong> The oldest canes are renewed automatically after the display; pruning after mid-July removes the wood carrying next spring&rsquo;s flowers.',
     create(state) {
       return new Forsythia({
         cultivar: 'Lynwood',
         seed: 19460412,
         ageYears: state.age,
         dayOfYear: state.day,
-        scenario: state.scenario,
         region: state.phenologyProfile,
         lod: true,
         assets: {
@@ -212,7 +209,6 @@ export const PLANTS = Object.freeze({
           // forsythia's lenticel-dotted stems better than the currant's.
           bark: shrubBark('Bush 3'),
           leaf: {
-            map: getLeafMap(LeafType.ForsythiaLynwood),
             tint: 0xffffff,
             alphaTest: 0.5,
             roundedNormals: true,
@@ -272,12 +268,12 @@ export const PLANTS = Object.freeze({
           : '—',
       note: 'Each panicle is one representative branched head. Its visible florets sample a biological total reported at 850–1,200 per head.',
     }),
-    // Medium pruning drives the maintained scenario. A public care event is
+    // Medium pruning drives the modelled plant. A public care event is
     // omitted until the shared UI can represent current-shoot cutback without
     // mislabelling it as blackcurrant-style whole-cane renewal.
     actions: Object.freeze([]),
     modelNote:
-      '<strong>Flowers form at the tips of shoots grown this season.</strong> Lime heads open from the base upward, pass through cream and dusty pink, then persist tan on bare winter stems. The maintained view medium-prunes before growth; neglected retains more, smaller heads and laxer outer shoots.',
+      '<strong>Flowers form at the tips of shoots grown this season.</strong> Lime heads open from the base upward, pass through cream and dusty pink, then persist tan on bare winter stems. The plant is medium-pruned before growth, which keeps the heads large and the outer shoots upright.',
     create(state) {
       return new Hydrangea({
         cultivar: 'Limelight',
@@ -285,13 +281,11 @@ export const PLANTS = Object.freeze({
         maxYears: 30,
         ageYears: state.age,
         dayOfYear: state.day,
-        scenario: state.scenario,
         seasonProfile: state.phenologyProfile,
         lod: true,
         assets: {
           bark: shrubBark('Bush 3'),
           leaf: {
-            map: getLeafMap(LeafType.HydrangeaLimelight),
             tint: 0xffffff,
             alphaTest: 0.5,
             roundedNormals: true,
@@ -354,11 +348,11 @@ export const PLANTS = Object.freeze({
           : '\u2014',
       note: 'The clump is a bounded 118-tiller sample of one that really carries hundreds, and each plume samples its silky spikelet hairs.',
     }),
-    // The single annual cut is the scenario, not an event: there is nothing
+    // The single annual cut is part of the calendar, not an event: there is nothing
     // selective to prune on a grass.
     actions: Object.freeze([]),
     modelNote:
-      '<strong>Nothing here is woody, and nothing above the crown is older than one season.</strong> A C4 grass waits for warm soil, so the clump is still bare in April, then builds to 2\u00a0m by August and stands dry all winter. The maintained view cuts to 10&nbsp;cm in the March window and keeps the clump divided; neglected never cuts, so old culms lean among the new and the centre dies out after about nine years.',
+      '<strong>Nothing here is woody, and nothing above the crown is older than one season.</strong> A C4 grass waits for warm soil, so the clump is still bare in April, then builds to 2\u00a0m by August and stands dry all winter. The clump is cut to 10&nbsp;cm in the March window and divided regularly, so its centre stays full.',
     create(state) {
       return new Miscanthus({
         cultivar: 'Malepartus',
@@ -366,7 +360,6 @@ export const PLANTS = Object.freeze({
         maxYears: 25,
         ageYears: state.age,
         dayOfYear: state.day,
-        scenario: state.scenario,
         seasonProfile: state.phenologyProfile,
         lod: true,
         // A grass needs no bark or leaf plate: culms, blades and plumes are

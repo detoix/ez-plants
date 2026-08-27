@@ -1,5 +1,5 @@
 /**
- * Public type surface for @dgreenheck/ez-tree.
+ * Public type surface for @detoix/ez-plants.
  *
  * The EZ-Tree procedural tree API is described by the declarations generated
  * from source during `build:lib`. The garden-plant API is hand-authored in

@@ -4,6 +4,7 @@ import { createLeafCardGeometry } from '../../leaf-geometry.js';
 import { createLeafMaterialSet } from '../../leaf-material.js';
 import { keyedRange } from '../../keyed-random.js';
 import { PlantRenderer } from '../../plant-renderer.js';
+import { loadLeafPlate } from '../../leaf-plate.js';
 import {
   composeSegmentMatrix,
   createUnitStemGeometry,
@@ -93,6 +94,9 @@ const clamp01 = (value) => THREE.MathUtils.clamp(value, 0, 1);
  * sparse fertile interior and two four-sepal sterile-floret layers, preserving
  * the biology without one draw call per flower.
  */
+/** This plant's own leaf plate, resolved beside its source. */
+const LEAF_PLATE = loadLeafPlate(new URL('./leaf.webp', import.meta.url));
+
 export class Hydrangea extends PlantRenderer {
   #model;
 
@@ -115,7 +119,8 @@ export class Hydrangea extends PlantRenderer {
       ageYears: options.ageYears ?? 6,
       dayOfYear: options.dayOfYear ?? 230,
       assets: options.assets ?? {},
-      extraStateKeys: ['scenario', 'seasonProfile', 'offsetDays'],
+      defaultLeafPlate: LEAF_PLATE,
+      extraStateKeys: ['seasonProfile', 'offsetDays'],
       lodLevels: DEFAULT_LOD_LEVELS,
       leafWind: {
         // Thick blades move less than forsythia's lighter foliage, while the
@@ -127,7 +132,6 @@ export class Hydrangea extends PlantRenderer {
       barkTint: 0x715d4f,
     });
 
-    this.scenario = options.scenario ?? 'maintained';
     this.seasonProfile = options.seasonProfile ?? 'typical';
     this.offsetDays = options.offsetDays ?? 0;
 
@@ -657,14 +661,9 @@ export class Hydrangea extends PlantRenderer {
       ageYears: this.ageYears,
       dayOfYear: this.dayOfYear,
       events: this._events,
-      scenario: this.scenario,
       seasonProfile: this.seasonProfile,
       offsetDays: this.offsetDays,
     });
-  }
-
-  setScenario(scenario) {
-    return this.setState({ scenario: scenario ?? 'maintained' });
   }
 
   setPhenologyProfile({
@@ -682,7 +681,6 @@ export class Hydrangea extends PlantRenderer {
       cultivar: this.cultivar,
       ageYears: this.ageYears,
       dayOfYear: this.dayOfYear,
-      scenario: this.scenario,
       seasonProfile: this.seasonProfile,
       dimensions: this._snapshot.dimensions,
       phenology: this._snapshot.phenology,
@@ -701,7 +699,6 @@ export class Hydrangea extends PlantRenderer {
       maxYears: this.maxYears,
       ageYears: this.ageYears,
       dayOfYear: this.dayOfYear,
-      scenario: this.scenario,
       seasonProfile: this.seasonProfile,
       offsetDays: this.offsetDays,
       events: this._events.map((event) => ({ ...event })),

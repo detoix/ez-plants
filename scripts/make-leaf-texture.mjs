@@ -1,11 +1,11 @@
 /**
  * Generate the Forsythia x intermedia 'Lynwood' leaf plate.
  *
- * Same approach as `leaves/blackcurrant-tisel.webp`: a project asset drawn from
- * botanical references rather than an upstream EZ-Tree texture. Baking it to a
- * WebP (instead of drawing it into a canvas at runtime) keeps the library's
- * asset pipeline uniform -- every plant's foliage is a plate loaded through
- * `getLeafMap`, so the packaged component works without the demo app.
+ * Same approach as the blackcurrant plate: a project asset drawn from botanical
+ * references rather than an upstream EZ-Tree texture. Baking it to a WebP
+ * (instead of drawing it into a canvas at runtime) keeps the library's asset
+ * pipeline uniform -- every plant carries its foliage plate in its own folder
+ * and loads it itself, so a copied plant folder works without the demo app.
  *
  * Blade morphology, per Trees and Shrubs Online and NC State Extension:
  * ovate to broad-lanceolate, 4-10 x 2-5 cm, cuneate base, acute apex, and
@@ -18,10 +18,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const SIZE = 1024;
-const OUT = path.join(
-  process.cwd(),
-  'src/app/public/textures/leaves/forsythia-lynwood.webp',
-);
+const OUT = path.join(process.cwd(), 'src/lib/plants/forsythia/leaf.webp');
 
 const WIDEST_AT = 0.38;
 const BASE_WIDTH = 0.11;

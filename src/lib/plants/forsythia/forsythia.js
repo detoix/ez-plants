@@ -20,6 +20,7 @@ import {
   vector,
 } from '../../plant-transforms.js';
 import { PlantRenderer } from '../../plant-renderer.js';
+import { loadLeafPlate } from '../../leaf-plate.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 // Forsythia foliage runs a fairly deep, slightly blue green in summer, flushes
@@ -94,6 +95,9 @@ const DEFAULT_LOD_LEVELS = Object.freeze([
  * Everything else -- stable organ pools, the combined EZ-Tree woody mesh,
  * distance LOD and the validated state cycle -- comes from PlantRenderer.
  */
+/** This plant's own leaf plate, resolved beside its source. */
+const LEAF_PLATE = loadLeafPlate(new URL('./leaf.webp', import.meta.url));
+
 export class Forsythia extends PlantRenderer {
   #model;
 
@@ -133,7 +137,8 @@ export class Forsythia extends PlantRenderer {
       ageYears: options.ageYears ?? 5,
       dayOfYear: options.dayOfYear ?? 96,
       assets: options.assets ?? {},
-      extraStateKeys: ['scenario', 'region', 'offsetDays'],
+      defaultLeafPlate: LEAF_PLATE,
+      extraStateKeys: ['region', 'offsetDays'],
       lodLevels: DEFAULT_LOD_LEVELS,
       // The blades are broad and the shoots are long and springy, so the wind
       // displacement is wider than the currant's.
@@ -145,7 +150,6 @@ export class Forsythia extends PlantRenderer {
       barkTint: 0x6a5f4c,
     });
 
-    this.scenario = options.scenario ?? 'maintained';
     this.region = options.region ?? 'central';
     this.offsetDays = options.offsetDays ?? 0;
 
@@ -739,7 +743,6 @@ export class Forsythia extends PlantRenderer {
       ageYears: this.ageYears,
       dayOfYear: this.dayOfYear,
       events: this._events,
-      scenario: this.scenario,
       region: this.region,
       offsetDays: this.offsetDays,
     });
@@ -755,10 +758,6 @@ export class Forsythia extends PlantRenderer {
   /* ------------------------------------------------------------------ *
    * Public API
    * ------------------------------------------------------------------ */
-
-  setScenario(scenario) {
-    return this.setState({ scenario: scenario ?? 'maintained' });
-  }
 
   setPhenologyProfile({
     region = this.region,
@@ -793,7 +792,6 @@ export class Forsythia extends PlantRenderer {
       ageYears: targetAge,
       dayOfYear: targetDay,
       events: this._events,
-      scenario: this.scenario,
       region: this.region,
       offsetDays: this.offsetDays,
     });
@@ -813,9 +811,9 @@ export class Forsythia extends PlantRenderer {
     if (candidates.length === 0) return reject('no-canes');
 
     // RHS group 2 takes up to one fifth of the oldest stems at the base, per
-    // season. The maintained scenario already performs its scheduled renewal
-    // immediately after flowering, so those automatic cuts consume the same
-    // quota as explicit events instead of silently doubling it.
+    // season. Scheduled renewal already runs immediately after flowering, so
+    // those automatic cuts consume the same quota as explicit events instead
+    // of silently doubling it.
     const prunedThisSeason = this._events.filter(
       (event) =>
         event.type === 'prune' &&
@@ -825,32 +823,27 @@ export class Forsythia extends PlantRenderer {
       ageYears: targetAge,
       dayOfYear: calendar.floweringEnd,
       events: this._events,
-      scenario: this.scenario,
       region: this.region,
       offsetDays: this.offsetDays,
     });
-    let automaticCuts = 0;
-    if (this.scenario === 'maintained') {
-      const afterAutomaticRenewal = evaluateLynwoodModel(this.#model, {
-        ageYears: targetAge,
-        dayOfYear:
-          calendar.floweringEnd +
-          LYNWOOD_PROFILE.management.automaticRenewalDelayDays,
-        events: this._events,
-        scenario: this.scenario,
-        region: this.region,
-        offsetDays: this.offsetDays,
-      });
-      const retained = new Set(
-        afterAutomaticRenewal.canes.map((cane) => cane.id),
-      );
-      const explicitTargets = new Set(
-        prunedThisSeason.map((event) => event.caneId),
-      );
-      automaticCuts = beforeRenewal.canes.filter(
-        (cane) => !retained.has(cane.id) && !explicitTargets.has(cane.id),
-      ).length;
-    }
+    const afterAutomaticRenewal = evaluateLynwoodModel(this.#model, {
+      ageYears: targetAge,
+      dayOfYear:
+        calendar.floweringEnd +
+        LYNWOOD_PROFILE.management.automaticRenewalDelayDays,
+      events: this._events,
+      region: this.region,
+      offsetDays: this.offsetDays,
+    });
+    const retained = new Set(
+      afterAutomaticRenewal.canes.map((cane) => cane.id),
+    );
+    const explicitTargets = new Set(
+      prunedThisSeason.map((event) => event.caneId),
+    );
+    const automaticCuts = beforeRenewal.canes.filter(
+      (cane) => !retained.has(cane.id) && !explicitTargets.has(cane.id),
+    ).length;
     const standSize = beforeRenewal.stats.visibleCanes;
     const quota = Math.max(
       1,
@@ -882,8 +875,7 @@ export class Forsythia extends PlantRenderer {
       cultivar: this.cultivar,
       ageYears: this.ageYears,
       dayOfYear: this.dayOfYear,
-      scenario: this.scenario,
-      renewalManagedAutomatically: this.scenario === 'maintained',
+      renewalManagedAutomatically: true,
       region: this.region,
       dimensions: this._snapshot.dimensions,
       phenology: this._snapshot.phenology,
@@ -902,7 +894,6 @@ export class Forsythia extends PlantRenderer {
       maxYears: this.maxYears,
       ageYears: this.ageYears,
       dayOfYear: this.dayOfYear,
-      scenario: this.scenario,
       region: this.region,
       offsetDays: this.offsetDays,
       events: this._events.map((event) => ({ ...event })),

@@ -24,14 +24,6 @@ The generic ash, aspen, oak, and pine textures in `leaves/` are bundled with
 the EZ-Tree demo app and are licensed under the project's own license (see
 repository LICENSE).
 
-`leaves/blackcurrant-tisel.webp` was generated specifically for this
-Blackcurrant prototype from botanical references. It is a project asset, not
-an upstream EZ-Tree texture.
-
-`leaves/hydrangea-limelight.webp` was generated specifically for the Limelight
-Hydrangea model from cultivar measurements and botanical reference photographs.
-It is a project asset, not an upstream EZ-Tree texture.
-
-`leaves/forsythia-lynwood.webp` was generated for this Forsythia prototype from
-botanical references, by `scripts/make-leaf-texture.mjs`. It is a project
-asset, not an upstream EZ-Tree texture.
+The cultivar leaf plates that used to sit in `leaves/` now live beside the
+plants that own them, and are documented in
+`src/lib/plants/<plant>/LICENSE.md`.

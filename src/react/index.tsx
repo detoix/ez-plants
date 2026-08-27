@@ -22,9 +22,8 @@ import {
   type MalepartusSeasonProfile,
   type MiscanthusOptions,
   type MiscanthusStats,
-  type PlantScenario,
   type TiselTrialYear,
-} from '@dgreenheck/ez-tree';
+} from '@detoix/ez-plants';
 
 /**
  * Options that select which plant is built. Changing any of these rebuilds
@@ -38,7 +37,6 @@ export interface PlantTimeProps {
   ageYears?: number;
   /** 1-365. Accepts the same day the phenology helpers use. */
   dayOfYear?: number;
-  scenario?: PlantScenario;
   offsetDays?: number;
 }
 
@@ -135,7 +133,6 @@ export function ForsythiaPlant({
   lod = true,
   ageYears = 6,
   dayOfYear = 96,
-  scenario = 'maintained',
   region = 'central',
   offsetDays = 0,
   onStats,
@@ -152,17 +149,16 @@ export function ForsythiaPlant({
         lod,
         ageYears,
         dayOfYear,
-        scenario,
         region,
         offsetDays,
       }),
-    // Construction options only. Time and scenario are applied below.
+    // Construction options only. Time and season are applied below.
     [seed, maxYears, plantId, cultivar, assets, lod],
   );
 
   useAppliedState(
     plant,
-    { ageYears, dayOfYear, scenario, region, offsetDays },
+    { ageYears, dayOfYear, region, offsetDays },
     onStats as (stats: never) => void,
   );
   usePlantFrame(plant);
@@ -186,7 +182,7 @@ export interface HydrangeaProps
 /**
  * Hydrangea paniculata 'Limelight' as a React Three Fiber component.
  *
- * The graph is constructed once. Age, day, maintenance scenario and season
+ * The graph is constructed once. Age, day and season
  * profile are applied to the live renderer, so either slider can scrub without
  * rebuilding the framework or reallocating instance buffers.
  *
@@ -205,7 +201,6 @@ export function HydrangeaPlant({
   lod = true,
   ageYears = 6,
   dayOfYear = 230,
-  scenario = 'maintained',
   seasonProfile = 'typical',
   offsetDays = 0,
   onStats,
@@ -222,7 +217,6 @@ export function HydrangeaPlant({
         lod,
         ageYears,
         dayOfYear,
-        scenario,
         seasonProfile,
         offsetDays,
       }),
@@ -231,7 +225,7 @@ export function HydrangeaPlant({
 
   useAppliedState(
     plant,
-    { ageYears, dayOfYear, scenario, seasonProfile, offsetDays },
+    { ageYears, dayOfYear, seasonProfile, offsetDays },
     onStats as (stats: never) => void,
   );
   usePlantFrame(plant);
@@ -255,7 +249,7 @@ export interface MiscanthusProps
 /**
  * Miscanthus sinensis 'Malepartus' as a React Three Fiber component.
  *
- * The crown is built once; age, day, maintenance scenario and season profile
+ * The crown is built once; age, day and season profile
  * are applied to the live renderer. Note that this is a warm-season grass with
  * nothing woody about it: a day before late April renders either last year's
  * standing dead culms or, after the modelled spring cut, bare stubble.
@@ -275,7 +269,6 @@ export function MiscanthusPlant({
   lod = true,
   ageYears = 6,
   dayOfYear = 250,
-  scenario = 'maintained',
   seasonProfile = 'typical',
   offsetDays = 0,
   onStats,
@@ -292,7 +285,6 @@ export function MiscanthusPlant({
         lod,
         ageYears,
         dayOfYear,
-        scenario,
         seasonProfile,
         offsetDays,
       }),
@@ -301,7 +293,7 @@ export function MiscanthusPlant({
 
   useAppliedState(
     plant,
-    { ageYears, dayOfYear, scenario, seasonProfile, offsetDays },
+    { ageYears, dayOfYear, seasonProfile, offsetDays },
     onStats as (stats: never) => void,
   );
   usePlantFrame(plant);
@@ -340,7 +332,6 @@ export function BlackcurrantPlant({
   lod = true,
   ageYears = 4,
   dayOfYear = 175,
-  scenario = 'maintained',
   trialYear = 'mean',
   offsetDays = 0,
   onStats,
@@ -357,7 +348,6 @@ export function BlackcurrantPlant({
         lod,
         ageYears,
         dayOfYear,
-        scenario,
         trialYear,
         offsetDays,
       }),
@@ -366,7 +356,7 @@ export function BlackcurrantPlant({
 
   useAppliedState(
     plant,
-    { ageYears, dayOfYear, scenario, trialYear, offsetDays },
+    { ageYears, dayOfYear, trialYear, offsetDays },
     onStats as (stats: never) => void,
   );
   usePlantFrame(plant);
@@ -388,6 +378,5 @@ export type {
   LynwoodRegion,
   MalepartusSeasonProfile,
   MiscanthusStats,
-  PlantScenario,
   TiselTrialYear,
 };

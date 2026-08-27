@@ -1,8 +1,8 @@
 # EZ-Tree
 
-![NPM Version](https://img.shields.io/npm/v/%40dgreenheck%2Fez-tree)
-![NPM Downloads](https://img.shields.io/npm/dw/%40dgreenheck%2Fez-tree)
-![GitHub Repo stars](https://img.shields.io/github/stars/dgreenheck/ez-tree)
+![NPM Version](https://img.shields.io/npm/v/%40detoix%2Fez-plants)
+![NPM Downloads](https://img.shields.io/npm/dw/%40detoix%2Fez-plants)
+![GitHub Repo stars](https://img.shields.io/github/stars/detoix/ez-plants)
 ![X (formerly Twitter) Follow](https://img.shields.io/twitter/follow/dangreenheck)
 ![YouTube Channel Subscribers](https://img.shields.io/youtube/channel/subscribers/UCrdx_EU_Wx8_uBfqO0cI-9Q)
 
@@ -21,7 +21,7 @@ https://eztree.dev
 # Installation
 
 ```js
-npm i @dgreenheck/ez-tree
+npm i @detoix/ez-plants
 ```
 
 # Usage
@@ -112,16 +112,31 @@ cane count, leaf colour, flower stage, dry winter heads and pruning scars are al
 _derived_, never passed in. If a look cannot be reached from those two numbers,
 the model is wrong — do not add a knob for it.
 
-The one permitted extra is `scenario` (`'maintained'` | `'neglected'`), which
-selects a care history, not an appearance.
+There is no care-history parameter. Every plant in this library is one somebody
+looks after, so pruning, cutting back and division are part of the model rather
+than a mode you switch on.
+
+**The calendar is not a third parameter.** `dayOfYear` has to be read against
+something, and that something is composed rather than hardcoded: a cited
+regional observation (`region` / `seasonProfile` / `trialYear`), optionally
+shifted by `offsetDays` to match a local site. North-east Poland flowers about
+twelve days after central Poland and that difference is observed, not invented;
+a frost pocket or a coastal garden that fits no named region says so with an
+offset. Both together answer one question — _what does this day of the year mean
+here_ — and neither reaches a look that the day itself could not.
+
+That composition is the boundary. A parameter that places the calendar is
+legitimate; a parameter that places the plant on it is not.
 
 ### 2. The plants are curated, not wild
 
-The default is a plant somebody looks after: pruned on schedule, fed, not
-crowded, not drought-stressed. `'maintained'` is the baseline every profile is
-calibrated against; `'neglected'` is the deliberate opt-out (Miscanthus dying out
-in the middle, forsythia thicketing on old wood). Do not model disease, pests,
-storm damage or nutrient deficiency — this is a garden library, not a pathology
+Every plant is one somebody looks after: pruned on schedule, fed, not crowded,
+not drought-stressed. That is the only plant this library models — there is no
+neglected mode, and adding one would mean modelling a different plant, not a
+setting on this one. Blackcurrant canes always leave on the renewal schedule,
+forsythia always renews after flowering, Miscanthus is always cut back in March
+and divided before its centre opens. Do not model disease, pests, storm damage
+or nutrient deficiency either — this is a garden library, not a pathology
 atlas.
 
 ### 3. Botany is the specification
@@ -184,7 +199,8 @@ uses instanced vertex-coloured organ geometry instead of bark and leaf cards.
 
 Distribution is shadcn-shaped: a user runs a command, and a plant's source lands
 in their project. That only works if a plant is genuinely extractable, so
-`src/lib/plants/<plant>/` holds exactly five files and nothing reaches sideways:
+`src/lib/plants/<plant>/` holds these five source files, plus whatever assets the
+plant itself needs, and nothing reaches sideways:
 
 | File            | Holds                                             |
 | --------------- | ------------------------------------------------- |
@@ -194,9 +210,14 @@ in their project. That only works if a plant is genuinely extractable, so
 | `geometry.js`   | The species' organ geometry                       |
 | `<plant>.js`    | The renderer, a `PlantRenderer` subclass          |
 
+Assets sit beside them: each shrub carries its `leaf.webp` and a `LICENSE.md`
+recording where the plate came from. Miscanthus carries neither — a grass has no
+leaf cards, and it generates the one map it needs in code.
+
 Rules that follow from it: **no plant may import from another plant's folder** —
-anything two plants need moves to shared `src/lib/`. The model layer stays pure
-data with no Three.js in it. A plant must render correctly with no assets
+anything two plants need moves to shared `src/lib/` — the shared core an
+extracted plant brings with it. The model layer stays pure data with no Three.js
+in it. A plant must render correctly with no assets
 supplied by the caller; any texture it needs it either generates in code or
 carries in its own folder.
 
@@ -209,23 +230,49 @@ dependencies — importing the root package must never pull React into a bundle.
 
 ## Where the library stands today
 
-Measured against the rules above, at four plants and 257 passing tests
+Measured against the rules above, at four plants and 264 passing tests
 (`npm test`):
 
-| Rule                      | State                                                                                                                                                                                                                                                                                                                                                                                                            |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1 — two parameters        | Held. Age and day drive all four plants; `scenario` is the only extra.                                                                                                                                                                                                                                                                                                                                           |
-| 2 — curated               | Held. `maintained` is the calibrated default; `neglected` is modelled explicitly.                                                                                                                                                                                                                                                                                                                                |
-| 3 — botany as spec        | Held. All four are cultivar-level with cited sources and separately labelled assumptions.                                                                                                                                                                                                                                                                                                                        |
-| 4 — photo comparison      | Partly. `scripts/shoot.mjs` renders the comparison shot, but the repo stores no record of which references a plant was checked against.                                                                                                                                                                                                                                                                          |
-| 5 — fast                  | Held in the renderers. Not enforced: only `test/miscanthus-renderer.test.js` asserts a draw-call bound; there is no budget test for the others.                                                                                                                                                                                                                                                                  |
-| 6 — stay on EZ-Tree       | Held. All four plants extend `PlantRenderer` and add only their own morphology; Blackcurrant was migrated onto it in August 2026, dropping from 1,535 lines to 968 against Forsythia's 914.                                                                                                                                                                                                                      |
-| 7 — self-contained folder | Five-file layout held everywhere. Two breaks: `dayOfYear` lives in `plants/blackcurrant/phenology.js` and is imported across folders by hydrangea and miscanthus, and leaf/bark textures live in `src/app/public/textures/` and are loaded by the demo app — only Miscanthus renders self-contained. No packaging command exists yet, and `package.json` still identifies as the upstream `@dgreenheck/ez-tree`. |
-| 8 — two front doors       | Held. All four plants ship a three.js class and an R3F component with matching props.                                                                                                                                                                                                                                                                                                                            |
+| Rule                      | State                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 — two parameters        | Held. Age and day are the only plant parameters; `scenario` is gone and every plant is unconditionally maintained. The calendar selector and `offsetDays` compose the calendar that `dayOfYear` is read against — they place the calendar, not the plant.                                                                                                                                                                                                                                                 |
+| 2 — curated               | Held, and now structural: a looked-after plant is the only plant the model can produce.                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| 3 — botany as spec        | Held. All four are cultivar-level with cited sources and separately labelled assumptions.                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| 4 — photo comparison      | Partly. `scripts/shoot.mjs` renders the comparison shot, and `malepartus.js` cites its reference photographs in detail, but `lynwood.js` and `limelight.js` record none.                                                                                                                                                                                                                                                                                                                                  |
+| 5 — fast                  | Held in the renderers. Barely enforced: `test/miscanthus-renderer.test.js` asserts a real draw-call bound, but `test/forsythia-renderer.test.js` only asserts `drawCalls > 0`, and the other two have no budget test.                                                                                                                                                                                                                                                                                     |
+| 6 — stay on EZ-Tree       | Held. All four plants extend `PlantRenderer` and add only their own morphology; nothing in `src/lib/` imports from `src/app/`.                                                                                                                                                                                                                                                                                                                                                                            |
+| 7 — self-contained folder | **Held for extraction.** No plant imports another — the shared calendar moved to `src/lib/calendar.js`, ending the `dayOfYear` leak. Each shrub carries its own `leaf.webp` and loads it itself, so `npm run plant:add` copies a plant that renders standing alone. Two gaps remain: bark is still supplied by the demo app (all three shrubs share `Bark001`, so it belongs in the shared core), and three of four models put `THREE.Vector3`/`Euler` into their snapshot instead of staying plain data. |
+| 8 — two front doors       | Held. All four plants ship a three.js class and an R3F component with matching props.                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
-The open work, in the order it blocks the shadcn goal: move `dayOfYear` to a
-shared module, give plants their own assets so they render without the demo app,
-then build the extraction command and rename the package.
+### Extracting a plant
+
+Distribution is shadcn-shaped, and the command exists:
+
+```bash
+npm run plant:add -- --list
+npm run plant:add -- hydrangea ./src/ez-plants
+```
+
+The file list is never hardcoded — it is derived by walking the import graph from
+the plant's renderer, so it cannot drift as the code moves, and it follows
+`new URL('./leaf.webp', import.meta.url)` so a plant's plate travels with it.
+Files keep their path relative to `src/lib/`, which is why every relative import
+still resolves at the destination without rewriting.
+
+| Plant        | Own files | Shared core | Total |
+| ------------ | --------- | ----------- | ----- |
+| miscanthus   | 5         | 17          | 22    |
+| blackcurrant | 6         | 17          | 23    |
+| forsythia    | 6         | 18          | 24    |
+| hydrangea    | 6         | 19          | 25    |
+
+`three` is the only dependency an extracted plant needs.
+`test/plant-extraction.test.js` extracts into a fresh directory and renders the
+result, so a reintroduced cross-plant import fails the build.
+
+The open work, in the order it blocks the goal: move bark into the shared core so
+a shrub renders textured standing alone, take Three.js back out of the model
+layer, and settle rule 1's extra parameters.
 
 ### What the two sliders mean for a grass
 
@@ -235,8 +282,8 @@ shrubs, age grows a persistent woody framework and the day paints organs onto it
 Miscanthus there is no framework to grow:
 
 - **Age** shapes only the crown — how wide the clump of tillers is, how many culms it
-  carries, and (in the neglected scenario) whether it has started to die out in the
-  middle, the classic doughnut of an undivided clump.
+  carries. It is divided before its centre opens out, so it never develops the
+  doughnut of an undivided clump.
 - **Day of year** builds and dismantles the entire visible plant, once. Nothing above
   the crown is ever more than one season old. A C4 grass waits for warm soil, so the
   clump is still bare stubble well into April; it reaches 2 m by August, heads in
@@ -245,7 +292,7 @@ Miscanthus there is no framework to grow:
 ## Three.js usage
 
 ```js
-import { Hydrangea } from '@dgreenheck/ez-tree';
+import { Hydrangea } from '@detoix/ez-plants';
 
 const bush = new Hydrangea({
   ageYears: 6,
@@ -267,13 +314,13 @@ bush.dispose();
 
 At day 230 the Hydrangea is fully leafed and its terminal panicles are near the
 cream-white peak. Day 30 instead shows bare framework with last season's dry tan heads;
-the maintained scenario removes them through the modeled spring pruning window.
+they are removed through the modeled spring pruning window.
 
 ## React Three Fiber usage
 
 ```tsx
 import { Canvas } from '@react-three/fiber';
-import { Hydrangea, type HydrangeaStats } from '@dgreenheck/ez-tree/react';
+import { Hydrangea, type HydrangeaStats } from '@detoix/ez-plants/react';
 
 <Canvas>
   <Hydrangea
@@ -288,7 +335,7 @@ import { Hydrangea, type HydrangeaStats } from '@dgreenheck/ez-tree/react';
 Every plant follows the same shape, so swapping one for another is a one-word change:
 
 ```tsx
-import { Miscanthus } from '@dgreenheck/ez-tree/react';
+import { Miscanthus } from '@detoix/ez-plants/react';
 
 <Miscanthus ageYears={8} dayOfYear={250} seasonProfile="typical" />;
 ```

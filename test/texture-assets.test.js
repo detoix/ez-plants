@@ -7,15 +7,12 @@ const LEAF_ROOT = new URL('leaves/', TEXTURE_ROOT);
 const BARK_ROOT = new URL('bark/', TEXTURE_ROOT);
 const GROUND_ROOT = new URL('ground/', TEXTURE_ROOT);
 
-const LEAF_FILES = [
-  'ash.webp',
-  'aspen.webp',
-  'blackcurrant-tisel.webp',
-  'forsythia-lynwood.webp',
-  'hydrangea-limelight.webp',
-  'oak.webp',
-  'pine.webp',
-];
+const LEAF_FILES = ['ash.webp', 'aspen.webp', 'oak.webp', 'pine.webp'];
+
+// Library rule 7: a plant carries its own plate, so these are asserted where
+// they live rather than in the demo app's texture folder.
+const PLANT_ROOT = new URL('../src/lib/plants/', import.meta.url);
+const PLANT_LEAF_PLATES = ['blackcurrant', 'forsythia', 'hydrangea'];
 
 const BARK_IDS = [
   'Bark001',
@@ -95,8 +92,15 @@ function dimensions({ bytes, chunks }) {
 test('leaf plates are compact 1024px WebP assets with alpha', () => {
   assert.deepEqual(readdirSync(LEAF_ROOT).sort(), LEAF_FILES);
 
-  for (const name of LEAF_FILES) {
-    const url = new URL(name, LEAF_ROOT);
+  const plates = [
+    ...LEAF_FILES.map((name) => [name, new URL(name, LEAF_ROOT)]),
+    ...PLANT_LEAF_PLATES.map((plant) => [
+      `${plant}/leaf.webp`,
+      new URL(`${plant}/leaf.webp`, PLANT_ROOT),
+    ]),
+  ];
+
+  for (const [name, url] of plates) {
     const webp = readWebp(url);
     assert.deepEqual(dimensions(webp), { width: 1024, height: 1024 }, name);
     assert.ok(
@@ -146,5 +150,46 @@ test('ground maps are ordinary JPEG assets rather than Git LFS pointers', () => 
       `${name} must contain JPEG data`,
     );
     assert.ok(bytes.length < 500_000, `${name} should stay below 500 KB`);
+  }
+});
+
+test('every plant folder carries the plate its renderer defaults to', () => {
+  for (const plant of PLANT_LEAF_PLATES) {
+    const folder = new URL(`${plant}/`, PLANT_ROOT);
+    assert.ok(
+      readdirSync(folder).includes('leaf.webp'),
+      `${plant} must own its leaf plate rather than borrow the demo app's`,
+    );
+    const source = readFileSync(new URL(`${plant}.js`, folder), 'utf8');
+    assert.match(
+      source,
+      /loadLeafPlate\(new URL\('\.\/leaf\.webp', import\.meta\.url\)\)/,
+      `${plant} must resolve its plate against its own module URL`,
+    );
+  }
+});
+
+test('a leaf card without a plate is never alpha-tested into an opaque rectangle', async () => {
+  const { Blackcurrant, Forsythia, Hydrangea } = await import(
+    '../src/lib/index.js'
+  );
+
+  // Node has no image decoder, so the plate resolves to null here. The cards
+  // must then render untextured rather than alpha-testing against alpha 1.0,
+  // which discards nothing and leaves every leaf a solid quad.
+  for (const Plant of [Blackcurrant, Forsythia, Hydrangea]) {
+    const plant = new Plant({ ageYears: 6, dayOfYear: 200 });
+    plant.traverse((object) => {
+      for (const material of [object.material ?? []].flat()) {
+        if (material.map == null) {
+          assert.equal(
+            material.alphaTest,
+            0,
+            `${plant.name}: ${material.name || material.type} alpha-tests without a map`,
+          );
+        }
+      }
+    });
+    plant.dispose();
   }
 });

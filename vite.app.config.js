@@ -16,9 +16,9 @@ export default ({ command }) => ({
   root: './src/app',
   resolve: {
     alias: {
-      '@dgreenheck/ez-tree': command === 'serve'
+      '@detoix/ez-plants': command === 'serve'
         ? path.resolve(__dirname, 'src/lib/index.js')
-        : path.resolve(__dirname, 'build/ez-tree.es.js'),
+        : path.resolve(__dirname, 'build/ez-plants.es.js'),
     },
   },
   server: {

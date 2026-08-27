@@ -1426,7 +1426,6 @@ export function evaluateLynwoodModel(
     ageYears = 0,
     dayOfYear = 100,
     events = [],
-    scenario = 'maintained',
     region = 'central',
     offsetDays = 0,
   } = {},
@@ -1447,9 +1446,6 @@ export function evaluateLynwoodModel(
     throw new RangeError(
       `ageYears must be an integer between 0 and ${model.maxYears}`,
     );
-  }
-  if (scenario !== 'maintained' && scenario !== 'neglected') {
-    throw new RangeError("scenario must be 'maintained' or 'neglected'");
   }
   if (!Array.isArray(events)) {
     throw new TypeError('events must be an array');
@@ -1474,10 +1470,9 @@ export function evaluateLynwoodModel(
 
   const evaluatedCanes = model.canes
     .filter((cane) => {
-      const removalAgeYears =
-        scenario === 'maintained'
-          ? automaticRemovalTime(cane, phenology.calendar)
-          : cane.naturalDeathAgeYears;
+      // Canes always leave on the pruning schedule: this library models
+      // plants that are looked after, never ones left to run wild.
+      const removalAgeYears = automaticRemovalTime(cane, phenology.calendar);
       return (
         effectiveCaneBirthAge(cane, phenology) <= now && now < removalAgeYears
       );
@@ -1497,7 +1492,6 @@ export function evaluateLynwoodModel(
     species: model.species,
     cultivar: model.cultivar,
     seed: model.seed,
-    scenario,
     ageYears,
     dayOfYear: phenology.dayOfYear,
     dimensions: snapshotDimensions(canes),

@@ -13,7 +13,6 @@ import {
   add,
   clamp,
   length,
-  lerp,
   normalize,
   sampleAnchors,
   scale,
@@ -964,7 +963,6 @@ export function evaluateTiselModel(
     ageYears = 0,
     dayOfYear = 172,
     events = [],
-    scenario = 'maintained',
     trialYear = 'mean',
     offsetDays = 0,
   } = {},
@@ -980,9 +978,6 @@ export function evaluateTiselModel(
     throw new RangeError(
       `ageYears must be an integer between 0 and ${model.maxYears}`,
     );
-  }
-  if (scenario !== 'maintained' && scenario !== 'neglected') {
-    throw new RangeError("scenario must be 'maintained' or 'neglected'");
   }
   if (!Array.isArray(events)) {
     throw new TypeError('events must be an array');
@@ -1017,10 +1012,9 @@ export function evaluateTiselModel(
   }
   const evaluatedCanes = model.canes
     .filter((cane) => {
-      const removalAgeYears =
-        scenario === 'maintained'
-          ? cane.scheduledRemovalAgeYears
-          : cane.naturalDeathAgeYears;
+      // Every plant in this library is looked after, so a cane always
+      // leaves on the pruning schedule rather than dying of old age.
+      const removalAgeYears = cane.scheduledRemovalAgeYears;
       return (
         effectiveCaneBirthAge(cane, phenology) <= now && now < removalAgeYears
       );
@@ -1045,7 +1039,6 @@ export function evaluateTiselModel(
     species: model.species,
     cultivar: model.cultivar,
     seed: model.seed,
-    scenario,
     ageYears,
     dayOfYear: phenology.dayOfYear,
     cycleIndex: Math.floor(ageYears / cycleYears),

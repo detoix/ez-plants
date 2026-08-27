@@ -15,7 +15,6 @@ import {
   dot,
   normalize,
   orientationFor,
-  progress,
   rotateAboutAxis,
   sampleAnchors,
   scale,
@@ -330,7 +329,6 @@ function makeTiller(seed, sequence, birthAgeYears) {
     cutOrder: keyedRandom(seed, id, 'cut-order'),
     // Which sites hold last season's culm through the summer when nothing is
     // ever cut. Uncut clumps are a mixture, not a uniform thatch.
-    retentionOrder: keyedRandom(seed, id, 'retention-order'),
   };
 
   const sections = culmPoints(seed, tiller, tiller.totalHeightM);
@@ -574,7 +572,6 @@ function evaluateTiller(
   tiller,
   seed,
   phenology,
-  scenario,
   currentYear,
   ageScale,
   cutbackGrowth,
@@ -650,12 +647,10 @@ function evaluateTiller(
   };
 
   const growth = culmGrowthScale(tiller, phenology);
-  const cut =
-    scenario === 'maintained' && phenology.cutProgress > tiller.cutOrder;
-  const holdsLastSeason =
-    scenario === 'maintained'
-      ? !cut
-      : tiller.retentionOrder < phenology.standingDryVisibility;
+  // The clump is cut back every spring, so last season's culms are held
+  // only until the cut reaches this tiller.
+  const cut = phenology.cutProgress > tiller.cutOrder;
+  const holdsLastSeason = !cut;
 
   if (holdsLastSeason) {
     record({
@@ -829,7 +824,7 @@ function validateEvents(events) {
   if (!Array.isArray(events)) throw new TypeError('events must be an array');
   if (events.length > 0) {
     throw new RangeError(
-      'Malepartus does not expose destructive care events; the single annual cut is modelled by the maintained scenario.',
+      'Malepartus does not expose destructive care events; the single annual cut is modelled by the calendar.',
     );
   }
 }
@@ -848,7 +843,6 @@ export function evaluateMalepartusModel(
     ageYears = 0,
     dayOfYear = 250,
     events = [],
-    scenario = 'maintained',
     seasonProfile = 'typical',
     offsetDays = 0,
   } = {},
@@ -865,16 +859,12 @@ export function evaluateMalepartusModel(
       `ageYears must be an integer between 0 and ${model.maxYears}`,
     );
   }
-  if (scenario !== 'maintained' && scenario !== 'neglected') {
-    throw new RangeError("scenario must be 'maintained' or 'neglected'");
-  }
   validateEvents(events);
 
   const architecture = MALEPARTUS_PROFILE.architecture;
   const phenology = getMalepartusPhenology(dayOfYear, {
     seasonProfile,
     offsetDays,
-    scenario,
   });
   // A clump only widens while it is in growth, so a winter day cannot make it
   // broader than the September before it.
@@ -883,30 +873,15 @@ export function evaluateMalepartusModel(
     MALEPARTUS_PROFILE.growth.plantAgeScaleAnchors,
     now,
   );
-  // An undivided clump opens out in the middle; a maintained one is lifted
-  // and split before it gets there, so its centre stays full.
-  const dieOutFraction =
-    scenario === 'neglected'
-      ? architecture.maximumCentreDieOutFraction *
-        smoothstep01(
-          progress(
-            ageYears,
-            architecture.centreDieOutStartAgeYears,
-            architecture.centreDieOutFullAgeYears,
-          ),
-        )
-      : 0;
 
   const tillers = [];
   for (const tiller of model.tillers) {
     if (tiller.birthAgeYears > now) continue;
-    if (tiller.radialFraction < dieOutFraction) continue;
     tillers.push(
       evaluateTiller(
         tiller,
         model.seed,
         phenology,
-        scenario,
         ageYears,
         ageScale,
         MALEPARTUS_PROFILE.management.cutbackHeightM,
@@ -919,19 +894,16 @@ export function evaluateMalepartusModel(
     plantAgeYears: ageYears,
     seasonProfile,
     offsetDays,
-    scenario,
   });
 
   return {
     species: model.species,
     cultivar: model.cultivar,
     seed: model.seed,
-    scenario,
     ageYears,
     dayOfYear: phenology.dayOfYear,
     clump: {
       radiusM: clumpRadiusAt(now),
-      dieOutRadiusM: dieOutFraction * architecture.matureCrownRadiusM,
       tillerSites: tillers.length,
     },
     dimensions: snapshotDimensions(tillers),

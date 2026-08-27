@@ -551,10 +551,6 @@ test('model options are validated', () => {
     () => evaluateLynwoodModel(model, { ageYears: 1.5 }),
     RangeError,
   );
-  assert.throws(
-    () => evaluateLynwoodModel(model, { scenario: 'wild' }),
-    RangeError,
-  );
   assert.throws(() => evaluateLynwoodModel({ kind: 'nope' }), TypeError);
 });
 
@@ -643,21 +639,6 @@ test('capsules stay a sparse, non-ornamental presence', () => {
     dayOfYear: LYNWOOD_CALENDAR.floweringPeak,
   });
   assert.equal(spring.stats.visibleCapsules, 0);
-});
-
-test('neglected shrubs keep canes that a maintained one has renewed away', () => {
-  const model = createLynwoodModel({ seed: 'scenario', maxYears: 20 });
-  const maintained = evaluateLynwoodModel(model, {
-    ageYears: 12,
-    dayOfYear: 200,
-    scenario: 'maintained',
-  });
-  const neglected = evaluateLynwoodModel(model, {
-    ageYears: 12,
-    dayOfYear: 200,
-    scenario: 'neglected',
-  });
-  assert.ok(neglected.stats.visibleCanes >= maintained.stats.visibleCanes);
 });
 
 test('prune events remove exactly their target cane', () => {

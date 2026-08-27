@@ -22,6 +22,7 @@ import {
   vector,
 } from '../../plant-transforms.js';
 import { PlantRenderer } from '../../plant-renderer.js';
+import { loadLeafPlate } from '../../leaf-plate.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const GREEN_BERRY = new THREE.Color(0x91a862);
@@ -83,6 +84,9 @@ const DEFAULT_LOD_LEVELS = Object.freeze([
  * and the validated state cycle -- comes from PlantRenderer.
  */
 
+/** This plant's own leaf plate, resolved beside its source. */
+const LEAF_PLATE = loadLeafPlate(new URL('./leaf.webp', import.meta.url));
+
 export class Blackcurrant extends PlantRenderer {
   #model;
 
@@ -105,12 +109,12 @@ export class Blackcurrant extends PlantRenderer {
       ageYears: options.ageYears ?? 4,
       dayOfYear: PlantRenderer.number(options.dayOfYear, 190),
       assets: options.assets ?? {},
+      defaultLeafPlate: LEAF_PLATE,
       events: options.events,
-      extraStateKeys: ['scenario', 'trialYear', 'offsetDays'],
+      extraStateKeys: ['trialYear', 'offsetDays'],
       lodLevels: DEFAULT_LOD_LEVELS,
     });
 
-    this.scenario = options.scenario ?? 'maintained';
     this.trialYear = options.trialYear ?? 'mean';
     this.offsetDays = options.offsetDays ?? 0;
 
@@ -745,14 +749,9 @@ export class Blackcurrant extends PlantRenderer {
       ageYears: this.ageYears,
       dayOfYear: this.dayOfYear,
       events: this._events,
-      scenario: this.scenario,
       trialYear: this.trialYear,
       offsetDays: this.offsetDays,
     });
-  }
-
-  setScenario(scenario) {
-    return this.setState({ scenario: scenario ?? 'maintained' });
   }
 
   setPhenologyProfile({
@@ -794,7 +793,6 @@ export class Blackcurrant extends PlantRenderer {
       ageYears: targetAge,
       dayOfYear: targetDay,
       events: this._events,
-      scenario: this.scenario,
       trialYear: this.trialYear,
       offsetDays: this.offsetDays,
     });
@@ -830,7 +828,6 @@ export class Blackcurrant extends PlantRenderer {
       ageYears: currentYear,
       dayOfYear: 365,
       events: this._events.filter((event) => !sameYearPrunes.includes(event)),
-      scenario: this.scenario,
       trialYear: this.trialYear,
       offsetDays: this.offsetDays,
     });
@@ -938,7 +935,6 @@ export class Blackcurrant extends PlantRenderer {
       cultivar: this.cultivar,
       ageYears: this.ageYears,
       dayOfYear: this.dayOfYear,
-      scenario: this.scenario,
       phenology: this._snapshot.phenology,
       careHints: this._snapshot.careHints,
       estimatedYieldKg: source.estimatedYieldKg,
@@ -957,7 +953,6 @@ export class Blackcurrant extends PlantRenderer {
       maxYears: this.maxYears,
       ageYears: this.ageYears,
       dayOfYear: this.dayOfYear,
-      scenario: this.scenario,
       trialYear: this.trialYear,
       offsetDays: this.offsetDays,
       events: this._events.map((event) => ({ ...event })),

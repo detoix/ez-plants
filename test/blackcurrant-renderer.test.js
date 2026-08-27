@@ -520,18 +520,13 @@ test('the renderer uses the shared instancing-safe EZ leaf wind for all render p
   plant.dispose();
 });
 
-test('scenario, pruning and harvest actions mutate only the serialized twin state', () => {
+test('pruning and harvest actions mutate only the serialized twin state', () => {
   const plant = new Blackcurrant({
     seed: 45,
     maxYears: 16,
     ageYears: 10,
     dayOfYear: 175,
   });
-  const maintainedCanes = plant.stats().visibleCanes;
-  plant.setScenario('neglected');
-  assert.ok(plant.stats().visibleCanes > maintainedCanes);
-
-  plant.setScenario('maintained');
   plant.setTime({ ageYears: 10, dayOfYear: 30 });
   const beforePrune = plant.stats().visibleCanes;
   const prune = plant.pruneOldestCane();

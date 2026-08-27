@@ -5,7 +5,12 @@ export { Billboard, TreeType } from './enums.js';
 export { PlantRenderer } from './plant-renderer.js';
 
 export { Blackcurrant } from './plants/blackcurrant/blackcurrant.js';
-export { dayOfYear } from './plants/blackcurrant/phenology.js';
+export {
+  dayOfYear,
+  calendarLabel,
+  monthDayToDay,
+  isLeapYear,
+} from './calendar.js';
 export { TISEL_PROFILE, TISEL_SOURCES } from './plants/blackcurrant/tisel.js';
 export {
   getTiselPhenology,

@@ -284,7 +284,7 @@ function makeTerminalPanicle(seed, axis) {
     position: axis.points.at(-1),
     direction,
     // A stable axillary shoot below the previous terminal carries this year's
-    // head. Keeping it separate lets a neglected plant retain last year's dry
+    // head. Keeping it separate lets the plant retain last year's dry
     // head while the new shoot and panicle develop beside it.
     currentShoot: {
       id: `${id}:current-shoot`,
@@ -592,24 +592,11 @@ function evaluatePanicle(
   currentYear,
   dayOfYear,
   phenology,
-  scenario,
 ) {
   const hasCurrentHead = currentYear >= panicle.firstFloweringYear;
   const hasPreviousHead = currentYear - 1 >= panicle.firstFloweringYear;
   const calendar = phenology.calendar;
   let oldVisibility = hasPreviousHead ? phenology.oldPanicleVisibility : 0;
-
-  if (scenario === 'neglected' && hasPreviousHead) {
-    oldVisibility =
-      dayOfYear < calendar.panicleInitiationStart
-        ? 1
-        : 1 -
-          progress(
-            dayOfYear,
-            calendar.panicleInitiationStart,
-            calendar.floweringStart,
-          );
-  }
 
   const currentVisibility = hasCurrentHead
     ? phenology.currentPanicleVisibility
@@ -633,11 +620,9 @@ function evaluatePanicle(
   const currentSizeProgress = hasCurrentHead
     ? lerp(0.12, 1, phenology.panicleGrowthProgress)
     : 0;
-  const neglectHeadScale = scenario === 'neglected' ? 0.82 : 1;
-  const lengthM = panicle.lengthM * plantSizeScale * neglectHeadScale;
-  const widthM = panicle.widthM * plantSizeScale * neglectHeadScale;
-  const peduncleLengthM =
-    panicle.peduncleLengthM * plantSizeScale * neglectHeadScale;
+  const lengthM = panicle.lengthM * plantSizeScale;
+  const widthM = panicle.widthM * plantSizeScale;
+  const peduncleLengthM = panicle.peduncleLengthM * plantSizeScale;
   const shootRoot = transform(panicle.currentShoot.root);
   const previousDirection = annualShootDirection(seed, panicle, 'previous');
   const currentDirection = annualShootDirection(seed, panicle, 'current');
@@ -739,7 +724,6 @@ function evaluateCane(
   now,
   currentYear,
   phenology,
-  scenario,
   plantGrowthScale,
 ) {
   const axisByNode = new Map();
@@ -749,12 +733,9 @@ function evaluateCane(
 
   for (const axis of cane.axes) {
     if (axis.birthAgeYears > now) continue;
-    if (
-      scenario === 'maintained' &&
-      axis.seasonalClass === 'retained-light-pruning'
-    ) {
-      continue;
-    }
+    // Light-pruning retentions belong to an unpruned plant; this library
+    // only models plants that are looked after.
+    if (axis.seasonalClass === 'retained-light-pruning') continue;
 
     const parentNode = axisByNode.get(axis.parentId);
     if (axis.order > 0 && !parentNode) {
@@ -829,7 +810,6 @@ function evaluateCane(
       currentYear,
       phenology.dayOfYear,
       phenology,
-      scenario,
     );
 
     axes.push({
@@ -979,9 +959,7 @@ function careHintsForSnapshot(
 function validateEvents(events) {
   if (!Array.isArray(events)) throw new TypeError('events must be an array');
   if (events.length > 0) {
-    throw new RangeError(
-      'Limelight does not expose destructive care events; use maintained or neglected scenario.',
-    );
+    throw new RangeError('Limelight does not expose destructive care events.');
   }
 }
 
@@ -996,7 +974,6 @@ export function evaluateLimelightModel(
     ageYears = 0,
     dayOfYear = 230,
     events = [],
-    scenario = 'maintained',
     seasonProfile = 'typical',
     offsetDays = 0,
   } = {},
@@ -1012,9 +989,6 @@ export function evaluateLimelightModel(
     throw new RangeError(
       `ageYears must be an integer between 0 and ${model.maxYears}`,
     );
-  }
-  if (scenario !== 'maintained' && scenario !== 'neglected') {
-    throw new RangeError("scenario must be 'maintained' or 'neglected'");
   }
   validateEvents(events);
 
@@ -1032,7 +1006,6 @@ export function evaluateLimelightModel(
   );
   // Unpruned framework is a little broader, but remains within the published
   // 1.5-2.5 m garden envelope.
-  const scenarioScale = scenario === 'neglected' ? 1.07 : 1;
   const canes = model.canes
     .filter((cane) => cane.birthAgeYears <= now)
     .map((cane) =>
@@ -1042,8 +1015,7 @@ export function evaluateLimelightModel(
         now,
         currentYear,
         phenology,
-        scenario,
-        wholePlantAgeScale * scenarioScale,
+        wholePlantAgeScale,
       ),
     );
   const stats = snapshotStats(canes, phenology);
@@ -1064,7 +1036,6 @@ export function evaluateLimelightModel(
     species: model.species,
     cultivar: model.cultivar,
     seed: model.seed,
-    scenario,
     ageYears,
     dayOfYear: phenology.dayOfYear,
     dimensions: snapshotDimensions(canes),
@@ -1076,7 +1047,7 @@ export function evaluateLimelightModel(
       rendererAssumptions: [
         'bounded 6-to-12-stem persistent framework topology',
         'stable recurring leaves, current shoots and dual terminal-panicle slots',
-        'fine retained twigs distinguish neglected from medium-pruned plants',
+        'fine retained twigs are removed by the modelled medium pruning',
       ],
     },
     canes,

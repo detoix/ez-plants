@@ -77,7 +77,6 @@ test('every child axis follows its parent and starts at the exact attachment nod
   const snapshot = evaluateLimelightModel(model, {
     ageYears: 10,
     dayOfYear: 230,
-    scenario: 'neglected',
   });
   const evaluatedNodes = new Map(
     allAxes(snapshot).flatMap((axis) =>
@@ -123,7 +122,6 @@ test('static and evaluated coordinates remain finite', () => {
   const snapshot = evaluateLimelightModel(model, {
     ageYears: 10,
     dayOfYear: 230,
-    scenario: 'neglected',
   });
   for (const axis of allAxes(snapshot)) {
     assertFiniteVector(axis.root, `${axis.id}:root`);
@@ -266,30 +264,6 @@ test('the mature display matches the trial size and photographed head load', () 
   assert.ok(mature.stats.visibleLeaves < 2500);
 });
 
-test('medium pruning balances head size while neglect adds finer, broader growth', () => {
-  const model = createLimelightModel({ seed: MODEL_SEED });
-  const maintained = evaluateLimelightModel(model, {
-    ageYears: 10,
-    dayOfYear: 230,
-    scenario: 'maintained',
-  });
-  const neglected = evaluateLimelightModel(model, {
-    ageYears: 10,
-    dayOfYear: 230,
-    scenario: 'neglected',
-  });
-  const averageHeadLength = (snapshot) => {
-    const heads = allAxes(snapshot).map((axis) => axis.terminalPanicle);
-    return heads.reduce((sum, head) => sum + head.lengthM, 0) / heads.length;
-  };
-
-  assert.ok(neglected.stats.visibleAxes > maintained.stats.visibleAxes);
-  assert.ok(neglected.stats.visiblePanicles > maintained.stats.visiblePanicles);
-  assert.ok(neglected.stats.visibleLeaves > maintained.stats.visibleLeaves);
-  assert.ok(neglected.dimensions.spreadM > maintained.dimensions.spreadM);
-  assert.ok(averageHeadLength(neglected) < averageHeadLength(maintained));
-});
-
 test('winter heads persist, medium spring pruning clears them, and new summer heads replace them', () => {
   const model = createLimelightModel({ seed: MODEL_SEED });
   const winter = evaluateLimelightModel(model, {
@@ -300,11 +274,6 @@ test('winter heads persist, medium spring pruning clears them, and new summer he
     ageYears: 10,
     dayOfYear: LIMELIGHT_CALENDAR.previousPaniclePruneEnd,
   });
-  const neglectedSpring = evaluateLimelightModel(model, {
-    ageYears: 10,
-    dayOfYear: LIMELIGHT_CALENDAR.previousPaniclePruneEnd,
-    scenario: 'neglected',
-  });
   const summer = evaluateLimelightModel(model, {
     ageYears: 10,
     dayOfYear: LIMELIGHT_CALENDAR.floweringPeak,
@@ -314,7 +283,6 @@ test('winter heads persist, medium spring pruning clears them, and new summer he
   assert.ok(winter.stats.dryPanicles >= 60);
   assert.equal(winter.stats.freshPanicles, 0);
   assert.equal(afterPruning.stats.visiblePanicles, 0);
-  assert.ok(neglectedSpring.stats.dryPanicles >= 60);
   assert.ok(summer.stats.freshPanicles >= 60);
   assert.equal(summer.stats.dryPanicles, 0);
 });
@@ -437,55 +405,6 @@ test('autumn leaf abscission is gradual, keyed per leaf and A-B-A exact', () => 
   assert.deepEqual(visibleIds(middleAgain), visibleIds(middle));
 });
 
-test('neglected spring keeps the old dry head beside a distinct growing new head', () => {
-  const model = createLimelightModel({ seed: MODEL_SEED });
-  const early = evaluateLimelightModel(model, {
-    ageYears: 10,
-    dayOfYear: LIMELIGHT_CALENDAR.panicleInitiationStart,
-    scenario: 'neglected',
-  });
-  const overlap = evaluateLimelightModel(model, {
-    ageYears: 10,
-    dayOfYear: LIMELIGHT_CALENDAR.visiblePanicleBudStart + 8,
-    scenario: 'neglected',
-  });
-  const maintained = evaluateLimelightModel(model, {
-    ageYears: 10,
-    dayOfYear: LIMELIGHT_CALENDAR.visiblePanicleBudStart + 8,
-    scenario: 'maintained',
-  });
-  const earlyHead = allAxes(early)[0].terminalPanicle;
-  const head = allAxes(overlap)[0].terminalPanicle;
-
-  assert.equal(earlyHead.previousPanicle.visible, true);
-  assert.equal(earlyHead.currentPanicle.visible, false);
-  assert.equal(head.previousPanicle.visible, true);
-  assert.equal(head.currentPanicle.visible, true);
-  assert.notEqual(head.previousPanicle.id, head.currentPanicle.id);
-  assert.ok(
-    distance(head.previousPanicle.position, head.currentPanicle.position) >
-      0.01,
-  );
-  assert.equal(head.previousPanicle.scale, 1);
-  assert.equal(head.previousPanicle.dryVisibility > 0, true);
-  assert.equal(head.currentPanicle.dryVisibility, 0);
-  assert.ok(head.currentPanicle.scale > 0.12);
-  assert.equal(
-    allAxes(maintained).some(
-      (axis) => axis.terminalPanicle.previousPanicle.visible,
-    ),
-    false,
-  );
-  const physicalCount = allAxes(overlap).reduce(
-    (count, axis) =>
-      count +
-      Number(axis.terminalPanicle.previousPanicle.visible) +
-      Number(axis.terminalPanicle.currentPanicle.visible),
-    0,
-  );
-  assert.equal(overlap.stats.visiblePanicles, physicalCount);
-});
-
 test('juvenile stages and care never claim heads that the age cannot carry', () => {
   const model = createLimelightModel({ seed: MODEL_SEED });
   for (const dayOfYear of [30, 230]) {
@@ -512,7 +431,6 @@ test('A-B-A evaluation is reproducible and ages 20-21 never reset', () => {
   evaluateLimelightModel(model, {
     ageYears: 21,
     dayOfYear: 300,
-    scenario: 'neglected',
   });
   const ageAAgain = evaluateLimelightModel(model, {
     ageYears: 7,
@@ -540,7 +458,7 @@ test('A-B-A evaluation is reproducible and ages 20-21 never reset', () => {
   );
 });
 
-test('every day, profile, scenario and age in a bounded model evaluates safely', () => {
+test('every day, profile and age in a bounded model evaluates safely', () => {
   const model = createLimelightModel({
     seed: 'limelight-full-sweep',
     maxYears: 2,
@@ -549,20 +467,16 @@ test('every day, profile, scenario and age in a bounded model evaluates safely',
   for (let ageYears = 0; ageYears <= model.maxYears; ageYears += 1) {
     for (let dayOfYear = 1; dayOfYear <= 365; dayOfYear += 1) {
       for (const seasonProfile of ['typical', 'early', 'late']) {
-        for (const scenario of ['maintained', 'neglected']) {
-          const snapshot = evaluateLimelightModel(model, {
-            ageYears,
-            dayOfYear,
-            seasonProfile,
-            scenario,
-          });
-          assert.equal(snapshot.ageYears, ageYears);
-          assert.equal(snapshot.dayOfYear, dayOfYear);
-          assert.equal(snapshot.scenario, scenario);
-          assert.equal(snapshot.phenology.seasonProfile, seasonProfile);
-          assert.ok(Number.isFinite(snapshot.dimensions.heightM));
-          assert.ok(Number.isFinite(snapshot.dimensions.spreadM));
-        }
+        const snapshot = evaluateLimelightModel(model, {
+          ageYears,
+          dayOfYear,
+          seasonProfile,
+        });
+        assert.equal(snapshot.ageYears, ageYears);
+        assert.equal(snapshot.dayOfYear, dayOfYear);
+        assert.equal(snapshot.phenology.seasonProfile, seasonProfile);
+        assert.ok(Number.isFinite(snapshot.dimensions.heightM));
+        assert.ok(Number.isFinite(snapshot.dimensions.spreadM));
       }
     }
   }
@@ -589,10 +503,6 @@ test('model, evaluator and unsupported event inputs are rejected', () => {
   );
   assert.throws(
     () => evaluateLimelightModel(model, { dayOfYear: 0 }),
-    RangeError,
-  );
-  assert.throws(
-    () => evaluateLimelightModel(model, { scenario: 'pollarded' }),
     RangeError,
   );
   assert.throws(

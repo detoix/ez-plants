@@ -1,4 +1,4 @@
-import { dayOfYear } from '@dgreenheck/ez-tree';
+import { dayOfYear } from '@detoix/ez-plants';
 import { DEFAULT_PLANT_ID, PLANTS, PLANT_IDS } from './plants';
 
 const REVIEW_VIEWS = Object.freeze([
@@ -84,8 +84,6 @@ export function readPlantStateFromUrl() {
       descriptor.defaults.age,
     ),
     day: clampInteger(params.get('day'), 1, 365, descriptor.defaults.day),
-    scenario:
-      params.get('scenario') === 'neglected' ? 'neglected' : 'maintained',
     phenologyProfile: profileOptions.includes(requestedProfile)
       ? requestedProfile
       : profileOptions[0],
@@ -104,9 +102,6 @@ function updateUrl(state) {
   url.searchParams.set('view', state.view);
   url.searchParams.set('ui', state.ui ? '1' : '0');
   url.searchParams.set('profile', state.phenologyProfile);
-  if (state.scenario === 'neglected')
-    url.searchParams.set('scenario', 'neglected');
-  else url.searchParams.delete('scenario');
   window.history.replaceState(null, '', url);
 }
 
@@ -163,7 +158,7 @@ export function setupPlantUI({
         <section class="bc-section" aria-labelledby="bc-time-heading">
           <div class="bc-section-heading">
             <h2 id="bc-time-heading">Twin time</h2>
-            <span>Poland · scenario</span>
+            <span>Poland</span>
           </div>
           <label class="bc-range-row">
             <span>Plant age</span>
@@ -177,10 +172,6 @@ export function setupPlantUI({
           </label>
           <div class="bc-inline-actions">
             <button type="button" data-current-day>Use today</button>
-            <div class="bc-segmented" role="group" aria-label="Management scenario">
-              <button type="button" data-scenario="maintained">Maintained</button>
-              <button type="button" data-scenario="neglected">Neglected</button>
-            </div>
           </div>
           <div class="bc-chip-row" aria-label="Jump to season">
             ${descriptor.seasons
@@ -233,7 +224,7 @@ export function setupPlantUI({
         <section class="bc-section" aria-labelledby="bc-events-heading">
           <div class="bc-section-heading">
             <h2 id="bc-events-heading">Care log</h2>
-            <span>scenario events</span>
+            <span>care events</span>
           </div>
           <div class="bc-event-actions">
             ${descriptor.actions
@@ -278,7 +269,6 @@ export function setupPlantUI({
     plant.setState({
       ageYears: state.age,
       dayOfYear: state.day,
-      scenario: state.scenario,
       [profileControl.key]: state.phenologyProfile,
     });
   }
@@ -330,7 +320,6 @@ export function setupPlantUI({
         : '—';
 
     setToggleGroup('[data-plant]', 'plant', state.plant);
-    setToggleGroup('[data-scenario]', 'scenario', state.scenario);
     setToggleGroup('[data-view]', 'view', state.view);
     setToggleGroup('[data-profile]', 'profile', state.phenologyProfile);
 
@@ -348,7 +337,7 @@ export function setupPlantUI({
     if (renewalButton && stats.renewalManagedAutomatically) {
       renewalButton.disabled = true;
       renewalButton.title =
-        'The maintained scenario already renews the oldest canes after flowering. Switch to Neglected to record a manual cut.';
+        'The oldest canes are renewed automatically after flowering, so there is nothing to cut by hand.';
     } else if (renewalButton) {
       renewalButton.disabled = false;
       renewalButton.title = 'Remove an eligible oldest cane after flowering.';
@@ -417,11 +406,6 @@ export function setupPlantUI({
   container
     .querySelector('[data-current-day]')
     .addEventListener('click', () => commitState({ day: currentDayOfYear() }));
-  container.querySelectorAll('[data-scenario]').forEach((button) => {
-    button.addEventListener('click', () =>
-      commitState({ scenario: button.dataset.scenario }),
-    );
-  });
   container.querySelectorAll('[data-season-day]').forEach((button) => {
     button.addEventListener('click', () =>
       commitState({ day: Number(button.dataset.seasonDay) }),

@@ -156,7 +156,7 @@ export class Miscanthus extends PlantRenderer {
       ageYears: options.ageYears ?? 6,
       dayOfYear: options.dayOfYear ?? 250,
       assets: options.assets ?? {},
-      extraStateKeys: ['scenario', 'seasonProfile', 'offsetDays'],
+      extraStateKeys: ['seasonProfile', 'offsetDays'],
       lodLevels: DEFAULT_LOD_LEVELS,
       leafWind: {
         // Long thin blades and silky plumes are the most mobile foliage in
@@ -167,7 +167,6 @@ export class Miscanthus extends PlantRenderer {
       },
     });
 
-    this.scenario = options.scenario ?? 'maintained';
     this.seasonProfile = options.seasonProfile ?? 'typical';
     this.offsetDays = options.offsetDays ?? 0;
 
@@ -649,14 +648,9 @@ export class Miscanthus extends PlantRenderer {
       ageYears: this.ageYears,
       dayOfYear: this.dayOfYear,
       events: this._events,
-      scenario: this.scenario,
       seasonProfile: this.seasonProfile,
       offsetDays: this.offsetDays,
     });
-  }
-
-  setScenario(scenario) {
-    return this.setState({ scenario: scenario ?? 'maintained' });
   }
 
   setPhenologyProfile({
@@ -674,7 +668,6 @@ export class Miscanthus extends PlantRenderer {
       cultivar: this.cultivar,
       ageYears: this.ageYears,
       dayOfYear: this.dayOfYear,
-      scenario: this.scenario,
       seasonProfile: this.seasonProfile,
       clump: this._snapshot.clump,
       dimensions: this._snapshot.dimensions,
@@ -694,7 +687,6 @@ export class Miscanthus extends PlantRenderer {
       maxYears: this.maxYears,
       ageYears: this.ageYears,
       dayOfYear: this.dayOfYear,
-      scenario: this.scenario,
       seasonProfile: this.seasonProfile,
       offsetDays: this.offsetDays,
       events: this._events.map((event) => ({ ...event })),

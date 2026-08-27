@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TreePreset } from '@dgreenheck/ez-tree';
+import { TreePreset } from '@detoix/ez-plants';
 
 // Bark keys map 1:1 to ambientcg-derived directories under /textures/bark/.
 // Add or remove entries to expose more variants in the UI dropdown.
@@ -92,7 +92,7 @@ export function getLeafMap(type) {
  * Assigns bark + leaf textures onto the tree's options based on its current
  * `bark.type` and `leaves.type` identifiers. Call this before `tree.generate()`
  * whenever the type strings change.
- * @param {import('@dgreenheck/ez-tree').Tree} tree
+ * @param {import('@detoix/ez-plants').Tree} tree
  */
 export function applyTreeTextures(tree) {
   const barkMaps = getBarkMaps(tree.options.bark.type);
@@ -107,7 +107,7 @@ export function applyTreeTextures(tree) {
 /**
  * Loads a named preset onto the tree, applying the matching texture set in
  * the same step so the first generate sees the textures.
- * @param {import('@dgreenheck/ez-tree').Tree} tree
+ * @param {import('@detoix/ez-plants').Tree} tree
  * @param {string} name - key into TreePreset registry
  * @param {boolean} generate - set false to skip the generate step when the
  * caller will generate the tree itself (e.g. via generateLODs)
