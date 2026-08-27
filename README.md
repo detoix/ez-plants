@@ -112,20 +112,34 @@ on bare two-year-old wood before any leaf opens; hydrangea panicles are terminal
 on current-season shoots; blackcurrant fruits on young wood; Miscanthus has no
 woody tissue at all and is rebuilt from the crown every year.
 
-### 4. Compare against real photographs before calling a plant done
+### 4. Look at real photographs before calling a plant done
 
-Every plant is checked against real-life reference images of that cultivar at
-that age and that time of year — not against a mental image, and not against
-other renders. Render the candidate with
+This one is an instruction to whoever is doing the work, human or agent.
+
+Before a plant is finished, **go and find photographs of that cultivar at that
+age and that time of year, and compare.** Search for them then and there. Do not
+work from memory of what a forsythia looks like, do not work from the model's own
+earlier renders, and do not reason from the numbers in the profile — a plant can
+have every measurement right and still be wrong in silhouette, organ density or
+the way colour moves through a season, and those are exactly the things a
+photograph settles and a spec sheet does not.
+
+Render the candidate with
 
 ```bash
 npm run dev &                       # the demo page the shot script drives
 node scripts/shoot.mjs out.png "plant=forsythia&year=6&day=96" three-quarter
 ```
 
-and compare silhouette, proportion, organ density, colour and stage against
-photographs. Cite what you compared against in the cultivar profile. A render
+then compare silhouette, proportion, organ density, colour and stage. A render
 that looks plausible but does not match the photograph is a bug.
+
+The comparison is the point, not a paper trail: this repo does not collect
+photographs or links to them. Images move, disappear and change licence, and a
+stale URL is worse than none. What belongs in the cultivar profile is whatever
+the looking _taught_ you — a corrected date, a revised colour, a habit that turned
+out to arch further than assumed — recorded as an observation or a declared
+assumption under rule 3.
 
 ### 5. Fast is a design constraint, not an optimisation pass
 
@@ -195,7 +209,7 @@ Measured against the rules above, at four plants and 264 passing tests
 | 1 — two parameters        | Held. Age and day are the only plant parameters; `scenario` is gone and every plant is unconditionally maintained. The calendar selector and `offsetDays` compose the calendar that `dayOfYear` is read against — they place the calendar, not the plant.                                                                                                                                                                        |
 | 2 — curated               | Held, and now structural: a looked-after plant is the only plant the model can produce.                                                                                                                                                                                                                                                                                                                                          |
 | 3 — botany as spec        | Held. All four are cultivar-level with cited sources and separately labelled assumptions.                                                                                                                                                                                                                                                                                                                                        |
-| 4 — photo comparison      | Partly. `scripts/shoot.mjs` renders the comparison shot, and `malepartus.js` cites its reference photographs in detail, but `lynwood.js` and `limelight.js` record none.                                                                                                                                                                                                                                                         |
+| 4 — photo comparison      | A standing working practice, not a repo artifact: it asks whoever builds a plant to go and look at photographs first. `scripts/shoot.mjs` renders the comparison shot. Nothing to audit here by design — the rule is satisfied while the plant is being built, or not at all.                                                                                                                                                    |
 | 5 — fast                  | Held in the renderers. Barely enforced: `test/miscanthus-renderer.test.js` asserts a real draw-call bound, but `test/forsythia-renderer.test.js` only asserts `drawCalls > 0`, and the other two have no budget test.                                                                                                                                                                                                            |
 | 6 — stay on EZ-Tree       | Held. All four plants extend `PlantRenderer` and add only their own morphology; nothing in `src/lib/` imports from `src/app/`.                                                                                                                                                                                                                                                                                                   |
 | 7 — self-contained folder | Held. No plant imports another — the shared calendar lives in `src/lib/calendar.js`. Each shrub carries its own `leaf.webp` and loads it itself; bark is generated in `src/lib/bark-plate.js` and shared, since no plant owns it. All four models are Three.js-free and their snapshots survive a JSON round-trip. `npm run plant:add` copies a plant that renders textured standing alone, with `three` as its only dependency. |
@@ -227,8 +241,7 @@ still resolves at the destination without rewriting.
 `test/plant-extraction.test.js` extracts into a fresh directory and renders the
 result, so a reintroduced cross-plant import fails the build.
 
-The open work: give rules 4 and 5 the reference records and draw-call budget
-tests they ask for.
+The open work: give rule 5 the draw-call budget tests it asks for.
 
 ### What the two sliders mean for a grass
 
