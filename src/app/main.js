@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { createScene } from './scene';
 import { readPlantStateFromUrl, setupPlantUI } from './plant-ui';
 import { getPlantDescriptor } from './plants';
+import { PlantLODController } from '@detoix/ez-plants';
 
 window.__ready = false;
 
@@ -86,10 +87,33 @@ document.addEventListener('DOMContentLoaded', async () => {
     await mountPlant(readPlantStateFromUrl());
 
     const clock = new THREE.Clock();
+
+    // The library publishes suggested distances but never acts on them, so
+    // picking a level is this app's job. `PlantLODController` turns a distance
+    // into a level index and keeps the hysteresis that stops a plant sitting
+    // on a boundary from flipping every frame.
+    let lod = null;
+    let lodPlant = null;
+    const plantPosition = new THREE.Vector3();
+
+    function selectLevel() {
+      const plant = stage.plant;
+      if (!plant?.setLevel) return;
+      if (lodPlant !== plant) {
+        lodPlant = plant;
+        lod = new PlantLODController({ levels: plant.lodLevels });
+      }
+      plant.getWorldPosition(plantPosition);
+      plant.setLevel(
+        lod.levelFor(stage.camera.position.distanceTo(plantPosition)),
+      );
+    }
+
     function animate() {
       const delta = Math.min(clock.getDelta(), 0.05);
       const elapsed = clock.elapsedTime;
-      stage.plant.update(delta, elapsed, stage.camera);
+      selectLevel();
+      stage.plant.update(delta, elapsed);
       stage.controls.update();
       renderer.render(stage.scene, stage.camera);
       requestAnimationFrame(animate);

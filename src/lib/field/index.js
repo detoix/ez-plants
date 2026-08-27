@@ -14,9 +14,13 @@
  * that ever changes.
  *
  * If you use this, deduplicate `three` — see `three-copy-guard.js`.
+ *
+ * Like the rest of the library, a field never reads a camera. The caller says
+ * which level each placement draws at (`setLevels`), and the budget is
+ * reported rather than enforced. `PlantLODController` from the root package is
+ * there if you want distance-driven level choice, but nothing here calls it.
  */
 
-export { assignBands } from './band-assignment.js';
 export {
   createPlantPrototype,
   createPrototypePool,

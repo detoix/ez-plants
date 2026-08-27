@@ -136,7 +136,6 @@ export class Blackcurrant extends PlantRenderer {
     this._createWoodMesh(this._materials.cane);
     this.#createInstances();
     this.setTime({ ageYears: this.ageYears, dayOfYear: this.dayOfYear });
-    if (options.lod) this._enableLOD();
   }
 
   #createMaterials() {

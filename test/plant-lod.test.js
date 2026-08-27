@@ -102,51 +102,40 @@ test('Plant LOD levels normalize deterministically and reject ambiguous bands', 
   );
 });
 
-test('PlantLODController uses Three.js distance, hysteresis and stable A-B-A detail', () => {
-  const target = new THREE.Group();
-  const applied = [];
-  const controller = new PlantLODController({
-    target,
-    detail: {
-      sectionStride: 1,
-      segmentFactor: 1,
-      leafStride: 1,
-      leafScale: 1,
-      billboard: null,
-    },
-    levels: levels(),
-    applyDetail: (detail) => applied.push({ ...detail }),
-  });
+test('PlantLODController turns a distance into a level index, with hysteresis', () => {
+  const controller = new PlantLODController({ levels: levels() });
 
-  assert.equal(controller.updateDistance(0), true);
-  assert.equal(controller.currentLevel, 0);
-  assert.equal(controller.updateDistance(9.99), false);
-  assert.equal(controller.updateDistance(10), true);
-  const detailB = { ...applied.at(-1) };
-  assert.equal(controller.currentLevel, 1);
-  assert.equal(controller.updateDistance(9.5), false);
-  assert.equal(controller.updateDistance(8.99), true);
-  assert.equal(controller.currentLevel, 0);
-  assert.equal(controller.updateDistance(10), true);
-  assert.deepEqual(applied.at(-1), detailB);
+  // A first choice has no history to be sticky about.
+  assert.equal(controller.levelFor(0), 0);
+  assert.equal(controller.levelFor(9.99), 0);
+  assert.equal(controller.levelFor(10), 1);
 
-  assert.equal(controller.updateDistance(25), true);
-  assert.equal(controller.currentLevel, 2);
-  assert.equal(controller.updateDistance(17), false);
-  assert.equal(controller.updateDistance(15.99), true);
-  assert.equal(controller.currentLevel, 1);
+  // Inside the sticky zone below the boundary it holds; past it, it lets go.
+  assert.equal(controller.levelFor(9.5), 1);
+  assert.equal(controller.levelFor(8.99), 0);
+  assert.equal(controller.levelFor(10), 1);
 
-  const camera = new THREE.PerspectiveCamera();
-  camera.position.set(20, 0, 0);
-  camera.zoom = 2;
-  assert.equal(controller.update(camera), false);
-  assert.equal(controller.currentDistance, 10);
+  assert.equal(controller.levelFor(25), 2);
+  assert.equal(controller.levelFor(17), 2);
+  assert.equal(controller.levelFor(15.99), 1);
+  assert.equal(controller.currentDistance, 15.99);
 
-  controller.dispose();
-  assert.equal(controller.disposed, true);
-  assert.deepEqual(applied.at(-1), controller.baseDetail);
-  assert.equal(controller.updateDistance(25), false);
-  controller.dispose();
+  controller.reset();
+  assert.equal(controller.currentLevel, null);
+  assert.equal(controller.levelFor(9.99), 0, 'reset clears the hysteresis');
+
+  assert.throws(() => controller.levelFor(-1), /non-negative/);
+});
+
+test('the controller holds no plant and reads no camera', () => {
+  const controller = new PlantLODController({ levels: levels() });
+
+  // It is a calculator. Everything it can do is take a number and return an
+  // index; there is nothing on it that could reach a scene or a camera.
+  assert.equal(typeof controller.levelFor, 'function');
+  assert.equal(controller.update, undefined);
+  assert.equal(controller.target, undefined);
+  assert.equal(controller.applyDetail, undefined);
 });
 
 test('constructor LOD changes only visual detail and returns exact A-B-A output', () => {
@@ -155,9 +144,7 @@ test('constructor LOD changes only visual detail and returns exact A-B-A output'
     maxYears: 8,
     ageYears: 5,
     dayOfYear: 175,
-    lod: true,
   });
-  const camera = new THREE.PerspectiveCamera();
   const near = capturePlant(plant);
   const biology = {
     leaves: plant.stats().leaves,
@@ -171,8 +158,7 @@ test('constructor LOD changes only visual detail and returns exact A-B-A output'
   const nearLeafCount = meshNamed(plant, 'Blackcurrant_Leaves').count;
   const berries = captureMesh(meshNamed(plant, 'Blackcurrant_Berries'));
 
-  camera.position.set(8, 0, 0);
-  plant.update(0, 0, camera);
+  plant.setLevel(1);
   const far = capturePlant(plant);
   assert.ok(
     meshNamed(plant, 'Blackcurrant_Wood').geometry.getAttribute('position')
@@ -192,36 +178,35 @@ test('constructor LOD changes only visual detail and returns exact A-B-A output'
     biology,
   );
 
-  camera.position.set(0, 0, 0);
-  plant.update(0, 0, camera);
+  plant.setLevel(0);
   assert.deepEqual(capturePlant(plant), near);
-  camera.position.set(8, 0, 0);
-  plant.update(0, 0, camera);
+  plant.setLevel(1);
   assert.deepEqual(capturePlant(plant), far);
-  camera.position.set(0, 0, 0);
-  plant.update(0, 0, camera);
+  plant.setLevel(0);
   assert.deepEqual(capturePlant(plant), near);
+
+  // Passing a camera cannot change anything: `update` no longer takes one.
+  plant.update(0, 0, new THREE.PerspectiveCamera());
+  assert.deepEqual(capturePlant(plant), near);
+  assert.equal(plant.level, 0);
 
   assert.equal('detail' in plant, false);
   assert.equal('autoLOD' in plant, false);
   plant.dispose();
 });
 
-test('camera-driven LOD disposes replaced and live wood geometry exactly once', () => {
+test('changing level disposes replaced and live wood geometry exactly once', () => {
   const plant = new Blackcurrant({
     seed: 'blackcurrant-lod-disposal',
     maxYears: 8,
     ageYears: 5,
     dayOfYear: 175,
-    lod: true,
   });
-  const camera = new THREE.PerspectiveCamera();
   const initialGeometry = meshNamed(plant, 'Blackcurrant_Wood').geometry;
   let initialDisposals = 0;
   initialGeometry.addEventListener('dispose', () => initialDisposals++);
 
-  camera.position.set(8, 0, 0);
-  plant.update(0, 0, camera);
+  plant.setLevel(1);
   assert.equal(initialDisposals, 1);
 
   const liveGeometry = meshNamed(plant, 'Blackcurrant_Wood').geometry;

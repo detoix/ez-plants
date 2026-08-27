@@ -127,7 +127,6 @@ export const PLANTS = Object.freeze({
         ageYears: state.age,
         dayOfYear: state.day,
         trialYear: state.phenologyProfile,
-        lod: true,
         assets: {
           bark: shrubBark('Bush 1'),
           leaf: {
@@ -203,7 +202,6 @@ export const PLANTS = Object.freeze({
         ageYears: state.age,
         dayOfYear: state.day,
         region: state.phenologyProfile,
-        lod: true,
         assets: {
           // Bush 3 is EZ-Tree's coarser, greyer shrub bark, which suits
           // forsythia's lenticel-dotted stems better than the currant's.
@@ -282,7 +280,6 @@ export const PLANTS = Object.freeze({
         ageYears: state.age,
         dayOfYear: state.day,
         seasonProfile: state.phenologyProfile,
-        lod: true,
         assets: {
           bark: shrubBark('Bush 3'),
           leaf: {
@@ -361,7 +358,6 @@ export const PLANTS = Object.freeze({
         ageYears: state.age,
         dayOfYear: state.day,
         seasonProfile: state.phenologyProfile,
-        lod: true,
         // A grass needs no bark or leaf plate: culms, blades and plumes are
         // all geometry with baked vertex colours, so this plant ships with no
         // texture files. It generates one small map itself — the strip that

@@ -1,16 +1,43 @@
-import * as THREE from 'three';
 import { ShadowCast } from './enums.js';
 import { normalizePlantDetail } from './plant-detail.js';
 
-const cameraPosition = new THREE.Vector3();
-const plantPosition = new THREE.Vector3();
+/**
+ * Level-of-detail vocabulary for plants.
+ *
+ * ## The library does not know about your camera
+ *
+ * A plant declares the levels it can be drawn at, each carrying a **suggested**
+ * distance, and the caller says which one to draw:
+ *
+ * ```js
+ * plant.setLevel(1);
+ * ```
+ *
+ * That is the whole contract. Nothing in this library reads a camera, computes
+ * a distance, or changes a level on its own. An application knows things the
+ * library cannot — whether the plant is behind the viewer, whether it is a
+ * thumbnail or a hero shot, whether it is being rendered for a print at ten
+ * times the screen resolution, what its frame budget looks like this frame —
+ * and any of those can matter more than metres.
+ *
+ * The distances are still worth stating, because the library *does* know
+ * roughly where each level stops looking right for a plant of that size. They
+ * are advice, published as data, for a caller that wants it:
+ *
+ * ```js
+ * plant.lodLevels; // [{ distance: 0, ... }, { distance: 7, ... }, ...]
+ * ```
+ *
+ * `PlantLODController` below turns that advice into a level index, with
+ * hysteresis, if you want it. It is opt-in and nothing in the library
+ * constructs one.
+ */
 
 /**
- * Validate and fully resolve distance-driven PlantDetail levels.
+ * Validate and fully resolve a plant's LOD levels.
  *
- * Each level is normalized against the detail active when the controller is
- * created. This makes switching independent of traversal history: a far level
- * never accidentally inherits a value from the medium level that preceded it.
+ * Each level is normalized against a base detail, so a level never accidentally
+ * inherits a value from the level before it in the list.
  */
 export function normalizePlantLODLevels(levels, baseDetail = {}) {
   if (!Array.isArray(levels) || levels.length === 0) {
@@ -60,15 +87,15 @@ export function normalizePlantLODLevels(levels, baseDetail = {}) {
     }
   }
 
-  // Shadow LOD is derived from band position rather than spelled out per
+  // Shadow LOD is derived from level position rather than spelled out per
   // species, so a plant added tomorrow gets it without touching its level
   // table -- and a species that wants something else just says so, in which
   // case `declaresShadowCast` keeps this off its back.
   //
-  // The ladder: the near band casts everything, the far band casts nothing,
-  // and the bands in between keep only the woody silhouette. Casting is an
-  // extra draw per shadow-casting light, and a leaf contributes almost
-  // nothing to a distant silhouette, so organs are what drops out first.
+  // The ladder: the finest level casts everything, the coarsest casts nothing,
+  // and the levels between keep only the woody silhouette. Casting is an extra
+  // draw per shadow-casting light, and a leaf contributes almost nothing to a
+  // distant silhouette, so organs are what drops out first.
   const lastIndex = ordered.length - 1;
   for (const [index, level] of ordered.entries()) {
     if (level.declaresShadowCast) continue;
@@ -93,13 +120,10 @@ export function normalizePlantLODLevels(levels, baseDetail = {}) {
 }
 
 /**
- * Choose a band for one distance, honouring per-level hysteresis.
+ * Choose a level for one distance, honouring per-level hysteresis.
  *
- * Split out because the field layer assigns bands for hundreds of plants and
- * must make exactly the same choice a single plant would: hysteresis is easy
- * to get subtly wrong, and the failure mode is visible popping. `previous` is
- * the band currently in effect, or null when nothing has been selected yet —
- * a first selection has no band to be sticky about.
+ * Pure. `previous` is the level currently in effect, or null when nothing has
+ * been chosen yet — a first choice has no level to be sticky about.
  *
  * @param {number} distance
  * @param {readonly object[]} levels Normalized, ascending by distance.
@@ -123,71 +147,65 @@ export function selectPlantLODLevel(distance, levels, previous = null) {
 }
 
 /**
- * Lazily remesh one procedural plant as camera distance crosses LOD bands.
+ * Turn a distance into a level index, with hysteresis. **Entirely optional.**
  *
- * Unlike THREE.LOD, this controller does not retain several complete plants.
- * It invokes an injected private detail sink, so the biological graph and
- * non-detail organs remain single and persistent without exposing renderer
- * internals on the plant object.
+ * Nothing in this library constructs one of these. It exists because picking a
+ * level from a distance is fiddly in one specific way — without hysteresis a
+ * plant sitting exactly on a boundary flips between levels every frame, and
+ * the remesh that follows is expensive and the flicker is visible — and there
+ * is no reason for every caller to rediscover that.
+ *
+ * It holds no plant and no camera. Give it a distance, get an index back, and
+ * do what you like with it:
+ *
+ * ```js
+ * const lod = new PlantLODController({ levels: plant.lodLevels });
+ *
+ * // in your own frame loop, from your own camera
+ * const distance = camera.position.distanceTo(plant.position);
+ * plant.setLevel(lod.levelFor(distance));
+ * ```
+ *
+ * One controller tracks one plant's history, because hysteresis is per-plant
+ * state. For a field, keep one per placement, or call the pure
+ * `selectPlantLODLevel` with your own previous-level array.
  */
 export class PlantLODController {
-  constructor({ target, detail, levels, applyDetail } = {}) {
-    if (!target?.isObject3D || typeof applyDetail !== 'function') {
-      throw new TypeError(
-        'PlantLODController requires a THREE.Object3D and applyDetail().',
-      );
+  /**
+   * @param {object} options
+   * @param {readonly object[]} options.levels Usually `plant.lodLevels`.
+   */
+  constructor({ levels } = {}) {
+    if (!Array.isArray(levels) && !Object.isFrozen(levels)) {
+      throw new TypeError('PlantLODController requires LOD levels.');
     }
-
-    this.target = target;
-    this.applyDetail = applyDetail;
-    this.baseDetail = Object.freeze(normalizePlantDetail(detail));
-    this.levels = normalizePlantLODLevels(levels, this.baseDetail);
+    this.levels = normalizePlantLODLevels([...levels]);
     this.currentLevel = null;
     this.currentDistance = null;
-    this.disposed = false;
   }
 
-  /** Select a level for an explicit world-space distance. */
-  updateDistance(distance) {
-    if (this.disposed) return false;
+  /**
+   * The level index for a world-space distance.
+   * @param {number} distance
+   * @returns {number}
+   */
+  levelFor(distance) {
     if (!Number.isFinite(distance) || distance < 0) {
       throw new RangeError('Plant LOD distance must be non-negative.');
     }
-
-    const nextLevel = selectPlantLODLevel(
+    this.currentDistance = distance;
+    this.currentLevel = selectPlantLODLevel(
       distance,
       this.levels,
       this.currentLevel,
     );
-
-    this.currentDistance = distance;
-    if (nextLevel === this.currentLevel) return false;
-
-    this.applyDetail(this.levels[nextLevel].detail);
-    this.currentLevel = nextLevel;
-    return true;
+    return this.currentLevel;
   }
 
-  /** Select a level from camera-to-plant world distance, like THREE.LOD. */
-  update(camera) {
-    if (this.disposed) return false;
-    if (!camera?.isCamera) {
-      throw new TypeError('Plant LOD update requires a THREE.Camera.');
-    }
-
-    camera.getWorldPosition(cameraPosition);
-    this.target.getWorldPosition(plantPosition);
-    const zoom =
-      Number.isFinite(camera.zoom) && camera.zoom > 0 ? camera.zoom : 1;
-    return this.updateDistance(cameraPosition.distanceTo(plantPosition) / zoom);
-  }
-
-  /** Stop automatic switching and optionally restore the original detail. */
-  dispose({ restore = true } = {}) {
-    if (this.disposed) return;
-    if (restore) this.applyDetail(this.baseDetail);
-    this.disposed = true;
-    this.target = null;
-    this.applyDetail = null;
+  /** Forget the history hysteresis is measured against. */
+  reset() {
+    this.currentLevel = null;
+    this.currentDistance = null;
+    return this;
   }
 }

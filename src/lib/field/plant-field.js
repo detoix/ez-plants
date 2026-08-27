@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { InstancedMesh2 } from '@three.ez/instanced-mesh';
 
-import { assignBands } from './band-assignment.js';
 import { assertInstancingPatch } from './three-copy-guard.js';
 
 /**
@@ -40,6 +39,22 @@ import { assertInstancingPatch } from './three-copy-guard.js';
  * The field also knows nothing about which plants exist. It reads organ kinds
  * off what a prototype baked. A plant added to the library tomorrow works here
  * with no change to this file.
+ *
+ * ## It knows nothing about your camera either
+ *
+ * Levels are the caller's decision, exactly as they are for a single plant.
+ * The field never measures a distance and never changes a level on its own:
+ *
+ * ```js
+ * field.setLevels(levels);          // one index per placement
+ * field.setLevelAt(index, 2);       // or one at a time
+ * ```
+ *
+ * The budget is advisory for the same reason. If the levels you chose need
+ * more instances than you budgeted for, the field draws them anyway and says
+ * so in `stats().overBudget`. Silently coarsening a plant you explicitly asked
+ * for would be the library overruling you, which is the thing this design is
+ * built to avoid.
  */
 
 /**
@@ -69,8 +84,6 @@ export const DEFAULT_INSTANCE_BUDGET = 500_000;
 const matrix = new THREE.Matrix4();
 const organMatrix = new THREE.Matrix4();
 const colour = new THREE.Color();
-const cameraPosition = new THREE.Vector3();
-const worldPosition = new THREE.Vector3();
 
 /** Accept a Vector3, an array or an {x,y,z}. */
 function toVector(value) {
@@ -147,23 +160,33 @@ export class PlantField extends THREE.Group {
         ),
         new THREE.Vector3().setScalar(placement.scale ?? 1),
       );
-      return { prototype, which, transform };
+      const level = placement.level ?? 0;
+      if (
+        !Number.isInteger(level) ||
+        level < 0 ||
+        level >= prototype.bands.length
+      ) {
+        throw new RangeError(
+          `Placement ${index} asks for level ${level}; this prototype has ` +
+            `${prototype.bands.length}.`,
+        );
+      }
+      return { prototype, which, transform, level };
     });
 
-    this._assignment = null;
+    this._levels = Int32Array.from(this._placements.map((p) => p.level));
     this._organMeshes = new Map();
     this._woodMeshes = [];
     this._stats = {
       drawCalls: 0,
       organInstances: 0,
-      demoted: 0,
-      dropped: 0,
+      overBudget: false,
       repacks: 0,
     };
 
     this._createWoodMeshes({ castShadow, receiveShadow });
     this._createOrganMeshes({ castShadow, receiveShadow });
-    this._repack(this._assignNearest());
+    this._repack();
   }
 
   /* ------------------------------------------------------------------ *
@@ -244,17 +267,19 @@ export class PlantField extends THREE.Group {
         .find((organ) => organ.kind === kind);
       if (!source) continue;
 
-      // The theoretical peak, then the budget's opinion of it. Allocating the
-      // smaller of the two is the whole point of having a budget.
-      //
-      // This clamp can never truncate: band assignment holds the total across
-      // all kinds at or below the budget, so one kind's share is at or below it
-      // too. `_repack` asserts that rather than trusting the argument.
-      const peak = this._placements.reduce(
-        (total, placement) => total + placement.prototype.organCount(kind, 0),
-        0,
+      // Sized to the levels the caller actually chose, not to the field's
+      // theoretical peak and not to the budget. instanced-mesh grows its
+      // buffers when asked for more, so this is a starting size rather than a
+      // wall -- which is what lets `setLevels` raise detail later without the
+      // field having to refuse.
+      const capacity = Math.max(
+        1,
+        this._placements.reduce(
+          (total, placement) =>
+            total + placement.prototype.organCount(kind, placement.level),
+          0,
+        ),
       );
-      const capacity = Math.max(1, Math.min(peak, this._budget));
 
       const mesh = new InstancedMesh2(source.geometry, source.material, {
         capacity,
@@ -268,84 +293,95 @@ export class PlantField extends THREE.Group {
       // geometry's bounds and there is only one of them anyway.
       mesh.perObjectFrustumCulled = true;
 
-      this._organMeshes.set(kind, { mesh, capacity, peak });
+      this._organMeshes.set(kind, { mesh, capacity });
       this.add(mesh);
     }
   }
 
   /* ------------------------------------------------------------------ *
-   * Band assignment and packing
+   * Levels and packing
    * ------------------------------------------------------------------ */
 
-  _bands() {
-    return this._prototypes[0].bands;
-  }
-
-  _costOf(index, band) {
-    return this._placements[index].prototype.instanceCount(band);
+  /** The level each placement is drawn at. A copy; use `setLevels` to change. */
+  get levels() {
+    return Array.from(this._levels);
   }
 
   /**
-   * Everything at its nearest affordable band, for a field nobody has shown a
-   * camera yet. The first `update(camera)` replaces it with a real assignment.
-   */
-  _assignNearest() {
-    return assignBands({
-      count: this._placements.length,
-      bands: this._bands(),
-      distanceOf: () => 0,
-      costOf: (index, band) => this._costOf(index, band),
-      budget: this._budget,
-    });
-  }
-
-  /**
-   * Rewrite every organ buffer from the current band assignment.
+   * Set every placement's level at once.
    *
-   * A dense repack, in placement order, exactly as `PlantInstancePool` does for
-   * one plant. It is O(active instances) and it runs only when an assignment
-   * actually changes — which hysteresis makes uncommon — so the cost lands on
-   * band crossings rather than on every frame. If it ever shows up in a
-   * profile, the lever is `budget`.
+   * @param {ArrayLike<number>} levels One index per placement, in the order
+   *   the placements were given.
    */
-  _repack(assignment) {
-    this._assignment = assignment;
-    this._stats.demoted = assignment.demoted;
-    this._stats.dropped = assignment.dropped;
-    this._stats.repacks += 1;
+  setLevels(levels) {
+    if (levels?.length !== this._placements.length) {
+      throw new RangeError(
+        `Expected ${this._placements.length} levels, got ${levels?.length}.`,
+      );
+    }
 
+    let changed = false;
+    for (let index = 0; index < levels.length; index += 1) {
+      const level = levels[index];
+      this._validateLevel(index, level);
+      if (level !== this._levels[index]) changed = true;
+    }
+    if (!changed) return this;
+
+    this._levels.set(levels);
+    return this._repack();
+  }
+
+  /**
+   * Set one placement's level.
+   *
+   * @param {number} index
+   * @param {number} level
+   */
+  setLevelAt(index, level) {
+    if (!Number.isInteger(index) || index < 0 || index >= this._levels.length) {
+      throw new RangeError(`No placement at index ${index}.`);
+    }
+    this._validateLevel(index, level);
+    if (this._levels[index] === level) return this;
+    this._levels[index] = level;
+    return this._repack();
+  }
+
+  _validateLevel(index, level) {
+    const available = this._placements[index].prototype.bands.length;
+    if (!Number.isInteger(level) || level < 0 || level >= available) {
+      throw new RangeError(
+        `Placement ${index} was given level ${level}; it has ${available}.`,
+      );
+    }
+  }
+
+  _repack() {
+    this._stats.repacks += 1;
     let organInstances = 0;
 
     for (const [kind, entry] of this._organMeshes) {
-      const { mesh, capacity } = entry;
+      const { mesh } = entry;
       mesh.clearInstances();
 
       let needed = 0;
       for (const [index, placement] of this._placements.entries()) {
-        const band = assignment.bands[index];
-        if (band < 0) continue;
-        needed += placement.prototype.organCount(kind, band);
-      }
-      if (needed > capacity) {
-        // Not a runtime condition to absorb quietly — silently dropping some
-        // plant's leaves mid-plant is exactly the failure the budget exists to
-        // prevent, so it is a bug in assignment if it ever happens.
-        throw new Error(
-          `${mesh.name}: band assignment produced ${needed} instances for a ` +
-            `buffer of ${capacity}. This is a bug in the field's budget maths.`,
-        );
+        needed += placement.prototype.organCount(kind, this._levels[index]);
       }
       if (needed === 0) continue;
 
+      // Draw what was asked for. If it is more than the buffer holds,
+      // instanced-mesh grows it -- the caller chose these levels deliberately,
+      // and quietly dropping some plant's leaves would be this class deciding
+      // it knew better. Going over budget is reported, not corrected.
       mesh.addInstances(needed);
 
       let slot = 0;
       for (const [index, placement] of this._placements.entries()) {
-        const band = assignment.bands[index];
-        if (band < 0) continue;
-        const organ = placement.prototype.bands[band].baked.organs.find(
-          (candidate) => candidate.kind === kind,
-        );
+        const organ = placement.prototype.bands[
+          this._levels[index]
+        ].baked.organs.find((candidate) => candidate.kind === kind);
         if (!organ) continue;
 
         for (let local = 0; local < organ.count; local += 1) {
@@ -365,6 +401,7 @@ export class PlantField extends THREE.Group {
     }
 
     this._stats.organInstances = organInstances;
+    this._stats.overBudget = organInstances > this._budget;
     return this;
   }
 
@@ -373,56 +410,25 @@ export class PlantField extends THREE.Group {
    * ------------------------------------------------------------------ */
 
   /**
-   * Advance wind and re-assign bands.
+   * Advance wind.
    *
    * The wind belongs to the source plants: the field draws their materials, and
    * the wind uniforms live on those materials' compiled shaders. Advancing the
    * prototypes' plants is what makes the whole field move.
    *
+   * Takes no camera. Levels are `setLevels` / `setLevelAt`, and they change
+   * only when you say so.
+   *
    * @param {number} [deltaSeconds]
    * @param {number} [elapsedSeconds]
-   * @param {THREE.Camera} [camera] Omit to advance wind without re-banding.
    */
-  update(deltaSeconds = 0, elapsedSeconds, camera) {
+  update(deltaSeconds = 0, elapsedSeconds) {
     const advanced = new Set();
     for (const prototype of this._prototypes) {
       if (advanced.has(prototype.plant)) continue;
       advanced.add(prototype.plant);
-      // No camera: the plant's own LOD controller must not remesh the geometry
-      // the field baked out of it.
       prototype.plant.update(deltaSeconds, elapsedSeconds);
     }
-
-    if (!camera) return this;
-    if (!camera.isCamera) {
-      throw new TypeError('A field update needs a THREE.Camera.');
-    }
-
-    camera.getWorldPosition(cameraPosition);
-    this.updateWorldMatrix(true, false);
-
-    const next = assignBands({
-      count: this._placements.length,
-      bands: this._bands(),
-      distanceOf: (index) => {
-        worldPosition.setFromMatrixPosition(this._placements[index].transform);
-        worldPosition.applyMatrix4(this.matrixWorld);
-        return cameraPosition.distanceTo(worldPosition);
-      },
-      costOf: (index, band) => this._costOf(index, band),
-      previous: this._assignment?.bands ?? null,
-      budget: this._budget,
-    });
-
-    let changed = false;
-    for (let index = 0; index < next.bands.length; index += 1) {
-      if (next.bands[index] !== this._assignment.bands[index]) {
-        changed = true;
-        break;
-      }
-    }
-    if (changed) this._repack(next);
-
     return this;
   }
 
@@ -445,10 +451,8 @@ export class PlantField extends THREE.Group {
       (mesh) => mesh && mesh.instancesCount > 0,
     ).length;
 
-    const bandCounts = new Array(this._bandsPerPrototype).fill(0);
-    for (const band of this._assignment?.bands ?? []) {
-      if (band >= 0) bandCounts[band] += 1;
-    }
+    const levelCounts = new Array(this._bandsPerPrototype).fill(0);
+    for (const level of this._levels) levelCounts[level] += 1;
 
     return {
       plants: this._placements.length,
@@ -458,9 +462,14 @@ export class PlantField extends THREE.Group {
       woodDrawCalls: woodDraws,
       organInstances: this._stats.organInstances,
       budget: this._budget,
-      bandCounts,
-      demoted: this._stats.demoted,
-      dropped: this._stats.dropped,
+      /**
+       * The levels you chose need more instances than you budgeted for. The
+       * field drew them anyway; this is a number to act on, not a state it
+       * corrected.
+       */
+      overBudget: this._stats.overBudget,
+      /** How many placements sit at each level. */
+      levelCounts,
       repacks: this._stats.repacks,
     };
   }

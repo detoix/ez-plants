@@ -97,18 +97,12 @@ const DEFAULT_LOD_LEVELS = Object.freeze([
       leafScale: 1.2,
     }),
   }),
+  // Three levels, like every other plant in the library. This one used to
+  // carry a fourth; its middle two were close enough that collapsing them
+  // costs almost nothing, so the coarse level keeps the furthest settings
+  // rather than the intermediate ones.
   Object.freeze({
     distance: 11,
-    hysteresis: 0.1,
-    detail: Object.freeze({
-      sectionStride: 3,
-      segmentFactor: 0.5,
-      leafStride: 3,
-      leafScale: 1.36,
-    }),
-  }),
-  Object.freeze({
-    distance: 18,
     hysteresis: 0.12,
     detail: Object.freeze({
       sectionStride: 4,
@@ -189,7 +183,6 @@ export class Miscanthus extends PlantRenderer {
     this._createWoodMesh(this._materials.culm);
     this.#createInstances();
     this.setTime({ ageYears: this.ageYears, dayOfYear: this.dayOfYear });
-    if (options.lod) this._enableLOD();
   }
 
   #createMaterials() {

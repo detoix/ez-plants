@@ -319,15 +319,17 @@ const bush = new Hydrangea({
   ageYears: 6,
   dayOfYear: 230, // cream-white peak in a typical central-Poland season
   seasonProfile: 'typical',
-  lod: true,
 });
 scene.add(bush);
 
 // Scrub through time — the plant is updated in place, never rebuilt.
 bush.setTime({ ageYears: 12, dayOfYear: 200 });
 
-// Per frame
-bush.update(delta, elapsed, camera);
+// Choose a level of detail whenever you want to. Nothing does it for you.
+bush.setLevel(1);
+
+// Per frame — wind only, no camera.
+bush.update(delta, elapsed);
 
 // When done
 bush.dispose();
@@ -339,48 +341,72 @@ they are removed through the modeled spring pruning window.
 
 ## Levels of detail
 
-Pass `lod: true` and a camera to `update()`, and the plant coarsens with
-distance: fewer ring segments in the wood, fewer leaves — scaled up to
-compensate, so the canopy keeps its density — and a shadow pass that thins out
-faster than the colour pass does.
-
-Unlike `THREE.LOD`, nothing is duplicated. The plant is remeshed in place, so
-three bands cost one plant's memory rather than three.
+Every plant publishes the levels it can be drawn at, and **you choose which one
+to draw**:
 
 ```js
-const bush = new Hydrangea({ ageYears: 6, dayOfYear: 230, lod: true });
-bush.update(delta, elapsed, camera); // per frame; the camera selects the band
+plant.lodLevels; // 3 levels, each with a suggested distance
+plant.setLevel(2); // draw the coarsest
 ```
 
-The cultivar's own bands are the default, not a ceiling — the distances that
-suit a garden close-up are not the ones that suit a landscape:
+That is the whole contract. **The library never reads a camera**, never measures
+a distance, and never changes a level on its own. An application knows things a
+library cannot — whether the plant is behind the viewer, whether this is a
+thumbnail or a hero shot, whether it is rendering for print at ten times screen
+resolution, what the frame budget looks like right now — and any of those can
+matter more than metres.
+
+The suggested distances are still worth publishing, because the library does
+know roughly where each level stops looking right for a plant of that size.
+They are advice, as data:
+
+```js
+new Forsythia().lodLevels.map((level) => level.distance); // [0, 7, 12]
+```
+
+If metres are the basis you want, `PlantLODController` turns one into a level
+index. It is opt-in — nothing in the library constructs one — and it exists
+only because hysteresis is fiddly: without it a plant sitting on a boundary
+flips level every frame, and the remesh that follows is expensive and the
+flicker is visible.
+
+```js
+import { PlantLODController } from '@detoix/ez-plants';
+
+const lod = new PlantLODController({ levels: plant.lodLevels });
+
+function animate(delta, elapsed) {
+  const distance = camera.position.distanceTo(plant.position);
+  plant.setLevel(lod.levelFor(distance)); // your camera, your decision
+  plant.update(delta, elapsed); // wind only
+}
+```
+
+Levels remesh in place rather than retaining a copy of the plant per level, so
+three levels cost one plant's memory. The trade is CPU on the switch, which is
+the other reason to want hysteresis.
+
+A plant's own levels are a default, not a ceiling — the distances that suit a
+garden close-up are not the ones that suit a landscape:
 
 ```js
 new Hydrangea({
-  lod: true,
   lodLevels: [
     { distance: 0 },
-    {
-      distance: 25,
-      hysteresis: 0.1,
-      detail: { leafStride: 2, leafScale: 1.2 },
-    },
-    {
-      distance: 90,
-      hysteresis: 0.1,
-      detail: { sectionStride: 4, leafStride: 6 },
-    },
+    { distance: 25, detail: { leafStride: 2, leafScale: 1.2 } },
+    { distance: 90, detail: { sectionStride: 4, leafStride: 6 } },
   ],
 });
 ```
 
 Each level may state a `shadowCast` of `'all'`, `'wood'` or `'none'`. Left
-unset — which is the normal case — it is derived from the band's position:
-nearest casts everything, furthest casts nothing, the ones between keep only the
-woody silhouette. `stats().shadowDrawCalls` and `stats().shadowTriangles` report
-what that is currently costing.
+unset — the normal case — it is derived from the level's position: finest casts
+everything, coarsest casts nothing, the ones between keep only the woody
+silhouette. `stats().shadowDrawCalls` and `stats().shadowTriangles` report what
+that costs.
 
-(The `Tree` generator has its own, separate LOD mechanism; see
+(`Tree` is the exception, and an inherited one: `generateLODs()` builds a
+`THREE.LOD`, which three.js drives from the camera itself. See
 [Levels of Detail (LODs)](#levels-of-detail-lods) under Tree generator.)
 
 ## Fields
@@ -399,22 +425,24 @@ import { createPrototypePool, PlantField } from '@detoix/ez-plants/field';
 // a handful of distinct skeletons plus per-placement yaw and scale — not from
 // a unique plant per position.
 const seeds = [1, 2, 3, 4].map(
-  (seed) => new Forsythia({ seed, ageYears: 6, dayOfYear: 200, lod: true }),
+  (seed) => new Forsythia({ seed, ageYears: 6, dayOfYear: 200 }),
 );
 const prototypes = createPrototypePool(seeds);
 
 const field = new PlantField({
   prototypes,
-  placements: positions.map((position, index) => ({
+  placements: positions.map((position) => ({
     position,
     rotationY: Math.random() * Math.PI * 2,
     scale: 0.9 + Math.random() * 0.2,
+    level: 0, // your choice, per plant
   })),
   renderer, // pass it: without one, nothing draws on the first frame
 });
 scene.add(field);
 
-field.update(delta, elapsed, camera); // advances wind, re-assigns bands
+field.setLevels(levels); // one index per placement, whenever you decide
+field.update(delta, elapsed); // wind only — no camera here either
 ```
 
 **Keep the prototype plants alive.** A field draws their materials, and the wind
@@ -423,15 +451,13 @@ prototypes, then plants.
 
 Two families, two strategies, because they want opposite answers:
 
-- **Organs** are one instanced mesh for the whole field, spanning every band.
-  Organ LOD here does not simplify geometry, it draws fewer organs, so a near
-  plant and a far one share a buffer and a draw call.
+- **Organs** are one instanced mesh for the whole field, spanning every level.
+  Organ LOD here does not simplify geometry, it draws fewer organs, so a fine
+  plant and a coarse one share a buffer and a draw call.
 - **Wood** is one mesh per prototype with real geometry LODs, because the
-  buffers genuinely differ between bands.
+  buffers genuinely differ between levels.
 
-`stats()` reports what the field costs — `drawCalls`, `organInstances`,
-`bandCounts`, and how many plants were `demoted` or `dropped` to stay inside the
-budget:
+Draw calls do not grow with the number of plants:
 
 | Plants | Draw calls |
 | ------ | ---------- |
@@ -439,21 +465,27 @@ budget:
 | 100    | 7          |
 | 400    | 7          |
 
-### The budget, and what it is really telling you
+### The budget is advice, not a governor
 
-A shared organ buffer is sized for peak concurrency, not for the field's total
-organ count. When too many plants are near at once, band assignment pushes the
-furthest ones one band out; if everything is already at its coarsest and it
-still does not fit, the furthest plants are dropped rather than silently
-overflowing the buffer. `stats().dropped` says so when it happens.
+`budget` is the number of organ instances you expect to afford. If the levels
+you chose need more, **the field draws them anyway** and says so:
 
-That ceiling is worth reading honestly. A mature Forsythia still draws around
-2,100 organ instances at its **coarsest** band, because the far band coarsens
-the wood but keeps every surviving leaf as real geometry. So the default budget
-seats a few hundred plants, and raising it costs memory proportionally. The real
-fix is a far band that is a card rather than a canopy — an imposter — which the
-library does not have yet. Until it does, a large field either pays for its
-distant plants or loses them, and no choice of budget changes that.
+```js
+field.stats();
+// { organInstances: 812_400, budget: 500_000, overBudget: true, ... }
+```
+
+Nothing is coarsened, nothing is dropped. Silently overruling a level you asked
+for would put the library back in charge of a decision that is yours; reporting
+it leaves you the choice of raising the budget, coarsening some plants, or
+placing fewer.
+
+Worth knowing when you size it: a mature Forsythia still draws around 2,100
+organ instances at its **coarsest** level, because that level coarsens the wood
+but keeps every surviving leaf as real geometry. Hydrangea is heavier still. A
+large field is therefore expensive however you set this, until the coarsest
+level becomes a card rather than a canopy — an impostor, which the library does
+not have yet.
 
 ## React Three Fiber usage
 
@@ -466,10 +498,16 @@ import { Hydrangea, type HydrangeaStats } from '@detoix/ez-plants/react';
     ageYears={6}
     dayOfYear={230}
     seasonProfile="late"
+    level={0}
     onStats={(stats: HydrangeaStats) => console.log(stats.phenology.stage)}
   />
 </Canvas>;
 ```
+
+`level` is the same decision as `setLevel` on the imperative side, and it is
+just as much yours: the component reads no camera either. If you want
+distance-driven detail, compute it in your own component — R3F hands you the
+camera in `useFrame` — and pass the result down.
 
 Every plant follows the same shape, so swapping one for another is a one-word change:
 

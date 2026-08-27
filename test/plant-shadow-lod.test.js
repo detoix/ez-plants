@@ -50,13 +50,12 @@ test('a plant with no LOD casts exactly as it always did', async () => {
 
 test('shadow cost falls band by band while the colour pass does not', async () => {
   for (const name of PLANTS) {
-    const plant = await createPlant(name, { lod: true });
+    const plant = await createPlant(name);
     try {
-      const controller = plant._lodController;
-      assert.ok(controller, `${name} must build a LOD controller for lod:true`);
+      assert.ok(plant.lodLevels.length > 1, `${name} declares only one level`);
 
-      const bands = controller.levels.map((level) => {
-        controller.updateDistance(level.distance);
+      const bands = plant.lodLevels.map((level, index) => {
+        plant.setLevel(index);
         const stats = plant.stats();
         return {
           distance: level.distance,
@@ -67,8 +66,8 @@ test('shadow cost falls band by band while the colour pass does not', async () =
         };
       });
 
-      // The derived ladder: everything up close, wood only in the middle,
-      // nothing at the back.
+      // The derived ladder: everything at the finest level, wood only in the
+      // middle, nothing at the coarsest.
       assert.equal(bands.at(0).shadowCast, ShadowCast.All);
       assert.equal(bands.at(-1).shadowCast, ShadowCast.None);
       for (const band of bands.slice(1, -1)) {

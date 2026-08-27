@@ -3,7 +3,7 @@ import { ShadowCast } from './enums.js';
 import { LeafWind } from './leaf-wind.js';
 import { PlantInstancePool } from './plant-instance-pool.js';
 import { ResourceTracker } from './resource-tracker.js';
-import { normalizePlantLODLevels, PlantLODController } from './plant-lod.js';
+import { normalizePlantLODLevels } from './plant-lod.js';
 import {
   normalizePlantDetail,
   samplePlantDetailSections,
@@ -133,8 +133,14 @@ export class PlantRenderer extends THREE.Group {
     this._resources = new ResourceTracker();
     this._detail = Object.freeze(normalizePlantDetail());
     this._woodSnapshotKey = null;
-    this._lodController = null;
-    this._lodLevels = lodLevels;
+    // Normalized once, at construction. A plant always has at least one level
+    // -- the one it is built at -- so `lodLevels` is never null and a caller
+    // never has to check before calling `setLevel`.
+    this._lodLevels = normalizePlantLODLevels(
+      lodLevels ?? [{ distance: 0 }],
+      this._detail,
+    );
+    this._level = 0;
     this._instancePool = null;
     this._woodMesh = null;
     this._materials = {};
@@ -739,27 +745,46 @@ export class PlantRenderer extends THREE.Group {
   }
 
   /**
-   * The plant's distance bands, normalized, or null if it declares none.
+   * The levels this plant can be drawn at, normalized and in order.
    *
-   * Public because a field renderer needs to know the bands to bake at, and
-   * must bake at exactly the ones this plant would have switched between.
+   * Each carries a **suggested** `distance` — where a plant of this size stops
+   * looking right at that level — but the library never acts on it. Read it if
+   * you want the advice; ignore it and pick levels your own way if you have a
+   * better basis than metres.
    */
   get lodLevels() {
-    if (this._lodController) return this._lodController.levels;
-    if (!this._lodLevels) return null;
-    return normalizePlantLODLevels(this._lodLevels, normalizePlantDetail());
+    return this._lodLevels;
   }
 
-  _enableLOD(levels = this._lodLevels) {
-    if (!levels) return null;
-    this._lodController?.dispose();
-    this._lodController = new PlantLODController({
-      target: this,
-      detail: this._detail,
-      levels,
-      applyDetail: (detail) => this._setDetail(detail),
-    });
-    return this._lodController;
+  /** The level currently drawn. Index into `lodLevels`. */
+  get level() {
+    return this._level;
+  }
+
+  /**
+   * Draw this plant at one of its levels.
+   *
+   * The only way a plant's detail changes. There is no automatic path: no
+   * camera is read, no distance is measured, and nothing switches levels
+   * behind your back.
+   *
+   * Remeshes in place, so a level costs one plant's memory rather than one per
+   * level — unlike `THREE.LOD`, which retains a complete copy of each. The
+   * trade is CPU on the switch, which is why a caller driving this from a
+   * distance wants hysteresis; `PlantLODController` has it.
+   *
+   * @param {number} index
+   */
+  setLevel(index) {
+    if (!Number.isInteger(index) || index < 0 || index >= this._lodLevels.length) {
+      throw new RangeError(
+        `Level must be an integer from 0 to ${this._lodLevels.length - 1}.`,
+      );
+    }
+    if (index === this._level) return this;
+    this._level = index;
+    this._setDetail(this._lodLevels[index].detail);
+    return this;
   }
 
   /* ------------------------------------------------------------------ *
@@ -1027,15 +1052,19 @@ export class PlantRenderer extends THREE.Group {
    * Frame loop and teardown
    * ------------------------------------------------------------------ */
 
-  update(deltaSeconds = 0, elapsedSeconds, camera) {
+  /**
+   * Advance leaf wind. Call once per frame.
+   *
+   * Takes no camera: choosing a level is `setLevel`, and it is the caller's
+   * decision, not a side effect of the frame loop.
+   */
+  update(deltaSeconds = 0, elapsedSeconds) {
     this._leafWind.advance(deltaSeconds, elapsedSeconds);
-    if (camera && this._lodController) this._lodController.update(camera);
+    return this;
   }
 
   dispose() {
     if (this._resources.disposed) return;
-    this._lodController?.dispose({ restore: false });
-    this._lodController = null;
     this._resources.dispose();
     this.clear();
   }

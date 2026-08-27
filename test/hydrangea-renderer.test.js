@@ -664,19 +664,13 @@ test('serialize round-trips every state needed to reproduce the renderer', () =>
   }
 });
 
-test('distance LOD thins leaves and heads without erasing the cultivar display', () => {
-  const plant = makePlant({ ageYears: 20, dayOfYear: 230, lod: true });
+test('a coarse level thins leaves and heads without erasing the cultivar display', () => {
+  const plant = makePlant({ ageYears: 20, dayOfYear: 230 });
   try {
-    const camera = new THREE.PerspectiveCamera();
-    camera.position.set(0, 1, 2);
-    camera.updateMatrixWorld(true);
-    plant.update(0, 0, camera);
     const nearLeaves = meshNamed(plant, MESH_NAMES.leaves).count;
     const nearHeads = meshNamed(plant, MESH_NAMES.sterileLower).count;
 
-    camera.position.set(0, 1, 40);
-    camera.updateMatrixWorld(true);
-    plant.update(0, 0, camera);
+    plant.setLevel(plant.lodLevels.length - 1);
     const farLeaves = meshNamed(plant, MESH_NAMES.leaves).count;
     const farHeads = meshNamed(plant, MESH_NAMES.sterileLower).count;
 
@@ -697,22 +691,14 @@ test('distance LOD thins the head cohort and restores exact near slots', () => {
   const plant = makePlant({
     ageYears: 20,
     dayOfYear: 230,
-    lod: true,
   });
   try {
-    const camera = new THREE.PerspectiveCamera();
-    camera.position.set(0, 1, 2);
-    camera.updateMatrixWorld(true);
-    plant.update(0, 0, camera);
-
     const nearInstances = captureInstances(plant);
     const nearHeads = instancesByOrganId(plant, MESH_NAMES.panicleStems);
     assert.ok(nearHeads.size > 0);
     for (const id of nearHeads.keys()) assert.match(id, /:current$/);
 
-    camera.position.set(0, 1, 40);
-    camera.updateMatrixWorld(true);
-    plant.update(0, 0, camera);
+    plant.setLevel(plant.lodLevels.length - 1);
     const farHeads = instancesByOrganId(plant, MESH_NAMES.panicleStems);
 
     assert.ok(farHeads.size > 0);
@@ -722,9 +708,7 @@ test('distance LOD thins the head cohort and restores exact near slots', () => {
     }
     assert.equal(plant.stats().visiblePanicles, farHeads.size);
 
-    camera.position.set(0, 1, 2);
-    camera.updateMatrixWorld(true);
-    plant.update(0, 0, camera);
+    plant.setLevel(0);
     assert.deepEqual(captureInstances(plant), nearInstances);
   } finally {
     plant.dispose();
@@ -732,7 +716,7 @@ test('distance LOD thins the head cohort and restores exact near slots', () => {
 });
 
 test('dispose releases each owned GPU allocation exactly once and is idempotent', () => {
-  const plant = makePlant({ ageYears: 8, dayOfYear: 230, lod: true });
+  const plant = makePlant({ ageYears: 8, dayOfYear: 230 });
   const sceneMeshes = meshes(plant);
   const instancedMeshes = new Set(
     sceneMeshes.filter((mesh) => mesh.isInstancedMesh),

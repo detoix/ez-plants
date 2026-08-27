@@ -76,29 +76,6 @@ export declare function createPrototypePool(
   options?: PrototypeOptions,
 ): PlantPrototype[];
 
-export interface BandAssignmentOptions {
-  count: number;
-  bands: readonly { distance: number; hysteresis?: number }[];
-  distanceOf: (index: number) => number;
-  costOf: (index: number, band: number) => number;
-  /** Last frame's assignment, for hysteresis. */
-  previous?: Int32Array | null;
-  /** Maximum total instances; `Infinity` to disable. */
-  budget?: number;
-}
-
-export interface BandAssignment {
-  /** Band per placement, or -1 for a placement dropped to stay in budget. */
-  bands: Int32Array;
-  total: number;
-  demoted: number;
-  dropped: number;
-}
-
-export declare function assignBands(
-  options: BandAssignmentOptions,
-): BandAssignment;
-
 export interface PlantPlacement {
   position:
     | THREE.Vector3
@@ -108,12 +85,20 @@ export interface PlantPlacement {
   scale?: number;
   /** Index into `prototypes`; omitted, one is chosen from the placement index. */
   prototype?: number;
+  /** Which level to draw this plant at. Defaults to 0, the finest. */
+  level?: number;
 }
 
 export interface PlantFieldOptions {
   prototypes: PlantPrototype[];
   placements: PlantPlacement[];
-  /** Peak organ instances for the whole field, across every organ kind. */
+  /**
+   * Organ instances you expect to afford, across every organ kind.
+   *
+   * Advice, not a governor: if the levels you set need more, the field draws
+   * them anyway and reports `overBudget`. It never coarsens or drops a plant
+   * you asked for.
+   */
   budget?: number;
   /**
    * Strongly recommended. Without it, instanced-mesh initialises its buffers
@@ -135,11 +120,13 @@ export interface PlantFieldStats {
   woodDrawCalls: number;
   organInstances: number;
   budget: number;
-  /** How many plants sit in each band. */
-  bandCounts: number[];
-  demoted: number;
-  /** Plants dropped entirely because the budget could not seat them. */
-  dropped: number;
+  /**
+   * The levels you chose need more instances than you budgeted for. The field
+   * drew them regardless; this is a number to act on, not a state it fixed.
+   */
+  overBudget: boolean;
+  /** How many placements sit at each level. */
+  levelCounts: number[];
   repacks: number;
 }
 
@@ -148,12 +135,17 @@ export declare const DEFAULT_INSTANCE_BUDGET: number;
 
 export declare class PlantField extends THREE.Group {
   constructor(options: PlantFieldOptions);
-  /** Advance wind, and re-assign bands when a camera is supplied. */
-  update(
-    deltaSeconds?: number,
-    elapsedSeconds?: number,
-    camera?: THREE.Camera,
-  ): this;
+  /** The level each placement draws at. A copy; use `setLevels` to change. */
+  readonly levels: number[];
+  /** Set every placement's level at once. One index per placement. */
+  setLevels(levels: ArrayLike<number>): this;
+  /** Set one placement's level. */
+  setLevelAt(index: number, level: number): this;
+  /**
+   * Advance wind. Takes no camera: levels are `setLevels` / `setLevelAt`, and
+   * they change only when you say so.
+   */
+  update(deltaSeconds?: number, elapsedSeconds?: number): this;
   stats(): PlantFieldStats;
   /** Releases the field's meshes. Never the prototypes or the source plants. */
   dispose(): void;

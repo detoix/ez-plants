@@ -46,8 +46,16 @@ export interface BasePlantProps extends PlantTimeProps {
    * so a UI can show stage, BBCH code and rendered organ counts.
    */
   onStats?: (stats: never) => void;
-  /** Enable camera-distance level of detail. Defaults to true. */
-  lod?: boolean;
+  /**
+   * Which level of detail to draw, as an index into the plant's `lodLevels`.
+   * Defaults to 0, the finest.
+   *
+   * The library never chooses this for you and never reads the camera. If you
+   * want distance-driven detail, compute it in your own component — R3F gives
+   * you the camera in `useFrame` — and pass the result down. `PlantLODController`
+   * from the root package does the hysteresis if you want it.
+   */
+  level?: number;
 }
 
 function useAppliedState<
@@ -75,15 +83,23 @@ function useAppliedState<
 }
 
 function usePlantFrame(plant: {
-  update: (
-    deltaSeconds?: number,
-    elapsedSeconds?: number,
-    camera?: THREE.Camera,
-  ) => void;
+  update: (deltaSeconds?: number, elapsedSeconds?: number) => void;
 }) {
+  // Wind only. No camera is read here: choosing a level is the caller's
+  // decision, via the `level` prop, exactly as it is through the imperative
+  // API (library rule 8 -- two front doors, one behaviour).
   useFrame((state, delta) => {
-    plant.update(Math.min(delta, 0.05), state.clock.elapsedTime, state.camera);
+    plant.update(Math.min(delta, 0.05), state.clock.elapsedTime);
   });
+}
+
+function usePlantLevel(
+  plant: { setLevel: (index: number) => unknown },
+  level: number,
+) {
+  useEffect(() => {
+    plant.setLevel(level);
+  }, [plant, level]);
 }
 
 function useDisposable<TPlant extends { dispose: () => void }>(
@@ -130,7 +146,7 @@ export function ForsythiaPlant({
   plantId,
   cultivar,
   assets,
-  lod = true,
+  level = 0,
   ageYears = 6,
   dayOfYear = 96,
   region = 'central',
@@ -146,14 +162,13 @@ export function ForsythiaPlant({
         plantId,
         cultivar,
         assets,
-        lod,
         ageYears,
         dayOfYear,
         region,
         offsetDays,
       }),
     // Construction options only. Time and season are applied below.
-    [seed, maxYears, plantId, cultivar, assets, lod],
+    [seed, maxYears, plantId, cultivar, assets],
   );
 
   useAppliedState(
@@ -161,6 +176,7 @@ export function ForsythiaPlant({
     { ageYears, dayOfYear, region, offsetDays },
     onStats as (stats: never) => void,
   );
+  usePlantLevel(plant, level);
   usePlantFrame(plant);
 
   return <primitive object={plant} {...groupProps} />;
@@ -198,7 +214,7 @@ export function HydrangeaPlant({
   plantId,
   cultivar,
   assets,
-  lod = true,
+  level = 0,
   ageYears = 6,
   dayOfYear = 230,
   seasonProfile = 'typical',
@@ -214,13 +230,12 @@ export function HydrangeaPlant({
         plantId,
         cultivar,
         assets,
-        lod,
         ageYears,
         dayOfYear,
         seasonProfile,
         offsetDays,
       }),
-    [seed, maxYears, plantId, cultivar, assets, lod],
+    [seed, maxYears, plantId, cultivar, assets],
   );
 
   useAppliedState(
@@ -228,6 +243,7 @@ export function HydrangeaPlant({
     { ageYears, dayOfYear, seasonProfile, offsetDays },
     onStats as (stats: never) => void,
   );
+  usePlantLevel(plant, level);
   usePlantFrame(plant);
 
   return <primitive object={plant} {...groupProps} />;
@@ -266,7 +282,7 @@ export function MiscanthusPlant({
   plantId,
   cultivar,
   assets,
-  lod = true,
+  level = 0,
   ageYears = 6,
   dayOfYear = 250,
   seasonProfile = 'typical',
@@ -282,13 +298,12 @@ export function MiscanthusPlant({
         plantId,
         cultivar,
         assets,
-        lod,
         ageYears,
         dayOfYear,
         seasonProfile,
         offsetDays,
       }),
-    [seed, maxYears, plantId, cultivar, assets, lod],
+    [seed, maxYears, plantId, cultivar, assets],
   );
 
   useAppliedState(
@@ -296,6 +311,7 @@ export function MiscanthusPlant({
     { ageYears, dayOfYear, seasonProfile, offsetDays },
     onStats as (stats: never) => void,
   );
+  usePlantLevel(plant, level);
   usePlantFrame(plant);
 
   return <primitive object={plant} {...groupProps} />;
@@ -329,7 +345,7 @@ export function BlackcurrantPlant({
   plantId,
   cultivar,
   assets,
-  lod = true,
+  level = 0,
   ageYears = 4,
   dayOfYear = 175,
   trialYear = 'mean',
@@ -345,13 +361,12 @@ export function BlackcurrantPlant({
         plantId,
         cultivar,
         assets,
-        lod,
         ageYears,
         dayOfYear,
         trialYear,
         offsetDays,
       }),
-    [seed, maxYears, plantId, cultivar, assets, lod],
+    [seed, maxYears, plantId, cultivar, assets],
   );
 
   useAppliedState(
@@ -359,6 +374,7 @@ export function BlackcurrantPlant({
     { ageYears, dayOfYear, trialYear, offsetDays },
     onStats as (stats: never) => void,
   );
+  usePlantLevel(plant, level);
   usePlantFrame(plant);
 
   return <primitive object={plant} {...groupProps} />;

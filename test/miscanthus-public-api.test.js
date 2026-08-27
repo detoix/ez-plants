@@ -301,7 +301,7 @@ test('the app registry carries a complete Miscanthus descriptor', () => {
 });
 
 test('an R3F-style rebuild-free update path applies both sliders in place', () => {
-  const plant = new publicApi.Miscanthus({ seed: 11, ageYears: 3, lod: true });
+  const plant = new publicApi.Miscanthus({ seed: 11, ageYears: 3 });
   try {
     const meshes = [];
     plant.traverse((object) => {
@@ -310,7 +310,7 @@ test('an R3F-style rebuild-free update path applies both sliders in place', () =
     const buffers = meshes.map((mesh) => mesh.instanceMatrix.array);
 
     plant.setState({ ageYears: 14, dayOfYear: 300, seasonProfile: 'early' });
-    plant.update(0.016, 1.2, new THREE.PerspectiveCamera());
+    plant.update(0.016, 1.2);
 
     meshes.forEach((mesh, index) => {
       assert.strictEqual(

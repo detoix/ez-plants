@@ -394,18 +394,12 @@ test('future pruning targets a cane alive in the requested year', () => {
  * LOD, serialisation and teardown
  * -------------------------------------------------------------------- */
 
-test('distance LOD thins the canopy without dropping the plant', () => {
-  const plant = makePlant({ ageYears: 8, dayOfYear: 200, lod: true });
+test('a coarse level thins the canopy without dropping the plant', () => {
+  const plant = makePlant({ ageYears: 8, dayOfYear: 200 });
   try {
-    const camera = new THREE.PerspectiveCamera();
-    camera.position.set(0, 1, 2);
-    camera.updateMatrixWorld(true);
-    plant.update(0, 0, camera);
     const near = meshNamed(plant, MESH_NAMES.leaves).count;
 
-    camera.position.set(0, 1, 40);
-    camera.updateMatrixWorld(true);
-    plant.update(0, 0, camera);
+    plant.setLevel(plant.lodLevels.length - 1);
     const far = meshNamed(plant, MESH_NAMES.leaves).count;
 
     assert.ok(far < near, 'far LOD must draw fewer leaves');
@@ -476,7 +470,7 @@ test('stats report rendered organs, dimensions and sourced care hints', () => {
 });
 
 test('dispose releases GPU resources once and is safe to repeat', () => {
-  const plant = makePlant({ ageYears: 6, dayOfYear: 200, lod: true });
+  const plant = makePlant({ ageYears: 6, dayOfYear: 200 });
   const geometries = new Set();
   const materials = new Set();
   let disposedGeometries = 0;

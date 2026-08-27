@@ -6,7 +6,6 @@ import test from 'node:test';
 import * as THREE from 'three';
 
 import {
-  assignBands,
   createPlantPrototype,
   createPrototypePool,
   PlantField,
@@ -25,7 +24,7 @@ async function createPlant(name, options = {}) {
     new URL(`../src/lib/plants/${name}/${name}.js`, import.meta.url).href
   );
   const Plant = module[name[0].toUpperCase() + name.slice(1)];
-  return new Plant({ ageYears: 5, dayOfYear: 200, lod: true, ...options });
+  return new Plant({ ageYears: 5, dayOfYear: 200, ...options });
 }
 
 function grid(count, spacing = 2) {
@@ -34,13 +33,6 @@ function grid(count, spacing = 2) {
     position: [(index % side) * spacing, 0, Math.floor(index / side) * spacing],
     rotationY: index * 0.7,
   }));
-}
-
-function camera(x, y, z) {
-  const result = new THREE.PerspectiveCamera();
-  result.position.set(x, y, z);
-  result.updateMatrixWorld(true);
-  return result;
 }
 
 /** Build a field, run `body`, and tear the whole thing down in order. */
@@ -62,88 +54,6 @@ async function withField(name, { seeds = [1, 2], count = 60, ...rest }, body) {
     for (const plant of plants) plant.dispose();
   }
 }
-
-/* -------------------------------------------------------------------- *
- * Band assignment — pure, no instancing library involved
- * -------------------------------------------------------------------- */
-
-const BANDS = [
-  { distance: 0, hysteresis: 0 },
-  { distance: 10, hysteresis: 0.1 },
-  { distance: 30, hysteresis: 0.1 },
-];
-
-test('distance picks the band, exactly as it would for one plant', () => {
-  const distances = [0, 5, 12, 40];
-  const { bands } = assignBands({
-    count: distances.length,
-    bands: BANDS,
-    distanceOf: (index) => distances[index],
-    costOf: () => 1,
-  });
-  assert.deepEqual([...bands], [0, 0, 1, 2]);
-});
-
-test('hysteresis keeps a plant in its band across the boundary', () => {
-  const previous = Int32Array.from([1]);
-  // 9.5 is below the 10 m boundary but inside the 10% sticky zone, so a plant
-  // already at band 1 stays there rather than flickering.
-  const sticky = assignBands({
-    count: 1,
-    bands: BANDS,
-    distanceOf: () => 9.5,
-    costOf: () => 1,
-    previous,
-  });
-  assert.equal(sticky.bands[0], 1);
-
-  const released = assignBands({
-    count: 1,
-    bands: BANDS,
-    distanceOf: () => 8,
-    costOf: () => 1,
-    previous,
-  });
-  assert.equal(released.bands[0], 0, 'past the sticky zone it must let go');
-});
-
-test('the budget demotes the furthest plants, not the nearest', () => {
-  const distances = [1, 2, 12, 15];
-  const cost = [100, 10, 1];
-  const result = assignBands({
-    count: 4,
-    bands: BANDS,
-    distanceOf: (index) => distances[index],
-    costOf: (_index, band) => cost[band],
-    // Distance alone would give bands [0, 0, 1, 1] and cost 220. This does not
-    // fit, so something has to give.
-    budget: 130,
-  });
-
-  assert.ok(result.total <= 130);
-  assert.ok(result.demoted > 0);
-  // The nearest plant, the one filling the screen, keeps every bit of its
-  // detail. Loss is taken from the back of the field forwards.
-  assert.equal(result.bands[0], 0, 'the nearest plant must not give way first');
-  assert.deepEqual([...result.bands], [0, 1, 2, 2]);
-});
-
-test('a budget nothing fits into drops plants rather than overflowing', () => {
-  const result = assignBands({
-    count: 10,
-    bands: BANDS,
-    distanceOf: (index) => index,
-    costOf: () => 100,
-    budget: 250,
-  });
-  assert.ok(result.total <= 250);
-  assert.equal(result.dropped, 8);
-  // Dropping is the last resort: every survivor has already been demoted as
-  // far as it can go. And a dropped plant is marked, never silently packed as
-  // if it were still there.
-  assert.deepEqual([...result.bands.slice(0, 2)], [2, 2]);
-  assert.ok([...result.bands.slice(2)].every((band) => band === -1));
-});
 
 /* -------------------------------------------------------------------- *
  * Prototypes
@@ -183,7 +93,6 @@ test('draw calls do not grow with the number of plants', async () => {
     const measured = [];
     for (const count of [10, 100, 400]) {
       await withField(name, { count }, (field) => {
-        field.update(0.016, 1, camera(20, 5, 40));
         measured.push(field.stats().drawCalls);
       });
     }
@@ -210,7 +119,6 @@ test('a field of many plants costs fewer draws than the plants would alone', asy
     solo.dispose();
 
     await withField(name, { count }, (field) => {
-      field.update(0.016, 1, camera(20, 5, 40));
       const fieldDraws = field.stats().drawCalls;
       assert.ok(
         fieldDraws < perPlant * count,
@@ -222,70 +130,86 @@ test('a field of many plants costs fewer draws than the plants would alone', asy
   }
 });
 
-test('the field never exceeds the instance budget it was given', async () => {
+test('the caller sets levels, and a coarser one costs less', async () => {
   for (const name of PLANTS) {
-    await withField(name, { count: 300, budget: 40_000 }, (field) => {
-      for (const distance of [5, 25, 80, 300]) {
-        field.update(0.016, 1, camera(20, 5, distance));
-        const stats = field.stats();
-        assert.ok(
-          stats.organInstances <= stats.budget,
-          `${name} at ${distance} m: ${stats.organInstances} > ${stats.budget}`,
-        );
-      }
-    });
-  }
-});
+    await withField(name, { count: 80 }, (field, prototypes) => {
+      const coarsest = prototypes[0].bands.length - 1;
 
-test('pulling the camera back coarsens the field instead of costing more', async () => {
-  for (const name of PLANTS) {
-    await withField(name, { count: 80 }, (field) => {
-      field.update(0.016, 1, camera(10, 5, 5));
-      const near = field.stats();
+      field.setLevels(new Array(80).fill(0));
+      const fine = field.stats();
 
-      field.update(0.016, 2, camera(10, 5, 400));
-      const far = field.stats();
+      field.setLevels(new Array(80).fill(coarsest));
+      const coarse = field.stats();
 
       assert.ok(
-        far.organInstances < near.organInstances,
-        `${name}: ${far.organInstances} instances far vs ${near.organInstances} near`,
+        coarse.organInstances < fine.organInstances,
+        `${name}: ${coarse.organInstances} coarse vs ${fine.organInstances} fine`,
       );
-      assert.equal(far.drawCalls, near.drawCalls, `${name}: draw calls moved`);
-      // Everything ends up in the coarsest band, not scattered.
-      assert.equal(far.bandCounts.at(-1) > 0, true);
+      assert.equal(coarse.drawCalls, fine.drawCalls, `${name}: draws moved`);
+      assert.equal(coarse.levelCounts.at(-1), 80);
+      assert.deepEqual(field.levels, new Array(80).fill(coarsest));
     });
   }
 });
 
-test('a stationary camera does not repack, so the cost lands on crossings', async () => {
-  await withField('forsythia', { count: 40 }, (field) => {
-    const view = camera(10, 5, 20);
-    field.update(0.016, 1, view);
-    const first = field.stats().repacks;
+test("the budget is reported, never enforced behind the caller's back", async () => {
+  await withField('forsythia', { count: 60, budget: 1000 }, (field) => {
+    field.setLevels(new Array(60).fill(0));
+    const stats = field.stats();
 
-    for (let frame = 0; frame < 5; frame += 1) field.update(0.016, frame, view);
+    // The caller asked for the finest level on sixty plants against a budget
+    // that cannot possibly hold them. The field draws them anyway and says so.
+    assert.ok(stats.organInstances > stats.budget);
+    assert.equal(stats.overBudget, true);
+    assert.equal(stats.levelCounts[0], 60, 'nothing may be coarsened silently');
+    assert.ok(stats.drawCalls > 0);
+    assert.deepEqual(field.levels, new Array(60).fill(0));
+  });
+
+  await withField('forsythia', { count: 60, budget: 10_000_000 }, (field) => {
+    assert.equal(field.stats().overBudget, false);
+  });
+});
+
+test('setting the same levels again does not repack', async () => {
+  await withField('forsythia', { count: 40 }, (field) => {
+    const levels = field.levels;
+    const before = field.stats().repacks;
+
+    field.setLevels(levels);
+    field.setLevelAt(0, levels[0]);
+    for (let frame = 0; frame < 5; frame += 1) field.update(0.016, frame);
+
     assert.equal(
       field.stats().repacks,
-      first,
-      'a still camera must not rebuild the buffers every frame',
+      before,
+      'an unchanged level set must not rebuild the buffers',
     );
   });
 });
 
-test('the field advances wind without letting per-plant LOD remesh underneath it', async () => {
+test('a field reads no camera and cannot be made to change level by one', async () => {
   await withField('forsythia', { count: 10 }, (field, prototypes, plants) => {
     const plant = plants[0];
     const woodBefore = plant._woodMesh.geometry;
-    const before = plant._detail;
+    const detailBefore = plant._detail;
+    const levelsBefore = field.levels;
 
-    field.update(0.016, 1, camera(10, 5, 400));
+    // Passing a camera is not an error; it is simply ignored, because
+    // `update` takes only time.
+    field.update(0.016, 1, new THREE.PerspectiveCamera());
 
-    assert.strictEqual(
-      plant._detail,
-      before,
-      'the field must not drive the source plant through its own LOD',
-    );
+    assert.deepEqual(field.levels, levelsBefore);
+    assert.strictEqual(plant._detail, detailBefore);
     assert.strictEqual(plant._woodMesh.geometry, woodBefore);
+  });
+});
+
+test("a level outside the prototype's range is refused", async () => {
+  await withField('forsythia', { count: 4 }, (field) => {
+    assert.throws(() => field.setLevelAt(0, 99), /it has 3/);
+    assert.throws(() => field.setLevelAt(99, 0), /No placement at index/);
+    assert.throws(() => field.setLevels([0, 0]), /Expected 4 levels/);
   });
 });
 

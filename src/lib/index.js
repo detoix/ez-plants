@@ -3,6 +3,13 @@ export { Trellis } from './trellis.js';
 export { TreePreset } from './presets/index.js';
 export { Billboard, ShadowCast, TreeType } from './enums.js';
 export { PlantRenderer } from './plant-renderer.js';
+// Optional, caller-driven. Nothing in the library constructs one: a plant's
+// level is set by `setLevel`, never by a camera.
+export {
+  normalizePlantLODLevels,
+  PlantLODController,
+  selectPlantLODLevel,
+} from './plant-lod.js';
 
 export { Blackcurrant } from './plants/blackcurrant/blackcurrant.js';
 export {

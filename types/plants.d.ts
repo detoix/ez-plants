@@ -144,14 +144,31 @@ export declare class PlantRenderer extends THREE.Group {
   resetEvents(): this;
 
   /**
-   * Advance leaf wind and, when a camera is supplied and LOD is enabled,
-   * re-select the detail level. Call once per frame.
+   * The levels this plant can be drawn at, in order.
+   *
+   * Each carries a **suggested** `distance`, but the library never acts on it.
+   * Read it as advice; pick levels however you like.
    */
-  update(
-    deltaSeconds?: number,
-    elapsedSeconds?: number,
-    camera?: THREE.Camera,
-  ): void;
+  readonly lodLevels: readonly Required<PlantLODLevel>[];
+
+  /** The level currently drawn. Index into `lodLevels`. */
+  readonly level: number;
+
+  /**
+   * Draw this plant at one of its levels.
+   *
+   * The only way a plant's detail changes. No camera is read and nothing
+   * switches level on its own.
+   */
+  setLevel(index: number): this;
+
+  /**
+   * Advance leaf wind. Call once per frame.
+   *
+   * Takes no camera: choosing a level is `setLevel`, and it is the caller's
+   * decision rather than a side effect of the frame loop.
+   */
+  update(deltaSeconds?: number, elapsedSeconds?: number): this;
 
   /**
    * Freeze the plant into buffers something else can instance.
@@ -245,13 +262,13 @@ export interface BlackcurrantOptions {
   offsetDays?: number;
   assets?: PlantAssets;
   events?: Partial<CareEvent>[];
-  /** Enable camera-distance level of detail. */
-  lod?: boolean;
   /**
-   * Distance bands to switch between. Defaults to the cultivar's own, which
-   * suit a garden close-up; a landscape wants different ones. Each level may
-   * set `shadowCast` explicitly, or leave it to be derived from the band's
-   * position — nearest casts everything, furthest casts nothing.
+   * The levels this plant can be drawn at. Defaults to the cultivar's own.
+   *
+   * `distance` on each level is a **suggestion** the library publishes and
+   * never acts on — call `setLevel()` to choose. Each level may set
+   * `shadowCast` explicitly, or leave it derived from the level's position:
+   * finest casts everything, coarsest casts nothing.
    */
   lodLevels?: PlantLODLevel[];
 }
@@ -373,12 +390,13 @@ export interface ForsythiaOptions {
   offsetDays?: number;
   assets?: PlantAssets;
   events?: Partial<CareEvent>[];
-  lod?: boolean;
   /**
-   * Distance bands to switch between. Defaults to the cultivar's own, which
-   * suit a garden close-up; a landscape wants different ones. Each level may
-   * set `shadowCast` explicitly, or leave it to be derived from the band's
-   * position — nearest casts everything, furthest casts nothing.
+   * The levels this plant can be drawn at. Defaults to the cultivar's own.
+   *
+   * `distance` on each level is a **suggestion** the library publishes and
+   * never acts on — call `setLevel()` to choose. Each level may set
+   * `shadowCast` explicitly, or leave it derived from the level's position:
+   * finest casts everything, coarsest casts nothing.
    */
   lodLevels?: PlantLODLevel[];
 }
@@ -508,12 +526,13 @@ export interface HydrangeaOptions {
   offsetDays?: number;
   assets?: PlantAssets;
   events?: readonly [];
-  lod?: boolean;
   /**
-   * Distance bands to switch between. Defaults to the cultivar's own, which
-   * suit a garden close-up; a landscape wants different ones. Each level may
-   * set `shadowCast` explicitly, or leave it to be derived from the band's
-   * position — nearest casts everything, furthest casts nothing.
+   * The levels this plant can be drawn at. Defaults to the cultivar's own.
+   *
+   * `distance` on each level is a **suggestion** the library publishes and
+   * never acts on — call `setLevel()` to choose. Each level may set
+   * `shadowCast` explicitly, or leave it derived from the level's position:
+   * finest casts everything, coarsest casts nothing.
    */
   lodLevels?: PlantLODLevel[];
 }
@@ -640,12 +659,13 @@ export interface MiscanthusOptions {
    * modelled by the calendar's cutback window.
    */
   events?: readonly [];
-  lod?: boolean;
   /**
-   * Distance bands to switch between. Defaults to the cultivar's own, which
-   * suit a garden close-up; a landscape wants different ones. Each level may
-   * set `shadowCast` explicitly, or leave it to be derived from the band's
-   * position — nearest casts everything, furthest casts nothing.
+   * The levels this plant can be drawn at. Defaults to the cultivar's own.
+   *
+   * `distance` on each level is a **suggestion** the library publishes and
+   * never acts on — call `setLevel()` to choose. Each level may set
+   * `shadowCast` explicitly, or leave it derived from the level's position:
+   * finest casts everything, coarsest casts nothing.
    */
   lodLevels?: PlantLODLevel[];
 }
