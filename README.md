@@ -1,22 +1,32 @@
-# EZ-Tree
+# EZ-Plants
 
 ![NPM Version](https://img.shields.io/npm/v/%40detoix%2Fez-plants)
 ![NPM Downloads](https://img.shields.io/npm/dw/%40detoix%2Fez-plants)
 ![GitHub Repo stars](https://img.shields.io/github/stars/detoix/ez-plants)
-![X (formerly Twitter) Follow](https://img.shields.io/twitter/follow/dangreenheck)
-![YouTube Channel Subscribers](https://img.shields.io/youtube/channel/subscribers/UCrdx_EU_Wx8_uBfqO0cI-9Q)
 
-<p align="center">
-<img src="https://github.com/user-attachments/assets/cb5f5edd-3e1b-453d-925f-734965126b17">
-</p>
+> No cover image yet. The old one showed an EZ-Tree tree, which is not what this
+> library is for; render a plant with `node scripts/shoot.mjs` to replace it.
 
 # About
 
-EZ-Tree is a procedural tree generator with dozens of tunable parameters. This repository additionally hosts **EZ-Plants**, a library of botanically specific garden plants for Polish and European gardens (see [Garden Plants](#garden-plants-poland--europe)). The standalone tree generation code is published as a library and can be imported into your own application for dynamically generating trees on demand. Additionally, there is a standalone web app which allows you to create trees within the browser and export as .PNG or .GLB files.
+**EZ-Plants** is a library of botanically specific garden plants for Polish and
+European gardens. Each plant is a cultivar-level digital twin — 'Limelight', not
+"a hydrangea" — driven by two numbers, an **age** and a **day of year**, against a
+phenology calendar built from cited sources. Give it a year and a date and it
+grows the plant that belongs there: bare wood in February, forsythia in flower
+before a leaf opens, hydrangea panicles turning cream in August, a grass standing
+dry all winter until the March cut.
 
-# App
+The plants are meant to be taken, not just imported. `npm run plant:add` copies
+one into your project — source, leaf plate and all — the way you would add a
+shadcn component. An extracted plant renders textured and correct with `three` as
+its only dependency.
 
-https://eztree.dev
+This repository is a fork of [EZ-Tree](https://github.com/dgreenheck/ez-tree) by
+Dan Greenheck (MIT), whose procedural tree generator is the machinery the shrubs
+are grown on: woody geometry and axes, bark and leaf materials, wind, instance
+pools and LOD. The tree generator is still here and still works — see
+[Tree generator](#tree-generator) below.
 
 # Installation
 
@@ -24,64 +34,11 @@ https://eztree.dev
 npm i @detoix/ez-plants
 ```
 
-# Usage
+# The plants
 
-```js
-// Create new instance
-const tree = new Tree();
-
-// Set parameters
-tree.options.seed = 12345;
-tree.options.trunk.length = 20;
-tree.options.branch.levels = 3;
-
-// Generate tree and add to your Three.js scene
-tree.generate();
-scene.add(tree);
-```
-
-Any time the tree parameters are changed, you must call `generate()` to regenerate the geometry.
-
-## Levels of Detail (LODs)
-
-For scenes with many trees, `generateLODs()` builds the tree at multiple levels of detail hosted in a `THREE.LOD` object inside the tree group. The renderer automatically switches levels based on camera distance. All levels are meshed from the same skeleton, so the tree's silhouette stays consistent across switches — distant levels just use fewer ring segments and fewer (but larger) leaves.
-
-```js
-const tree = new Tree();
-tree.loadPreset('Ash Medium');
-tree.generateLODs(); // instead of generate()
-scene.add(tree);
-```
-
-The default levels (`Tree.defaultLODLevels`) switch at 100 and 250 units, reducing to roughly 40% and 20% of the full triangle count. You can pass custom levels:
-
-```js
-tree.generateLODs([
-  { distance: 0, detail: {} }, // full detail
-  {
-    distance: 80,
-    hysteresis: 0.05,
-    detail: {
-      sectionStride: 3, // sample every 3rd ring along each branch
-      segmentFactor: 0.75, // reduce radial segments to 75% (min 3)
-      leafStride: 2, // keep every 2nd leaf...
-      leafScale: 1.4, // ...enlarged to preserve canopy coverage
-      billboard: 'single', // drop the second crossed leaf quad
-    },
-  },
-]);
-```
-
-All LOD levels share one bark material and one leaf material, so `tree.update(time)` animates wind at every level. Calling `generate()` afterwards tears the LOD down and restores the single full-detail mesh pair (note that exporting a tree generated with `generateLODs()` to GLB will include every level).
-
-If you have your own LOD or instancing system, `tree.createGeometry(detail)` returns raw `{ branches, leaves }` `BufferGeometry` pairs at any detail level without touching the tree's own meshes.
-
-# Garden Plants (Poland & Europe)
-
-Alongside the procedural tree generator, this repository hosts a growing library of
-**botanically specific garden plants** for Polish and European gardens. Each plant is a
-cultivar-level digital twin: a persistent cane structure driven by an **age** and a
-**day of year**, with a phenology calendar built from cited real-world sources.
+Four cultivars so far, each a digital twin rather than a generic species: a
+persistent structure driven by an **age** and a **day of year**, with a phenology
+calendar built from cited real-world sources.
 
 | Plant                                        | Cultivar     | Habit                                                                  | Defining behaviour                                                                                           |
 | -------------------------------------------- | ------------ | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
@@ -385,16 +342,75 @@ docker compose build
 docker compose up -d
 ```
 
-# Tree Parameters
+# Tree generator
+
+The procedural tree generator inherited from EZ-Tree, unchanged. Trees are a
+separate thing from the garden plants above: they take a `TreeOptions` bag rather
+than an age and a day, and they are not cultivar-level. Dan Greenheck hosts the
+original tree app at <https://eztree.dev>.
+
+## Generating a tree
+
+```js
+// Create new instance
+const tree = new Tree();
+
+// Set parameters
+tree.options.seed = 12345;
+tree.options.trunk.length = 20;
+tree.options.branch.levels = 3;
+
+// Generate tree and add to your Three.js scene
+tree.generate();
+scene.add(tree);
+```
+
+Any time the tree parameters are changed, you must call `generate()` to regenerate the geometry.
+
+## Levels of Detail (LODs)
+
+For scenes with many trees, `generateLODs()` builds the tree at multiple levels of detail hosted in a `THREE.LOD` object inside the tree group. The renderer automatically switches levels based on camera distance. All levels are meshed from the same skeleton, so the tree's silhouette stays consistent across switches — distant levels just use fewer ring segments and fewer (but larger) leaves.
+
+```js
+const tree = new Tree();
+tree.loadPreset('Ash Medium');
+tree.generateLODs(); // instead of generate()
+scene.add(tree);
+```
+
+The default levels (`Tree.defaultLODLevels`) switch at 100 and 250 units, reducing to roughly 40% and 20% of the full triangle count. You can pass custom levels:
+
+```js
+tree.generateLODs([
+  { distance: 0, detail: {} }, // full detail
+  {
+    distance: 80,
+    hysteresis: 0.05,
+    detail: {
+      sectionStride: 3, // sample every 3rd ring along each branch
+      segmentFactor: 0.75, // reduce radial segments to 75% (min 3)
+      leafStride: 2, // keep every 2nd leaf...
+      leafScale: 1.4, // ...enlarged to preserve canopy coverage
+      billboard: 'single', // drop the second crossed leaf quad
+    },
+  },
+]);
+```
+
+All LOD levels share one bark material and one leaf material, so `tree.update(time)` animates wind at every level. Calling `generate()` afterwards tears the LOD down and restores the single full-detail mesh pair (note that exporting a tree generated with `generateLODs()` to GLB will include every level).
+
+If you have your own LOD or instancing system, `tree.createGeometry(detail)` returns raw `{ branches, leaves }` `BufferGeometry` pairs at any detail level without touching the tree's own meshes.
+
+## Tree parameters
 
 The `TreeOptions` class defines an options object that controls various parameters of a procedurally generated tree. Each property of this object allows for customization of the tree's appearance, including bark, branches, and leaves. Below is a detailed explanation of each property of the `TreeOptions` object.
 
-## General Properties
+### General Properties
 
 - **`seed`**: Sets the initial value for random generation, ensuring consistent tree generation when using the same seed.
 - **`type`**: Defines the type of the tree, which can be set to one of the options from the `TreeType` enumeration (e.g., `TreeType.Deciduous`).
 
-## Bark Parameters
+### Bark Parameters
 
 The `bark` object controls the appearance and properties of the tree trunk.
 
@@ -405,7 +421,7 @@ The `bark` object controls the appearance and properties of the tree trunk.
 - **`maps`**: Caller-supplied `THREE.Texture` objects in `{ color, ao, normal, roughness }`. No textures are bundled with the library.
 - **`textureScale`**: Controls the scale of the bark texture in both the `x` and `y` axes. It is an object with properties `x` and `y` to define the scaling factors.
 
-## Branch Parameters
+### Branch Parameters
 
 The `branch` object defines parameters for the trunk and branch levels of the tree.
 
@@ -422,7 +438,7 @@ The `branch` object defines parameters for the trunk and branch levels of the tr
 - **`taper`**: Controls the tapering of the branches at each level. A value between `0` and `1` defines the reduction in radius from base to tip.
 - **`twist`**: Defines the amount of twisting applied to each branch level.
 
-## Leaf Parameters
+### Leaf Parameters
 
 The `leaves` object defines properties that control the appearance and placement of leaves.
 
