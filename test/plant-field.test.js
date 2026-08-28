@@ -409,6 +409,102 @@ test('a field is built from what a plant declares, never from its name', async (
   }
 });
 
+test('field organ meshes own their geometry and instance index', () => {
+  const sourceGeometry = new THREE.PlaneGeometry(1, 1);
+  const sourceMaterial = new THREE.MeshBasicMaterial();
+  const identity = new THREE.Matrix4().toArray();
+  const bounds = new THREE.Box3(
+    new THREE.Vector3(-0.5, -0.5, -0.01),
+    new THREE.Vector3(0.5, 0.5, 0.01),
+  );
+  const prototype = {
+    bands: [
+      {
+        distance: 0,
+        hysteresis: 0,
+        baked: {
+          wood: null,
+          organs: [
+            {
+              kind: 'leaves',
+              name: 'Shared leaves',
+              geometry: sourceGeometry,
+              material: sourceMaterial,
+              count: 1,
+              matrices: Float32Array.from(identity),
+              colors: null,
+              castShadow: false,
+              receiveShadow: false,
+            },
+          ],
+        },
+      },
+    ],
+    organKinds: ['leaves'],
+    bounds,
+    plant: { update() {} },
+    organCount(kind) {
+      return kind === 'leaves' ? 1 : 0;
+    },
+  };
+  const gl = {
+    ARRAY_BUFFER: 0x8892,
+    DYNAMIC_DRAW: 0x88e8,
+    UNSIGNED_INT: 0x1405,
+    bindBuffer() {},
+    bufferData() {},
+    createBuffer() {
+      return {};
+    },
+  };
+  const renderer = { getContext: () => gl };
+  const first = new PlantField({
+    prototypes: [prototype],
+    placements: grid(1),
+    renderer,
+  });
+  const second = new PlantField({
+    prototypes: [prototype],
+    placements: grid(1),
+    renderer,
+  });
+  const firstMesh = first._organMeshes.get('leaves').mesh;
+  const secondMesh = second._organMeshes.get('leaves').mesh;
+  let firstGeometryDisposed = false;
+  let secondGeometryDisposed = false;
+  firstMesh.geometry.addEventListener(
+    'dispose',
+    () => (firstGeometryDisposed = true),
+  );
+  secondMesh.geometry.addEventListener(
+    'dispose',
+    () => (secondGeometryDisposed = true),
+  );
+
+  try {
+    assert.notStrictEqual(firstMesh.geometry, sourceGeometry);
+    assert.notStrictEqual(secondMesh.geometry, sourceGeometry);
+    assert.notStrictEqual(firstMesh.geometry, secondMesh.geometry);
+    assert.equal(sourceGeometry.hasAttribute('instanceIndex'), false);
+    assert.strictEqual(
+      firstMesh.geometry.getAttribute('instanceIndex'),
+      firstMesh.instanceIndex,
+    );
+    assert.strictEqual(
+      secondMesh.geometry.getAttribute('instanceIndex'),
+      secondMesh.instanceIndex,
+    );
+  } finally {
+    first.dispose();
+    second.dispose();
+    sourceGeometry.dispose();
+    sourceMaterial.dispose();
+  }
+
+  assert.equal(firstGeometryDisposed, true);
+  assert.equal(secondGeometryDisposed, true);
+});
+
 test('disposing a field leaves the prototypes and their plants alone', async () => {
   const plants = [await createPlant('forsythia', { seed: 1 })];
   const prototypes = createPrototypePool(plants);

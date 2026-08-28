@@ -326,7 +326,18 @@ export class PlantField extends THREE.Group {
         ),
       );
 
-      const mesh = new InstancedMesh2(source.geometry, source.material, {
+      // InstancedMesh2 stores its per-mesh `instanceIndex` attribute on the
+      // geometry. Organ templates come from the library-wide geometry cache,
+      // so passing the shared object directly lets the last field mesh replace
+      // every earlier mesh's index buffer. The symptom is camera-dependent:
+      // culling one species then changes which leaves another species draws.
+      //
+      // Own the geometry at this boundary. Removing a pre-existing attribute
+      // also makes this safe if a caller hands us geometry previously touched
+      // by another InstancedMesh2.
+      const organGeometry = source.geometry.clone();
+      organGeometry.deleteAttribute('instanceIndex');
+      const mesh = new InstancedMesh2(organGeometry, source.material, {
         capacity,
         renderer: this._renderer,
       });
@@ -773,7 +784,12 @@ export class PlantField extends THREE.Group {
    */
   dispose() {
     for (const mesh of this._woodMeshes) mesh?.dispose?.();
-    for (const { mesh } of this._organMeshes.values()) mesh.dispose?.();
+    for (const { mesh } of this._organMeshes.values()) {
+      // Organ geometry is cloned specifically for this field mesh; materials
+      // still belong to the source plants and must remain alive.
+      mesh.geometry.dispose();
+      mesh.dispose?.();
+    }
     this._woodMeshes.length = 0;
     this._organMeshes.clear();
     for (const slots of this._slots) slots.clear();
