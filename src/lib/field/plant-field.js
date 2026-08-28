@@ -331,6 +331,22 @@ export class PlantField extends THREE.Group {
         renderer: this._renderer,
       });
       mesh.name = `${this.name}_${source.name}`;
+      // A kind can exist in the prototype and still have no instances at the
+      // levels in play -- a band that retires it under library rule 9, or a
+      // season with no fruit. instanced-mesh only assigns `count` during its
+      // own per-object cull, which this field does not use, so without this the
+      // mesh keeps an undefined count and `renderer.info.render.triangles`
+      // becomes NaN for the whole scene, not just for this mesh.
+      mesh.count = 0;
+      // The app owns culling here, exactly as `PlantInstancePool` does for a
+      // single plant: `FieldViewDriver` hides every off-screen plant's
+      // instances, so three.js testing the pooled mesh as a whole is a second
+      // culling system running on a bound this class maintains by hand -- and
+      // that bound is `prototype.bounds`, which knows nothing of the `leafScale`
+      // applied at coarse bands or of the wind's vertex displacement. When all
+      // the plants are hidden the count is already zero, so nothing is drawn
+      // either way and this costs nothing.
+      mesh.frustumCulled = false;
       mesh.castShadow = castShadow && source.castShadow;
       mesh.receiveShadow = receiveShadow && source.receiveShadow;
       // See the constructor's `perInstanceCulling` note. When it is off, the

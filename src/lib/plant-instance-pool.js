@@ -49,6 +49,7 @@ export class PlantInstancePool {
     this._cursors = {};
     this._identityAt = {};
     this._shadowEligible = {};
+    this._suppressed = new Set();
   }
 
   /**
@@ -108,6 +109,21 @@ export class PlantInstancePool {
     return this;
   }
 
+  /**
+   * Kinds that draw nothing until told otherwise, whatever the plant emits.
+   *
+   * Suppression lands in `commitFrame` rather than `allocate` so no caller can
+   * be broken by it: the plant still computes its petioles, they simply are not
+   * drawn. That costs a little CPU at coarse bands and keeps this a property of
+   * the pool instead of a branch in every plant.
+   *
+   * @param {Iterable<string>} [kinds]
+   */
+  suppress(kinds = []) {
+    this._suppressed = new Set(kinds);
+    return this;
+  }
+
   beginFrame() {
     for (const kind of Object.keys(this._meshes)) {
       this._cursors[kind] = 0;
@@ -153,7 +169,7 @@ export class PlantInstancePool {
 
   commitFrame() {
     for (const [kind, mesh] of Object.entries(this._meshes)) {
-      const activeCount = this._cursors[kind];
+      const activeCount = this._suppressed.has(kind) ? 0 : this._cursors[kind];
       mesh.count = activeCount;
       if (activeCount > 0) {
         markAttributeRange(mesh.instanceMatrix, activeCount * 16);

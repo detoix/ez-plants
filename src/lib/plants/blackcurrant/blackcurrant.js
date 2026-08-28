@@ -57,6 +57,10 @@ const DEFAULT_LOD_LEVELS = Object.freeze([
       segmentFactor: 0.75,
       leafStride: 2,
       leafScale: 1.18,
+      // A 2.5-65 mm leaf stalk, at 4.5 m and beyond. It costs ten times the
+      // leaf it carries -- 20 triangles against the card's 2 -- and library
+      // rule 9 allows a third organ kind at band 0 only.
+      dropKinds: Object.freeze(['petioles']),
     }),
   }),
   Object.freeze({
@@ -67,6 +71,7 @@ const DEFAULT_LOD_LEVELS = Object.freeze([
       segmentFactor: 0.55,
       leafStride: 3,
       leafScale: 1.32,
+      dropKinds: Object.freeze(['petioles']),
     }),
   }),
 ]);

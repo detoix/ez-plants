@@ -197,7 +197,10 @@ of draw calls too, and the number does not grow with the number of plants.**
   the seasons.
 - Shadows are their own budget. The shadow pass is a second traversal, so it
   coarsens on its own ladder: the near band casts everything, the middle bands
-  keep only the woody silhouette, the far band casts nothing.
+  keep only the woody silhouette, the far band casts nothing. That holds for a
+  single plant. **The field does not carry it** — `PlantField` pools each organ
+  kind into one mesh across every band, so the ladder has nowhere to live and
+  only the wood gets an `addShadowLOD`.
 - The optional field layer draws hundreds of plants in one instanced mesh per
   organ kind. See [Fields](#fields).
 
@@ -251,21 +254,63 @@ optional peer, reachable only through `src/lib/field/`, and the dependency arrow
 points **field → plant, never plant → field**. That is what keeps `three` the
 only dependency an extracted plant needs.
 
+### 9. Every LOD band has a triangle budget, and the numbers are EZ-Tree's
+
+Budget: **25,000 triangles at band 0, 10,000 at band 1, 5,000 at band 2** — drawn
+as wood + leaves + one feature organ at band 0, and wood + leaves after that.
+
+The numbers are measured, not invented. `Tree.defaultLODLevels` in
+`src/lib/tree.js` states a contract — _"LOD1 is roughly 40% of the full triangle
+count, LOD2 roughly 20%"_ — and across all fifteen presets EZ-Tree hits it: 40%
+and 20% on the mean, with the heaviest tree in the set at 22,566 / 9,240 / 5,364
+triangles and exactly **two draws at every level, forever**. A cultivated shrub
+is not a more complex object than an oak, so that ladder is the bar.
+
+- The draw budget is a design constraint, not a performance fix. At field scale
+  draws are pooled per organ kind across every plant of a species, and the
+  handful the field uses is nowhere near a bottleneck. It matters because the
+  geometry that leaves with a dropped kind is what actually costs.
+- Past band 0 a plant is wood and foliage. A feature organ — a panicle, a
+  raceme, a truss — has to be carried by the leaf card or baked into the
+  silhouette, exactly as EZ-Tree drops a leaf to a single billboard at LOD2.
+- When a band is over budget, **merge kinds before dropping them**. Three blade
+  kinds that differ only in posture are one kind with three transforms; a
+  petiole belongs in the leaf card, not in a mesh of its own.
+- Reducing organ _count_ is not the same as reducing organ _geometry_. Today's
+  LOD vocabulary — `sectionStride`, `segmentFactor`, `leafStride`, `leafScale` —
+  reaches wood and leaves and nothing else, which is why a plant whose cost is
+  in its flowers barely coarsens at all.
+
+**`test/geometry-budget.test.js` enforces this, and is the file to read before
+touching plant geometry.** It is a ratchet rather than a plain assertion,
+because the library did not start inside this budget and a test that failed the
+whole suite on day one would be skipped within a week:
+
+- A plant already recorded there may not get worse. Progress locks in as it is
+  made, and the numbers only ever move down.
+- A plant _not_ recorded there is held to the full budget immediately — a plant
+  added tomorrow is inside it on the day it lands, or it fails the build.
+- A plant that got cheaper without its record being lowered also fails, so a win
+  cannot be silently given back.
+
+Lower a plant's recorded entry in the same commit that earns it. The failure
+message prints the numbers to paste.
+
 ## Where the library stands today
 
-Measured against the rules above, at four plants and 264 passing tests
-(`npm test`):
+Measured against the rules above (`npm test`):
 
-| Rule                      | State                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1 — two parameters        | Held. Age and day are the only plant parameters; `scenario` is gone and every plant is unconditionally maintained. The calendar selector and `offsetDays` compose the calendar that `dayOfYear` is read against — they place the calendar, not the plant.                                                                                                                                                                        |
-| 2 — curated               | Held, and now structural: a looked-after plant is the only plant the model can produce.                                                                                                                                                                                                                                                                                                                                          |
-| 3 — botany as spec        | Held. All four are cultivar-level with cited sources and separately labelled assumptions.                                                                                                                                                                                                                                                                                                                                        |
-| 4 — photo comparison      | A standing working practice, not a repo artifact: it asks whoever builds a plant to go and look at photographs first. `scripts/shoot.mjs` renders the comparison shot. Nothing to audit here by design — the rule is satisfied while the plant is being built, or not at all.                                                                                                                                                    |
-| 5 — fast                  | Held, and now enforced. `test/draw-call-budget.test.js` holds every plant to one draw per organ kind plus one for the wood, across the whole year and the whole modelled life, and pins that scrubbing allocates no new mesh. `test/plant-field.test.js` adds the field-scale bound: draw calls do not move between 10, 100 and 400 plants. Both read the roster from the plants directory rather than listing it.               |
-| 6 — stay on EZ-Tree       | Held. All four plants extend `PlantRenderer` and add only their own morphology; nothing in `src/lib/` imports from `src/app/`.                                                                                                                                                                                                                                                                                                   |
-| 7 — self-contained folder | Held. No plant imports another — the shared calendar lives in `src/lib/calendar.js`. Each shrub carries its own `leaf.webp` and loads it itself; bark is generated in `src/lib/bark-plate.js` and shared, since no plant owns it. All four models are Three.js-free and their snapshots survive a JSON round-trip. `npm run plant:add` copies a plant that renders textured standing alone, with `three` as its only dependency. |
-| 8 — two front doors       | Held. All four plants ship a three.js class and an R3F component with matching props.                                                                                                                                                                                                                                                                                                                                            |
+| Rule                      | State                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 — two parameters        | Held. Age and day are the only plant parameters; `scenario` is gone and every plant is unconditionally maintained. The calendar selector and `offsetDays` compose the calendar that `dayOfYear` is read against — they place the calendar, not the plant.                                                                                                                                                                                                       |
+| 2 — curated               | Held, and now structural: a looked-after plant is the only plant the model can produce.                                                                                                                                                                                                                                                                                                                                                                         |
+| 3 — botany as spec        | Held. All four are cultivar-level with cited sources and separately labelled assumptions.                                                                                                                                                                                                                                                                                                                                                                       |
+| 4 — photo comparison      | A standing working practice, not a repo artifact: it asks whoever builds a plant to go and look at photographs first. `scripts/shoot.mjs` renders the comparison shot. Nothing to audit here by design — the rule is satisfied while the plant is being built, or not at all.                                                                                                                                                                                   |
+| 5 — fast                  | Draw calls held and enforced: `test/draw-call-budget.test.js` holds every plant to one draw per organ kind plus one for the wood, and `test/plant-field.test.js` pins that field draws do not move between 10, 100 and 400 plants. The shadow clause holds for a single plant (`test/plant-shadow-lod.test.js`) but is **not** carried into the field, where organ kinds are pooled across bands and only the wood gets a shadow LOD.                           |
+| 6 — stay on EZ-Tree       | Held. All four plants extend `PlantRenderer` and add only their own morphology; nothing in `src/lib/` imports from `src/app/`.                                                                                                                                                                                                                                                                                                                                  |
+| 7 — self-contained folder | Held. No plant imports another — the shared calendar lives in `src/lib/calendar.js`. Each shrub carries its own `leaf.webp` and loads it itself; bark is generated in `src/lib/bark-plate.js` and shared, since no plant owns it. All four models are Three.js-free and their snapshots survive a JSON round-trip. `npm run plant:add` copies a plant that renders textured standing alone, with `three` as its only dependency.                                |
+| 8 — two front doors       | Held. All four plants ship a three.js class and an R3F component with matching props.                                                                                                                                                                                                                                                                                                                                                                           |
+| 9 — band budgets          | Not held yet, and tracked rather than described. `test/geometry-budget.test.js` holds the current cost of every plant at every band and forbids it growing; read that file for where each plant actually stands, and lower its entry in the commit that earns it. The gap is concentrated in organs the LOD vocabulary cannot reach — a plant whose cost is in its flowers barely coarsens, because `leafStride` and `sectionStride` do not describe a panicle. |
 
 ### Extracting a plant
 

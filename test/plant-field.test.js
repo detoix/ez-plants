@@ -145,7 +145,12 @@ test('the caller sets levels, and a coarser one costs less', async () => {
         coarse.organInstances < fine.organInstances,
         `${name}: ${coarse.organInstances} coarse vs ${fine.organInstances} fine`,
       );
-      assert.equal(coarse.drawCalls, fine.drawCalls, `${name}: draws moved`);
+      // Never more. Equal was the old invariant; library rule 9 lets a band
+      // retire an organ kind, so a coarser level may legitimately draw fewer.
+      assert.ok(
+        coarse.drawCalls <= fine.drawCalls,
+        `${name}: ${coarse.drawCalls} coarse draws vs ${fine.drawCalls} fine`,
+      );
       assert.equal(coarse.levelCounts.at(-1), 80);
       assert.deepEqual(field.levels, new Array(80).fill(coarsest));
     });

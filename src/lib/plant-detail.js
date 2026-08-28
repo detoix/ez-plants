@@ -10,6 +10,7 @@ export const DEFAULT_PLANT_DETAIL = Object.freeze({
   segmentFactor: 1,
   leafStride: 1,
   leafScale: 1,
+  dropKinds: Object.freeze([]),
   billboard: null,
   shadowCast: ShadowCast.All,
   shadowReceive: true,
@@ -59,6 +60,15 @@ export function normalizePlantDetail(detail = {}, fallback = {}) {
     throw new RangeError(`Unknown shadow cast mode: ${shadowCast}.`);
   }
 
+  const dropKinds = Object.freeze([
+    ...(detail.dropKinds ??
+      fallback.dropKinds ??
+      DEFAULT_PLANT_DETAIL.dropKinds),
+  ]);
+  if (dropKinds.some((kind) => typeof kind !== 'string' || !kind)) {
+    throw new TypeError('dropKinds must be organ-kind names.');
+  }
+
   const shadowReceive =
     detail.shadowReceive ??
     fallback.shadowReceive ??
@@ -88,6 +98,7 @@ export function normalizePlantDetail(detail = {}, fallback = {}) {
       fallback.leafScale ?? DEFAULT_PLANT_DETAIL.leafScale,
       'leafScale',
     ),
+    dropKinds,
     billboard,
     shadowCast,
     shadowReceive,

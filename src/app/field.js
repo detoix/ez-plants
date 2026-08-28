@@ -111,7 +111,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const clock = new THREE.Clock();
     function animate() {
-      const delta = Math.min(clock.getDelta(), 0.05);
+      // Two deltas, on purpose. The clamped one drives the simulation: without
+      // a ceiling, one long frame -- a shader compile, a backgrounded tab --
+      // advances the wind by a whole second and the garden snaps. The raw one
+      // is what the HUD reports, because clamping the number you are measuring
+      // by the same 50 ms puts a floor of 20 under the FPS readout: a 253 ms
+      // frame displayed as 21 FPS instead of 4, and every stall shown as
+      // "worst 50". The page exists to show that cost, so it must not round it
+      // off.
+      const raw = clock.getDelta();
+      const delta = Math.min(raw, 0.05);
       const elapsed = clock.elapsedTime;
 
       walk.update(delta);
@@ -138,7 +147,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const renderMs = performance.now() - renderStarted;
 
       hud.update({
-        delta,
+        delta: raw,
         renderer,
         fields: stage.fields,
         view: viewStats,

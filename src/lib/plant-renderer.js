@@ -52,6 +52,11 @@ const unitStem = ({ segments }) => createUnitStemGeometry(segments);
  * Members prefixed with `_` are protected: subclasses in this library use
  * them, callers outside it should not.
  */
+/** Detail comparison for `dropKinds`, which is a list rather than a scalar. */
+function sameKinds(a, b) {
+  return a.length === b.length && a.every((kind, index) => kind === b[index]);
+}
+
 export class PlantRenderer extends THREE.Group {
   constructor({
     plantId,
@@ -726,6 +731,7 @@ export class PlantRenderer extends THREE.Group {
       resolved.segmentFactor === this._detail.segmentFactor &&
       resolved.leafStride === this._detail.leafStride &&
       resolved.leafScale === this._detail.leafScale &&
+      sameKinds(resolved.dropKinds, this._detail.dropKinds) &&
       resolved.billboard === this._detail.billboard &&
       resolved.shadowCast === this._detail.shadowCast &&
       resolved.shadowReceive === this._detail.shadowReceive;
@@ -738,6 +744,7 @@ export class PlantRenderer extends THREE.Group {
       resolved.shadowCast !== this._detail.shadowCast ||
       resolved.shadowReceive !== this._detail.shadowReceive;
     this._detail = resolved;
+    this._instancePool.suppress(resolved.dropKinds);
     if (shadowsChanged) this._applyShadowDetail();
     if (woodChanged) this._woodSnapshotKey = null;
     if (this._snapshot) this._applySnapshot(this._snapshot);
@@ -776,7 +783,11 @@ export class PlantRenderer extends THREE.Group {
    * @param {number} index
    */
   setLevel(index) {
-    if (!Number.isInteger(index) || index < 0 || index >= this._lodLevels.length) {
+    if (
+      !Number.isInteger(index) ||
+      index < 0 ||
+      index >= this._lodLevels.length
+    ) {
       throw new RangeError(
         `Level must be an integer from 0 to ${this._lodLevels.length - 1}.`,
       );
