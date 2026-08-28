@@ -146,6 +146,10 @@ export class Forsythia extends PlantRenderer {
         strength: new THREE.Vector3(0.115, 0, 0.115),
         frequency: 0.42,
         scale: 1.25,
+        // The caller may override any of this, including switching the
+        // wind off entirely -- it is the most expensive per-vertex work in
+        // the scene.
+        ...options.leafWind,
       },
       barkTint: 0x6a5f4c,
     });

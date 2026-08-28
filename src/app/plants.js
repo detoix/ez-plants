@@ -123,7 +123,10 @@ export const PLANTS = Object.freeze({
     create(state) {
       return new Blackcurrant({
         cultivar: 'Tisel',
-        seed: 24051987,
+        seed: state.seed ?? 24051987,
+        // Lets the field page switch the wind off; it is the most expensive
+        // per-vertex work in the scene, so it has to be measurable.
+        leafWind: state.leafWind,
         ageYears: state.age,
         dayOfYear: state.day,
         trialYear: state.phenologyProfile,
@@ -198,7 +201,10 @@ export const PLANTS = Object.freeze({
     create(state) {
       return new Forsythia({
         cultivar: 'Lynwood',
-        seed: 19460412,
+        seed: state.seed ?? 19460412,
+        // Lets the field page switch the wind off; it is the most expensive
+        // per-vertex work in the scene, so it has to be measurable.
+        leafWind: state.leafWind,
         ageYears: state.age,
         dayOfYear: state.day,
         region: state.phenologyProfile,
@@ -275,7 +281,10 @@ export const PLANTS = Object.freeze({
     create(state) {
       return new Hydrangea({
         cultivar: 'Limelight',
-        seed: 1986,
+        seed: state.seed ?? 1986,
+        // Lets the field page switch the wind off; it is the most expensive
+        // per-vertex work in the scene, so it has to be measurable.
+        leafWind: state.leafWind,
         maxYears: 30,
         ageYears: state.age,
         dayOfYear: state.day,
@@ -353,7 +362,10 @@ export const PLANTS = Object.freeze({
     create(state) {
       return new Miscanthus({
         cultivar: 'Malepartus',
-        seed: 19130212,
+        seed: state.seed ?? 19130212,
+        // Lets the field page switch the wind off; it is the most expensive
+        // per-vertex work in the scene, so it has to be measurable.
+        leafWind: state.leafWind,
         maxYears: 25,
         ageYears: state.age,
         dayOfYear: state.day,

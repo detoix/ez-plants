@@ -73,7 +73,7 @@ import { assertInstancingPatch } from './three-copy-guard.js';
  * about 2,100 organ instances at its *coarsest* band — the far band coarsens
  * the wood but keeps every surviving leaf as real geometry. So this budget
  * seats somewhere around 230 of them before band assignment runs out of
- * demotions and starts dropping plants outright, which `stats().dropped`
+ * demotions and the budget is simply exceeded, which `stats().overBudget`
  * reports. That ceiling is not a property of the budget; it is the missing
  * far/imposter band. Until the coarsest band becomes a card rather than a
  * canopy, a large field either costs proportionally more memory or loses its
@@ -84,6 +84,24 @@ export const DEFAULT_INSTANCE_BUDGET = 500_000;
 const matrix = new THREE.Matrix4();
 const organMatrix = new THREE.Matrix4();
 const colour = new THREE.Color();
+const bounds = new THREE.Box3();
+const placementBounds = new THREE.Box3();
+
+/**
+ * `InstancedMesh2.removeInstances` takes its ids as rest arguments, and one
+ * mature forsythia carries more than four thousand organs of a single kind.
+ * Spreading that many arguments is close enough to an engine's argument limit
+ * to be worth chunking here rather than discovering the ceiling in someone
+ * else's browser.
+ */
+const REMOVE_CHUNK = 4096;
+
+function freeInstances(mesh, ids) {
+  for (let start = 0; start < ids.length; start += REMOVE_CHUNK) {
+    const end = Math.min(start + REMOVE_CHUNK, ids.length);
+    mesh.removeInstances(...ids.subarray(start, end));
+  }
+}
 
 /** Accept a Vector3, an array or an {x,y,z}. */
 function toVector(value) {
@@ -109,6 +127,15 @@ export class PlantField extends THREE.Group {
    *   image for a single-shot render such as a thumbnail or a poster.
    * @param {boolean} [options.castShadow]
    * @param {boolean} [options.receiveShadow]
+   * @param {boolean} [options.perInstanceCulling] Let instanced-mesh test every
+   *   organ against the frustum, every frame. True by default, because a field
+   *   whose caller does nothing must still not draw what is behind it -- but it
+   *   is the wrong tool at field scale and measurably so. The test is per organ:
+   *   400 plants at their coarsest band is 434,000 spheres per frame, twice over
+   *   with shadows, costing ~36 ms to reject about three quarters of them. One
+   *   sphere per plant reaches the same answer in 0.007 ms. If you cull whole
+   *   plants yourself with `setVisibility`, turn this off; `placementSphere` gives
+   *   you the bounds to test.
    */
   constructor({
     prototypes,
@@ -117,6 +144,7 @@ export class PlantField extends THREE.Group {
     renderer = null,
     castShadow = true,
     receiveShadow = true,
+    perInstanceCulling = true,
     name = 'PlantField',
   } = {}) {
     super();
@@ -136,6 +164,7 @@ export class PlantField extends THREE.Group {
     this._prototypes = prototypes;
     this._budget = budget;
     this._renderer = renderer;
+    this._perInstanceCulling = perInstanceCulling;
     this._bandsPerPrototype = prototypes[0].bands.length;
 
     for (const prototype of prototypes) {
@@ -182,11 +211,24 @@ export class PlantField extends THREE.Group {
       organInstances: 0,
       overBudget: false,
       repacks: 0,
+      instanceWrites: 0,
     };
+
+    // One id list per placement per organ kind, and the reason a level change
+    // costs one plant rather than the whole field. A placement's instances are
+    // found by lookup instead of by re-deriving every offset from the counts of
+    // every placement before it, which is what forced the old full rebuild.
+    this._slots = this._placements.map(() => new Map());
+    // Every placement starts drawn. Hiding is the caller's call, exactly as
+    // choosing a level is -- the field still reads no camera.
+    this._visible = new Uint8Array(this._placements.length).fill(1);
 
     this._createWoodMeshes({ castShadow, receiveShadow });
     this._createOrganMeshes({ castShadow, receiveShadow });
-    this._repack();
+    for (let index = 0; index < this._placements.length; index += 1) {
+      this._writePlacement(index, this._levels[index]);
+    }
+    this._computeFieldBounds();
   }
 
   /* ------------------------------------------------------------------ *
@@ -241,6 +283,9 @@ export class PlantField extends THREE.Group {
       mesh.addInstances(placements.length);
       for (const [slot, placement] of placements.entries()) {
         mesh.setMatrixAt(slot, placement.transform);
+        // Remembered so a hidden plant loses its trunk as well as its leaves.
+        placement.woodMesh = mesh;
+        placement.woodSlot = slot;
       }
       mesh.computeBoundingBox();
 
@@ -288,10 +333,11 @@ export class PlantField extends THREE.Group {
       mesh.name = `${this.name}_${source.name}`;
       mesh.castShadow = castShadow && source.castShadow;
       mesh.receiveShadow = receiveShadow && source.receiveShadow;
-      // Real bounds and real culling, unlike a single plant's pools, which
-      // switch culling off because their instances sit outside the base
-      // geometry's bounds and there is only one of them anyway.
-      mesh.perObjectFrustumCulled = true;
+      // See the constructor's `perInstanceCulling` note. When it is off, the
+      // renderer keeps an index of the instances that are active and visible and
+      // rebuilds it only when something changes, so hiding a plant costs a scan
+      // rather than a frustum test per organ per frame.
+      mesh.perObjectFrustumCulled = this._perInstanceCulling;
 
       this._organMeshes.set(kind, { mesh, capacity });
       this.add(mesh);
@@ -320,16 +366,18 @@ export class PlantField extends THREE.Group {
       );
     }
 
-    let changed = false;
+    // Validate the whole set before touching anything, so a bad level leaves
+    // the field exactly as it was rather than half applied.
     for (let index = 0; index < levels.length; index += 1) {
-      const level = levels[index];
-      this._validateLevel(index, level);
-      if (level !== this._levels[index]) changed = true;
+      this._validateLevel(index, levels[index]);
     }
-    if (!changed) return this;
 
-    this._levels.set(levels);
-    return this._repack();
+    for (let index = 0; index < levels.length; index += 1) {
+      if (levels[index] !== this._levels[index]) {
+        this._writePlacement(index, levels[index]);
+      }
+    }
+    return this;
   }
 
   /**
@@ -344,8 +392,8 @@ export class PlantField extends THREE.Group {
     }
     this._validateLevel(index, level);
     if (this._levels[index] === level) return this;
-    this._levels[index] = level;
-    return this._repack();
+    this._writePlacement(index, level);
+    return this;
   }
 
   _validateLevel(index, level) {
@@ -357,51 +405,245 @@ export class PlantField extends THREE.Group {
     }
   }
 
-  _repack() {
-    this._stats.repacks += 1;
-    let organInstances = 0;
+  /**
+   * Which placements are currently drawn. A copy; use `setVisibility`.
+   *
+   * Deliberately not called `visible`: this is a `THREE.Group`, and `visible`
+   * is Object3D's own flag for the whole field. These are its placements.
+   */
+  get visibility() {
+    return Array.from(this._visible, (flag) => flag === 1);
+  }
+
+  /**
+   * Show or hide one placement -- its organs and its wood together.
+   *
+   * ## What this is for
+   *
+   * Culling, done at the granularity that suits a field. Organs are pooled per
+   * kind across every plant, so the renderer's own per-instance culling has
+   * nothing coarser than a single leaf to reason about, and pays for that
+   * granularity on every frame. A caller knows something the renderer does not:
+   * that those leaves belong to a plant, and that a plant behind you takes all
+   * of them with it. `placementSphere` gives you the bounds; this hides what
+   * fails the test.
+   *
+   * Hiding writes a visibility flag per organ and no matrices, so it is cheap
+   * and touches no GPU buffer. It is not free -- a plant is a few hundred to a
+   * few thousand flags -- so hide on change, not every frame.
+   *
+   * Like levels, this is never decided here. The field reads no camera.
+   *
+   * @param {number} index
+   * @param {boolean} visible
+   */
+  setVisibleAt(index, visible) {
+    if (
+      !Number.isInteger(index) ||
+      index < 0 ||
+      index >= this._visible.length
+    ) {
+      throw new RangeError(`No placement at index ${index}.`);
+    }
+    const flag = visible ? 1 : 0;
+    if (this._visible[index] === flag) return this;
+    this._visible[index] = flag;
+    return this._applyVisibility(index);
+  }
+
+  /**
+   * Show or hide every placement at once.
+   * @param {ArrayLike<boolean|number>} flags One per placement.
+   */
+  setVisibility(flags) {
+    if (flags?.length !== this._visible.length) {
+      throw new RangeError(
+        `Expected ${this._visible.length} flags, got ${flags?.length}.`,
+      );
+    }
+    for (let index = 0; index < flags.length; index += 1) {
+      const flag = flags[index] ? 1 : 0;
+      if (this._visible[index] === flag) continue;
+      this._visible[index] = flag;
+      this._applyVisibility(index);
+    }
+    return this;
+  }
+
+  _applyVisibility(index) {
+    const visible = this._visible[index] === 1;
+    for (const [kind, ids] of this._slots[index]) {
+      const entry = this._organMeshes.get(kind);
+      if (!entry) continue;
+      for (let slot = 0; slot < ids.length; slot += 1) {
+        entry.mesh.setVisibilityAt(ids[slot], visible);
+      }
+    }
+    const placement = this._placements[index];
+    placement.woodMesh?.setVisibilityAt(placement.woodSlot, visible);
+    return this;
+  }
+
+  /**
+   * One placement's world-space bounding sphere.
+   *
+   * Published so a caller can cull whole plants without reaching inside. The
+   * placements never move, so this is worth computing once and keeping.
+   *
+   * @param {number} index
+   * @param {THREE.Sphere} [target]
+   */
+  placementSphere(index, target = new THREE.Sphere()) {
+    const placement = this._placements[index];
+    if (!placement) throw new RangeError(`No placement at index ${index}.`);
+    placementBounds
+      .copy(placement.prototype.bounds)
+      .applyMatrix4(placement.transform);
+    return placementBounds.getBoundingSphere(target);
+  }
+
+  /**
+   * Write one placement's organs at one level, and only that placement's.
+   *
+   * ## Why this is not a repack
+   *
+   * The instances of one plant are found by lookup in `_slots`, so the work
+   * here is proportional to that plant's own organ count and does not move when
+   * the field grows. That is the property `test/plant-field.test.js` pins, and
+   * it is the whole difference between a level change costing a plant and a
+   * level change costing the field.
+   *
+   * It works because `InstancedMesh2` maintains a free list: `removeInstances`
+   * hands slots back, `addInstances` takes them again before it extends the
+   * buffer. Freeing this placement's ids immediately before allocating its new
+   * ones means the new instances land in the slots the old ones just vacated,
+   * so a field that walks up and down its levels does not accumulate holes.
+   *
+   * The matrices come from the target band's own bake. A coarser band is the
+   * finer one with organs culled and the survivors uniformly scaled, so this
+   * could in principle touch only the difference -- but writing the plant whole
+   * is a few hundred microseconds, needs no assumption about how a species
+   * builds its bands, and keeps this method something you can read.
+   */
+  _writePlacement(index, level) {
+    const placement = this._placements[index];
+    const slots = this._slots[index];
+    let written = 0;
 
     for (const [kind, entry] of this._organMeshes) {
       const { mesh } = entry;
-      mesh.clearInstances();
 
-      let needed = 0;
-      for (const [index, placement] of this._placements.entries()) {
-        needed += placement.prototype.organCount(kind, this._levels[index]);
+      const previous = slots.get(kind);
+      if (previous?.length) {
+        freeInstances(mesh, previous);
+        this._stats.organInstances -= previous.length;
+        slots.delete(kind);
       }
-      if (needed === 0) continue;
 
-      // Draw what was asked for. If it is more than the buffer holds,
-      // instanced-mesh grows it -- the caller chose these levels deliberately,
-      // and quietly dropping some plant's leaves would be this class deciding
-      // it knew better. Going over budget is reported, not corrected.
-      mesh.addInstances(needed);
+      const organ = placement.prototype.bands[level].baked.organs.find(
+        (candidate) => candidate.kind === kind,
+      );
+      const count = organ?.count ?? 0;
+      if (count === 0) continue;
 
-      let slot = 0;
-      for (const [index, placement] of this._placements.entries()) {
-        const organ = placement.prototype.bands[
-          this._levels[index]
-        ].baked.organs.find((candidate) => candidate.kind === kind);
-        if (!organ) continue;
+      // `addInstances` chooses the ids -- reused ones first -- so they are
+      // captured here in the order it hands them out, and the organ at local
+      // position n is written to ids[n].
+      const ids = new Uint32Array(count);
+      let cursor = 0;
+      mesh.addInstances(count, (_instance, id) => {
+        ids[cursor++] = id;
+      });
 
-        for (let local = 0; local < organ.count; local += 1) {
-          organMatrix.fromArray(organ.matrices, local * 16);
-          matrix.multiplyMatrices(placement.transform, organMatrix);
-          mesh.setMatrixAt(slot, matrix);
-          if (organ.colors) {
-            colour.fromArray(organ.colors, local * 3);
-            mesh.setColorAt(slot, colour);
-          }
-          slot += 1;
+      for (let local = 0; local < count; local += 1) {
+        const id = ids[local];
+        organMatrix.fromArray(organ.matrices, local * 16);
+        matrix.multiplyMatrices(placement.transform, organMatrix);
+        mesh.setMatrixAt(id, matrix);
+        if (organ.colors) {
+          colour.fromArray(organ.colors, local * 3);
+          mesh.setColorAt(id, colour);
         }
       }
 
-      mesh.computeBoundingBox();
-      organInstances += slot;
+      slots.set(kind, ids);
+      this._stats.organInstances += count;
+      written += count;
     }
 
-    this._stats.organInstances = organInstances;
-    this._stats.overBudget = organInstances > this._budget;
+    // New instances are created visible, so a hidden plant that changes level
+    // would otherwise reappear.
+    if (this._visible[index] === 0) this._applyVisibility(index);
+
+    this._levels[index] = level;
+    this._stats.repacks += 1;
+    this._stats.instanceWrites += written;
+    // Drawn as asked. If the levels the caller chose need more instances than
+    // they budgeted for, the field draws them anyway and says so: quietly
+    // coarsening a plant that was explicitly asked for would be the library
+    // overruling the caller, which is the thing this design avoids.
+    this._stats.overBudget = this._stats.organInstances > this._budget;
+    return written;
+  }
+
+  /**
+   * The field's extent, computed once.
+   *
+   * Placements never move, so this is a property of the placement list and the
+   * prototypes' own bounds, not of which level each plant currently draws at.
+   * The previous implementation recomputed it inside every level change by
+   * walking every instance matrix in the field and transforming a box by each
+   * one -- measured at 0.61 microseconds per instance, the single largest cost
+   * of a level change, and spent entirely to rediscover that nothing had moved.
+   *
+   * `prototype.bounds` already unions every band, so the box covers a plant at
+   * its finest detail whatever level it is drawn at now.
+   */
+  _computeFieldBounds() {
+    bounds.makeEmpty();
+    for (const placement of this._placements) {
+      placementBounds
+        .copy(placement.prototype.bounds)
+        .applyMatrix4(placement.transform);
+      bounds.union(placementBounds);
+    }
+
+    for (const { mesh } of this._organMeshes.values()) {
+      mesh.boundingBox = bounds.clone();
+      mesh.boundingSphere = bounds.getBoundingSphere(new THREE.Sphere());
+    }
+    return this;
+  }
+
+  /**
+   * Squeeze the slack out of the instance buffers.
+   *
+   * ## Why there is slack at all
+   *
+   * Demoting a plant frees more slots than the coarser band takes back, and
+   * `InstancedMesh2` only shortens its array from the tail. So the arrays settle
+   * at the high-water mark of the finest arrangement the field has ever been
+   * asked to draw, and the difference sits there inactive. Inactive slots draw
+   * nothing, but the per-frame culling pass still steps over them, so a field
+   * that spent one moment entirely at its finest band keeps paying a small scan
+   * cost for it afterwards.
+   *
+   * That is a deliberate trade. The alternative -- repacking so the buffers stay
+   * exactly the size of what is drawn -- is what made a single plant's level
+   * change cost the whole field.
+   *
+   * `stats().slots` and `stats().unusedSlots` report the slack. This reclaims
+   * it, at the price of rewriting every placement, so call it when a pause is
+   * acceptable rather than inside a render loop.
+   */
+  compact() {
+    for (const { mesh } of this._organMeshes.values()) mesh.clearInstances();
+    for (const slots of this._slots) slots.clear();
+    this._stats.organInstances = 0;
+
+    for (let index = 0; index < this._placements.length; index += 1) {
+      this._writePlacement(index, this._levels[index]);
+    }
     return this;
   }
 
@@ -447,6 +689,14 @@ export class PlantField extends THREE.Group {
     const organDraws = [...this._organMeshes.values()].filter(
       (entry) => entry.mesh.instancesCount > 0,
     ).length;
+
+    let slots = 0;
+    for (const { mesh } of this._organMeshes.values()) {
+      slots += mesh._instancesArrayCount;
+    }
+
+    let visiblePlants = 0;
+    for (const flag of this._visible) visiblePlants += flag;
     const woodDraws = this._woodMeshes.filter(
       (mesh) => mesh && mesh.instancesCount > 0,
     ).length;
@@ -470,7 +720,31 @@ export class PlantField extends THREE.Group {
       overBudget: this._stats.overBudget,
       /** How many placements sit at each level. */
       levelCounts,
+      /** Placements currently drawn. The rest are hidden by `setVisibility`. */
+      visiblePlants,
+      /**
+       * How many placements have had their instances written since the field
+       * was built, counting the initial build. A level change writes one
+       * placement, so this rises by one per plant that actually moved band.
+       */
       repacks: this._stats.repacks,
+      /**
+       * Organ instances written since the field was built. The number to watch
+       * if a level change ever feels expensive: it should track the plants that
+       * changed, never the size of the field.
+       */
+      instanceWrites: this._stats.instanceWrites,
+      /**
+       * Instance slots the organ buffers currently span, drawn or not. Sits at
+       * the high-water mark of the finest arrangement the field has been asked
+       * for, because freed slots are only reclaimed from the tail.
+       */
+      slots,
+      /**
+       * Slots inside that span which draw nothing. They cost one array read
+       * each per frame in the culling pass; `compact()` reclaims them.
+       */
+      unusedSlots: slots - this._stats.organInstances,
     };
   }
 
@@ -486,6 +760,8 @@ export class PlantField extends THREE.Group {
     for (const { mesh } of this._organMeshes.values()) mesh.dispose?.();
     this._woodMeshes.length = 0;
     this._organMeshes.clear();
+    for (const slots of this._slots) slots.clear();
+    this._slots.length = 0;
     this.clear();
   }
 }

@@ -465,6 +465,36 @@ Draw calls do not grow with the number of plants:
 | 100    | 7          |
 | 400    | 7          |
 
+### Changing a level costs one plant
+
+`setLevels` and `setLevelAt` write only the placements whose level actually
+changed, and a placement costs its own organs. That is what makes it safe to
+drive levels from a camera in a render loop: a plant crossing a band boundary
+does not stall the frame, however large the field is around it.
+
+| Plants | Organ instances | One plant changes band |
+| ------ | --------------- | ---------------------- |
+| 20     | 26,733          | 0.9 ms                 |
+| 120    | 147,968         | 0.9 ms                 |
+| 480    | 584,528         | 0.9 ms                 |
+
+`stats().instanceWrites` is the number to watch if it ever stops being true — it
+counts organ instances written since the field was built, and should track the
+plants that moved band rather than the size of the field.
+
+The trade is slack. A demotion frees more slots than the coarser band takes
+back, and instanced buffers only shorten from the tail, so they settle at the
+high-water mark of the finest arrangement the field has ever drawn. Nothing is
+rendered there, but the per-frame culling pass still steps over it:
+
+```js
+field.stats(); // { slots: 436_000, unusedSlots: 158_765, ... }
+field.compact(); // reclaims it, by rewriting every placement
+```
+
+`compact()` is the old whole-field cost by another name — 58 ms for 120
+hydrangeas — so call it when a pause is acceptable, never inside a render loop.
+
 ### The budget is advice, not a governor
 
 `budget` is the number of organ instances you expect to afford. If the levels

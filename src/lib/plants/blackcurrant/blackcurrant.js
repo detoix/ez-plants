@@ -116,6 +116,10 @@ export class Blackcurrant extends PlantRenderer {
       // ones that suit a landscape, and only the application knows which it
       // is looking at.
       lodLevels: options.lodLevels ?? DEFAULT_LOD_LEVELS,
+      // This cultivar keeps the renderer's default wind, but the caller may
+      // still override it -- or switch it off, which is the most expensive
+      // per-vertex work in the scene.
+      leafWind: options.leafWind,
     });
 
     this.trialYear = options.trialYear ?? 'mean';

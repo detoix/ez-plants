@@ -1,0 +1,113 @@
+/* The field page reuses the tokens in styles.css and adds only what the
+   walkaround needs: a readout that stays legible over bright grass, and a
+   hint card that gets out of the way once you are moving. */
+
+.fx-hud {
+  pointer-events: none;
+  background: var(--bc-panel);
+  border: 1px solid var(--bc-line);
+  border-radius: 12px;
+  padding: 14px 16px 16px;
+  color: var(--bc-ink);
+  font-family: var(--bc-font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.34);
+  max-width: 300px;
+}
+
+.fx-hud h2 {
+  margin: 14px 0 6px;
+  font-family: var(--bc-font-sans);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--bc-faint);
+}
+
+.fx-hud h2:first-child {
+  margin-top: 0;
+}
+
+.fx-hud dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+  margin: 0;
+}
+
+.fx-hud dt {
+  color: var(--bc-muted);
+  white-space: nowrap;
+}
+
+.fx-hud dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  /* The GPU name is long and must wrap rather than widen the panel. */
+  overflow-wrap: anywhere;
+}
+
+.fx-hud dd.fx-warn {
+  color: #f0b46a;
+}
+
+.fx-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 42px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 16px 22px;
+  border-radius: 12px;
+  background: var(--bc-panel);
+  border: 1px solid var(--bc-line);
+  color: var(--bc-muted);
+  font-family: var(--bc-font-sans);
+  font-size: 13px;
+  text-align: center;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.34);
+  z-index: 120;
+}
+
+.fx-hint strong {
+  color: var(--bc-ink);
+  font-size: 15px;
+}
+
+.fx-hint kbd {
+  display: inline-block;
+  min-width: 20px;
+  margin: 0 2px;
+  padding: 2px 5px;
+  border: 1px solid var(--bc-line);
+  border-radius: 5px;
+  background: var(--bc-soft);
+  color: var(--bc-ink);
+  font-family: var(--bc-font-mono);
+  font-size: 11px;
+}
+
+.fx-hint-note {
+  margin-top: 2px;
+  color: var(--bc-faint);
+  font-size: 11px;
+}
+
+.fx-hint-note code {
+  font-family: var(--bc-font-mono);
+}
+
+@media (max-width: 640px) {
+  .fx-hud {
+    font-size: 11px;
+    max-width: min(280px, calc(100vw - 32px));
+  }
+}

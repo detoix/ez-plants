@@ -131,6 +131,10 @@ export class Hydrangea extends PlantRenderer {
         strength: new THREE.Vector3(0.075, 0, 0.075),
         frequency: 0.36,
         scale: 1.18,
+        // The caller may override any of this, including switching the
+        // wind off entirely -- it is the most expensive per-vertex work in
+        // the scene.
+        ...options.leafWind,
       },
       barkTint: 0x715d4f,
     });

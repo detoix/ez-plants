@@ -190,12 +190,22 @@ ${vertexShader}`
  * It supports regular, batched and instanced leaves on one absolute clock.
  */
 export class LeafWind {
+  /**
+   * @param {object} [options]
+   * @param {boolean} [options.enabled] Install the wind at all. Off, `apply`
+   *   leaves the material alone and no wind code reaches the shader -- which is
+   *   the point: the cost of this effect is per vertex, per frame, and a
+   *   strength of zero would still pay all of it. Turn it off for a still
+   *   image, a thumbnail, or when measuring what the rest of a scene costs.
+   */
   constructor({
     time = 0,
     strength = new THREE.Vector3(0.5, 0, 0.5),
     frequency = 0.5,
     scale = 70,
+    enabled = true,
   } = {}) {
+    this.enabled = enabled !== false;
     this.uniforms = {
       uTime: { value: finite(time, 0) },
       uWindStrength: { value: windVector(strength) },
@@ -225,6 +235,9 @@ export class LeafWind {
     if (!material?.isMaterial) {
       throw new TypeError('LeafWind.apply requires a Three.js material.');
     }
+    // Nothing installed, nothing marked: a disabled controller must leave the
+    // shader exactly as it found it, or the vertex cost stays.
+    if (!this.enabled) return material;
     if (material[WIND_INSTALLATION] === this) return material;
     if (material[WIND_INSTALLATION]) {
       throw new Error(
