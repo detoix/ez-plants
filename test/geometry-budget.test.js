@@ -69,15 +69,36 @@ const AGE_YEARS = 5;
 const DAY_OF_YEAR = 230;
 
 /**
- * Measured 2026-08-28. Every one of these is a debt, not an achievement — see
- * the target above. Lower them as plants improve; never raise them.
+ * Measured 2026-08-29. Nearly all of this is debt, not achievement — see the
+ * target above. Lower them as plants improve; never raise them.
  */
 const RECORDED = Object.freeze({
   // Inside the budget as of the petiole drop — kept here so it cannot regress.
   blackcurrant: { triangles: [16242, 5096, 3592], draws: [3, 2, 2] },
   forsythia: { triangles: [154508, 86334, 58780], draws: [4, 4, 4] },
-  hydrangea: { triangles: [437865, 413170, 267737], draws: [9, 9, 9] },
-  miscanthus: { triangles: [336804, 261612, 87036], draws: [7, 7, 7] },
+  // Inside the *triangle* budget at every band as of the card panicle: the
+  // head went from five meshes and 6,468 triangles to one mesh and 100, 40 or
+  // 14. What is left is a draw debt, and only that. Band 0 spends its third
+  // draw on the head and needs a fourth for the plant's green stems; bands 1
+  // and 2 have dropped the stems and still need the head, which rule 9 says
+  // should by then be carried by the leaf card. Doing that needs foliage-atlas
+  // UVs per instance so heads and leaves can share one mesh — the geometry it
+  // would save is 40 and 14 triangles a head, so this is now a structural debt
+  // rather than a cost one.
+  hydrangea: { triangles: [23841, 9498, 4145], draws: [4, 3, 3] },
+  // Inside the triangle budget at every band as of the raceme cards, and
+  // inside the draw budget at band 0. The head went from three meshes and
+  // 3,620 triangles to one mesh and 136, 72 or 28; the three blade kinds
+  // became one, because posture is a rotation rather than a mesh.
+  //
+  // The third draw at bands 1 and 2 is culms, and it is deliberate. Dropping
+  // them fits the budget and looks wrong: the heads are carried on those
+  // stems, and without them a clump at six metres has its plumes floating in
+  // a gap above its own foliage. Merging culms into either of the other two
+  // kinds would mean drawing a stem tube as a leaf ribbon. The triangles are
+  // already gone — 1,584 of them at band 2 — so what is left here is one draw
+  // call, and correctness is worth more than it.
+  miscanthus: { triangles: [23526, 9076, 4368], draws: [3, 3, 3] },
 });
 
 function triangleCount(geometry) {

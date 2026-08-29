@@ -1,30 +1,25 @@
 import * as THREE from 'three';
 
 import {
-  appendTaperedTube,
   finishGeometry,
   fract,
   GOLDEN_ANGLE,
   validatePositiveInteger,
 } from '../../organ-geometry.js';
 
-// A Limelight panicle is overwhelmingly made from showy sterile flowers. The
-// neutral, slightly green vertex colours below are deliberately pale: an
-// InstancedMesh can multiply them by lime, cream, pink, or parchment instance
+// A Limelight panicle is overwhelmingly made from showy sterile flowers, and
+// they are carried on the floret plate rather than meshed. The vertex colours
+// below are for the structure under them, and are deliberately pale: an
+// InstancedMesh multiplies them by lime, cream, pink, or parchment instance
 // colours as the same reusable panicle passes through the season.
-const SEPAL_THROAT = new THREE.Color(0xdce7b6);
-const SEPAL_FACE = new THREE.Color(0xf4f5dc);
-const SEPAL_EDGE = new THREE.Color(0xffffff);
-const FERTILE_BASE = new THREE.Color(0x718445);
-const FERTILE_TIP = new THREE.Color(0xc3cf86);
 const PANICLE_STEM_BASE = new THREE.Color(0x66704a);
 const PANICLE_STEM_TIP = new THREE.Color(0x929b68);
 const BUD_BASE = new THREE.Color(0x755746);
 const BUD_MIDDLE = new THREE.Color(0x8d7952);
 const BUD_TIP = new THREE.Color(0x8a9362);
 
+/** Where a panicle's lower half gives way to its later-opening apex. */
 const REGION_SPLIT = 0.58;
-const VALID_REGIONS = new Set(['all', 'lower', 'upper']);
 
 // Broadest just above the base, then steadily tapering. The root remains
 // narrower than the lower third, which avoids the silhouette of a solid cone.
@@ -46,379 +41,293 @@ function radiusDerivative(y) {
   return (panicleRadius(high) - panicleRadius(low)) / (high - low || 1);
 }
 
-function includesRegion(region, y) {
-  if (region === 'lower') return y <= REGION_SPLIT;
-  if (region === 'upper') return y > REGION_SPLIT;
-  return true;
+/**
+ * Base→apex tint baked into the card vertices.
+ *
+ * A panicle opens from the bottom up, so its apex runs about a week behind its
+ * base and stays greener and darker through every colour change the season
+ * makes. Two separately-coloured meshes used to carry that, at the cost of a
+ * second draw for one head.
+ *
+ * One multiplicative gradient carries it instead. This is an approximation of
+ * two independent points on the colour path rather than the path itself, but
+ * it holds in both directions the lag actually shows up: a fresh cream head
+ * keeps a limier apex, and a retained parchment one keeps a darker apex. The
+ * plant's own per-instance colour supplies everything else.
+ */
+const APEX_LAG = Object.freeze([0.88, 0.92, 0.76]);
+
+/** How far a card's shading normal is leaned from the shell towards the sky. */
+const SKYWARD_SHADING = 0.55;
+
+const UP_AXIS = new THREE.Vector3(0, 1, 0);
+const SIDE_AXIS = new THREE.Vector3(1, 0, 0);
+
+/**
+ * Four mutually independent irrational strides.
+ *
+ * Every quantity a card is placed by comes from `fract(index * stride)`, and
+ * two quantities drawn from strides that sum to one are the *same* sequence
+ * reflected. Height first came off 0.618 while azimuth came off the golden
+ * angle, which is 0.382 of a turn -- and 0.618 + 0.382 = 1, so a card's height
+ * was exactly one minus its azimuth. Sixty-eight cards meant to clothe a cone
+ * instead lay on a single spiral that wrapped it once, and the heads rendered
+ * as hooks. These are the additive-recurrence constants for two, three, four
+ * and five dimensions; no two are related by so much as an integer.
+ */
+const PHI_1 = 0.5698402909980532;
+const PHI_2 = 0.7548776662466927;
+const PHI_3 = 0.8191725133961644;
+const PHI_4 = 0.6823278038280193;
+
+/** Deterministic unit jitter in [-1, 1] from an integer sequence. */
+function jitter(sequence, salt) {
+  return fract((sequence + 1) * salt) * 2 - 1;
 }
 
 /**
- * Append one sterile hydrangea flower to a panicle buffer.
+ * Append one cluster of four-sepal florets as a single textured quad.
  *
- * Limelight's show is made by four enlarged, petal-like sepals rather than by
- * true petals. Each sepal is its own shallowly cupped ovate face; keeping the
- * four faces separate preserves the dark cross-shaped throat seen in close
- * photographs.
+ * The card is *oriented* by the panicle's outward shell normal tilted by a
+ * bounded deterministic amount, and *shaded* by that shell normal leaned
+ * towards the sky. The two are deliberately different, for reasons given at
+ * each of them below.
  */
-function appendSterileFloret(
+function appendFloretCard(
   buffers,
-  { centre, normal, verticalTangent, aroundTangent, size, rotation },
+  { centre, normal, aroundTangent, size, sequence },
 ) {
-  const { positions, colors, indices } = buffers;
-  const pushVertex = (point, color) => {
-    positions.push(point.x, point.y, point.z);
-    colors.push(color.r, color.g, color.b);
-    return positions.length / 3 - 1;
-  };
+  const { positions, colors, normals, uvs, indices } = buffers;
 
-  // Six rim vertices are enough for the soft oval at panicle scale. Together
-  // with a raised centre they form a shallow cup rather than a paper-flat card.
-  const rimSegments = 6;
-  for (let sepalIndex = 0; sepalIndex < 4; sepalIndex += 1) {
-    const angle = rotation + (sepalIndex * Math.PI) / 2;
-    const direction = aroundTangent
+  // Bounded tightly. Enough tilt to break the shell up and give the outline
+  // flowers rather than facets; not so much that a card stands proud of the
+  // cone it is clothing and blurs 'Limelight's tapered profile into a blob.
+  const tiltAround = jitter(sequence, PHI_2) * 0.5;
+  const tiltVertical = jitter(sequence, PHI_3) * 0.4;
+  const verticalTangent = normal.clone().cross(aroundTangent).normalize();
+  const facing = normal
+    .clone()
+    .addScaledVector(aroundTangent, Math.tan(tiltAround))
+    .addScaledVector(verticalTangent, Math.tan(tiltVertical))
+    .normalize();
+
+  // Roll the card in its own plane so neighbouring clusters never line up.
+  const roll = fract(sequence * PHI_4) * Math.PI * 2;
+  const seed = Math.abs(facing.y) < 0.9 ? UP_AXIS : SIDE_AXIS;
+  const right = seed.clone().cross(facing).normalize();
+  const up = facing.clone().cross(right).normalize();
+  const axisA = right
+    .clone()
+    .multiplyScalar(Math.cos(roll))
+    .addScaledVector(up, Math.sin(roll));
+  const axisB = right
+    .clone()
+    .multiplyScalar(-Math.sin(roll))
+    .addScaledVector(up, Math.cos(roll));
+
+  // Apex lag, evaluated at the card's own height rather than per region.
+  const lag = THREE.MathUtils.smoothstep(centre.y, REGION_SPLIT - 0.22, 0.98);
+  const tint = [
+    THREE.MathUtils.lerp(1, APEX_LAG[0], lag),
+    THREE.MathUtils.lerp(1, APEX_LAG[1], lag),
+    THREE.MathUtils.lerp(1, APEX_LAG[2], lag),
+  ];
+
+  // Shade by the shell, not by the card, and lift the shell normal towards the
+  // sky. Two reasons, and they compound.
+  //
+  // The tilt above exists to fix the head's silhouette; letting lighting
+  // follow it makes a smooth cone read as a heap of randomly-lit flakes. So
+  // the normal comes from the shell.
+  //
+  // But a shell of cards is not a closed surface. Cards at different depths
+  // and angles overlap in projection, so two neighbouring pixels can come from
+  // the front of the head and the side of it, whose shell normals are ninety
+  // degrees apart -- rendered flat white, the head came out as bright and
+  // near-black cards side by side. A real panicle does not shade like an
+  // opaque sphere either: it is a translucent mass of pale sepals passing
+  // light through itself, low-contrast and bright, which is exactly what
+  // photographs show. Leaning the normal towards +Y buys both at once.
+  const shaded = normal
+    .clone()
+    .multiplyScalar(1 - SKYWARD_SHADING)
+    .addScaledVector(UP_AXIS, SKYWARD_SHADING)
+    .normalize();
+
+  const half = size / 2;
+  const base = positions.length / 3;
+  const corners = [
+    [-1, 1],
+    [-1, -1],
+    [1, -1],
+    [1, 1],
+  ];
+  const cardUVs = [0, 1, 0, 0, 1, 0, 1, 1];
+  corners.forEach(([a, b], corner) => {
+    const point = centre
       .clone()
-      .multiplyScalar(Math.cos(angle))
-      .addScaledVector(verticalTangent, Math.sin(angle))
-      .normalize();
-    // direction x side points along the outward surface normal, which fixes
-    // winding for all four sepals regardless of their rotation in the flower.
-    const side = normal.clone().cross(direction).normalize();
-    const length = size * (0.92 + 0.07 * Math.cos(sepalIndex * 2.3 + rotation));
-    const halfWidth = length * (0.41 + 0.025 * Math.sin(rotation * 3));
-    const sepalCentre = centre.clone().addScaledVector(direction, length * 0.5);
-    const centreIndex = pushVertex(
-      sepalCentre.clone().addScaledVector(normal, length * 0.055),
-      SEPAL_THROAT.clone().lerp(SEPAL_FACE, 0.42),
-    );
-    const rim = [];
-
-    for (let segment = 0; segment < rimSegments; segment += 1) {
-      const theta = (segment / rimSegments) * Math.PI * 2;
-      const longitudinal = Math.cos(theta) * length * 0.5;
-      // Slightly narrow the throat half of the ellipse to make it ovate rather
-      // than a four-disc clover.
-      const throatSide = longitudinal < 0 ? 0.76 : 1;
-      const lateral = Math.sin(theta) * halfWidth * throatSide;
-      const point = sepalCentre
-        .clone()
-        .addScaledVector(direction, longitudinal)
-        .addScaledVector(side, lateral);
-      const edgeColour = SEPAL_FACE.clone().lerp(
-        SEPAL_EDGE,
-        0.34 + 0.16 * Math.max(0, Math.cos(theta)),
-      );
-      rim.push(pushVertex(point, edgeColour));
-    }
-
-    for (let segment = 0; segment < rimSegments; segment += 1) {
-      indices.push(centreIndex, rim[segment], rim[(segment + 1) % rimSegments]);
-    }
-  }
+      .addScaledVector(axisA, a * half)
+      .addScaledVector(axisB, b * half);
+    positions.push(point.x, point.y, point.z);
+    colors.push(tint[0], tint[1], tint[2]);
+    normals.push(shaded.x, shaded.y, shaded.z);
+    uvs.push(cardUVs[corner * 2], cardUVs[corner * 2 + 1]);
+  });
+  indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
 }
 
 /**
- * Build the showy sterile-flower shell of one whole Limelight panicle.
+ * Build one whole Limelight head, at one rung of its detail ladder.
  *
- * The unit panicle is rooted at the origin, grows along +Y, is one unit long,
- * and is approximately one unit wide at its broad lower shoulder. Pass
- * `region: 'lower'` and `region: 'upper'` to make two matching geometries for
- * bottom-up flower opening/colour changes; both calls select from the same
- * deterministic floret layout and therefore join without a visible seam.
+ * Unit frame is unchanged from the meshed panicle this replaces: rooted at
+ * y=0, one unit long up +Y, about one unit across the broad lower shoulder --
+ * so the same instance matrix (X/Z to panicle width, Y to length) still
+ * places it.
+ *
+ * The head is a shell of textured floret-cluster cards. Cards sit between 45%
+ * and 95% of the shell radius rather than on it, which fills the head's volume
+ * instead of leaving a hollow crust, and the coarser rungs answer a smaller
+ * card count with larger cards so coverage holds as the head simplifies.
+ *
+ * Rung 0 also carries a three-sided central rachis. It is only ever glimpsed
+ * between florets on a cultivar this densely sterile, but at arm's length the
+ * alternative is seeing through the head into nothing.
  *
  * @param {object} [options]
- * @param {'all'|'lower'|'upper'} [options.region='all'] Vertical portion.
- * @param {number} [options.rings=11] Number of deterministic floret rings.
- * @param {number} [options.density=1.8] Relative floret density, 0.25–2.
- * @returns {THREE.BufferGeometry} Instancing-ready, vertex-coloured geometry.
+ * @param {number} [options.cards=44] Floret-cluster cards over the shell.
+ * @param {number} [options.cardSize=0.34] Card edge, in panicle lengths.
+ * @param {boolean} [options.rachis=true] Include the central axis.
+ * @returns {THREE.BufferGeometry} Instancing-ready, textured, vertex-coloured.
  */
-export function createSterilePanicleGeometry({
-  region = 'all',
-  rings = 11,
-  density = 1.8,
+export function createPanicleGeometry({
+  cards = 44,
+  cardSize = 0.34,
+  rachis = true,
 } = {}) {
-  if (!VALID_REGIONS.has(region)) {
-    throw new RangeError(`Unknown panicle region: ${region}.`);
-  }
-  validatePositiveInteger(rings, 'rings');
-  if (!Number.isFinite(density) || density < 0.25 || density > 2) {
-    throw new RangeError('density must be a finite number from 0.25 to 2.');
+  validatePositiveInteger(cards, 'cards');
+  if (!Number.isFinite(cardSize) || cardSize <= 0 || cardSize > 1.5) {
+    throw new RangeError('cardSize must be a positive number up to 1.5.');
   }
 
-  const buffers = { positions: [], colors: [], indices: [] };
-  let floretCount = 0;
-
-  for (let ring = 0; ring < rings; ring += 1) {
-    const ringT = rings === 1 ? 0.5 : ring / (rings - 1);
-    const nominalY = THREE.MathUtils.lerp(0.075, 0.925, ringT);
-    const radius = panicleRadius(nominalY);
-    const aroundCount = Math.max(
-      3,
-      Math.round((4.2 + 10.5 * (radius / 0.5)) * density),
-    );
-
-    for (let around = 0; around < aroundCount; around += 1) {
-      // Each ring has a golden-angle phase and a bounded, deterministic height
-      // jitter. This removes the artificial stacked-cake pattern without any
-      // mutable random state or dependence on call order.
-      const phase = ring * GOLDEN_ANGLE;
-      const angle = phase + (around / aroundCount) * Math.PI * 2;
-      const sequence = ring * 131 + around * 71;
-      const heightJitter = (fract(sequence * 0.61803398875) - 0.5) * 0.026;
-      const y = THREE.MathUtils.clamp(nominalY + heightJitter, 0.06, 0.94);
-      if (!includesRegion(region, y)) continue;
-
-      const radialJitter = 0.86 + 0.13 * fract(sequence * 0.754877666);
-      const localRadius = panicleRadius(y) * radialJitter;
-      const centre = new THREE.Vector3(
-        Math.cos(angle) * localRadius,
-        y,
-        Math.sin(angle) * localRadius,
-      );
-      const aroundTangent = new THREE.Vector3(
-        -Math.sin(angle),
-        0,
-        Math.cos(angle),
-      );
-      const normal = new THREE.Vector3(
-        Math.cos(angle),
-        -radiusDerivative(y),
-        Math.sin(angle),
-      ).normalize();
-      const verticalTangent = normal.clone().cross(aroundTangent).normalize();
-      // At a 12-18 cm panicle width this produces 2.6-5.4 cm flower faces,
-      // matching the patent's 2.7-4.7 cm visible sterile florets. The earlier
-      // 0.087 scale rendered each flower at barely a centimetre and made the
-      // photographed overstuffed heads read as sparse wire cones.
-      const size = THREE.MathUtils.lerp(0.15, 0.11, y);
-      const rotation = phase * 0.37 + around * GOLDEN_ANGLE;
-
-      appendSterileFloret(buffers, {
-        centre,
-        normal,
-        verticalTangent,
-        aroundTangent,
-        size,
-        rotation,
-      });
-      floretCount += 1;
-    }
-  }
-
-  // Basal and apical sepals naturally project a little past the centres of
-  // the first/last rings. Renormalise that shared deterministic layout so the
-  // complete flower surface, not merely its centres, remains rooted in 0..1.
-  // The same transform is applied to lower and upper calls, preserving their
-  // exact seam and base-to-tip colour registration.
-  for (let offset = 1; offset < buffers.positions.length; offset += 3) {
-    buffers.positions[offset] = (buffers.positions[offset] + 0.05) / 1.075;
-  }
-
-  return finishGeometry({
-    ...buffers,
-    userData: {
-      organ: 'sterile-panicle',
-      region,
-      regionSplit: REGION_SPLIT,
-      floretCount,
-      sepalsPerFloret: 4,
-    },
-  });
-}
-
-function appendFertileBud(buffers, centre, radius, colourMix, turn) {
-  const { positions, colors, indices } = buffers;
-  const belt = [];
-  const sides = 5;
-  const colour = FERTILE_BASE.clone().lerp(FERTILE_TIP, colourMix);
-  const pushVertex = (point, shade = 1) => {
-    positions.push(point.x, point.y, point.z);
-    const vertexColour = colour.clone().multiplyScalar(shade);
-    colors.push(vertexColour.r, vertexColour.g, vertexColour.b);
-    return positions.length / 3 - 1;
+  const buffers = {
+    positions: [],
+    colors: [],
+    normals: [],
+    uvs: [],
+    indices: [],
   };
 
-  const bottom = pushVertex(
-    centre.clone().add(new THREE.Vector3(0, -radius * 0.82, 0)),
-    0.78,
-  );
-  const top = pushVertex(
-    centre.clone().add(new THREE.Vector3(0, radius * 1.18, 0)),
-    1.08,
-  );
-  for (let side = 0; side < sides; side += 1) {
-    const angle = turn + (side / sides) * Math.PI * 2;
-    belt.push(
-      pushVertex(
-        centre
-          .clone()
-          .add(
-            new THREE.Vector3(
-              Math.cos(angle) * radius,
-              0,
-              Math.sin(angle) * radius,
-            ),
-          ),
-        0.9 + 0.08 * Math.cos(angle),
-      ),
+  if (rachis) {
+    appendPanicleRachis(buffers);
+  }
+
+  for (let card = 0; card < cards; card += 1) {
+    // Height by an additive-recurrence sequence rather than by rings: rings on
+    // a cone this short read as stacked bands once the cards are large.
+    //
+    // Inset by the card's own size, because a card is placed by its centre and
+    // drawn around it. Without the inset a coarse rung -- ten cards, each most
+    // of a head wide -- draws a head a fifth longer than the model asked for,
+    // and the panicle visibly grows every time the plant crosses a band.
+    const heightT = fract(card * PHI_1 + 0.13);
+    const y = THREE.MathUtils.lerp(
+      0.04 + cardSize * 0.52,
+      0.98 - cardSize * 0.26,
+      heightT,
     );
-  }
-  for (let side = 0; side < sides; side += 1) {
-    const next = (side + 1) % sides;
-    indices.push(bottom, belt[next], belt[side]);
-    indices.push(top, belt[side], belt[next]);
-  }
-}
-
-/**
- * Build the much smaller fertile-flower/bud mass inside one Limelight panicle.
- *
- * Limelight is a very densely sterile cultivar, so these five-sided buds are
- * deliberately sparse and sit at varied depths inside the showy shell. The
- * gaps are intentional: the result reads as individual fertile flowers and a
- * branching interior, never as an opaque green cone.
- *
- * @param {object} [options]
- * @param {number} [options.count=52] Number of representative fertile buds.
- * @returns {THREE.BufferGeometry} One normalized whole-panicle geometry.
- */
-export function createFertilePanicleGeometry({ count = 52 } = {}) {
-  validatePositiveInteger(count, 'count');
-  const buffers = { positions: [], colors: [], indices: [] };
-
-  for (let index = 0; index < count; index += 1) {
-    const t = (index + 0.65) / (count + 0.3);
-    const y = THREE.MathUtils.lerp(0.055, 0.955, t);
-    const angle = index * GOLDEN_ANGLE;
-    // Alternate between exposed flowers in gaps and deeper fertile flowers.
-    const depth = 0.25 + 0.62 * fract((index + 1) * 0.569840296);
-    const radius = panicleRadius(y) * depth;
+    const angle = card * GOLDEN_ANGLE;
+    const shell = panicleRadius(y);
+    // Kept close to the shell rather than spread through the volume. A card
+    // sunk to the middle of the head is a card whose outward normal can point
+    // anywhere -- including straight away from the sun -- while still being
+    // visible through the gaps around it, and a head clothed that way shades
+    // in patches instead of as one convex body.
+    const depth = 0.78 + 0.22 * fract(card * PHI_2);
+    const localRadius = shell * depth;
     const centre = new THREE.Vector3(
-      Math.cos(angle) * radius,
+      Math.cos(angle) * localRadius,
       y,
-      Math.sin(angle) * radius,
+      Math.sin(angle) * localRadius,
     );
-    const budRadius = THREE.MathUtils.lerp(0.0125, 0.0085, y);
-    appendFertileBud(buffers, centre, budRadius, 0.25 + 0.55 * y, angle);
+    const aroundTangent = new THREE.Vector3(
+      -Math.sin(angle),
+      0,
+      Math.cos(angle),
+    );
+    const normal = new THREE.Vector3(
+      Math.cos(angle),
+      -radiusDerivative(y),
+      Math.sin(angle),
+    ).normalize();
+
+    // Cards shrink with the shell, hard. The apex of this cone is a tenth of
+    // the width of its shoulder, so a card scaled gently for its height is
+    // still several times wider than the tip it sits on, and the pointed
+    // profile the cultivar is known for comes out as a blunt fluffy head.
+    const size = cardSize * (0.42 + 0.75 * (shell / 0.5));
+
+    appendFloretCard(buffers, {
+      centre,
+      normal,
+      aroundTangent,
+      size,
+      sequence: card,
+    });
   }
 
   return finishGeometry({
     ...buffers,
     userData: {
-      organ: 'fertile-panicle',
-      representativeFlowerCount: count,
+      organ: 'panicle',
+      cards,
+      rachis,
+      // What the plate multiplies out to on screen: the tile carries nine
+      // florets, of which about five read as whole at card scale.
+      apparentFlorets: cards * 5,
     },
   });
 }
 
-/**
- * Build one whole-panicle rachis and its tapered compound branchlets.
- *
- * A straight central rachis runs from y=0 almost to the tip. Alternating pairs
- * and three-part whorls divide into short forks beneath the sterile-flower
- * shell. This is intentionally an open low-poly framework: it gives close
- * views biological support for the flowers without turning the panicle into a
- * solid cone. As with the flower geometries, instantiate once per panicle and
- * scale X/Z to panicle width and Y to panicle length.
- *
- * @param {object} [options]
- * @param {number} [options.levels=9] Branching levels along the rachis.
- * @param {number} [options.sides=5] Polygon sides per tapered stem tube.
- * @returns {THREE.BufferGeometry} Normalized, vertex-coloured rachis geometry.
- */
-export function createPanicleStemGeometry({ levels = 9, sides = 5 } = {}) {
-  validatePositiveInteger(levels, 'levels');
-  validatePositiveInteger(sides, 'sides');
-  if (levels < 3 || sides < 3) {
-    throw new RangeError(
-      'Panicle stems need at least 3 levels and 3 tube sides.',
-    );
+/** A minimal central axis, UV-parked on an opaque part of the floret plate. */
+function appendPanicleRachis(buffers) {
+  const { positions, colors, normals, uvs, indices } = buffers;
+  const sides = 3;
+  const rings = [];
+  const profile = [
+    [0.0, 0.016],
+    [0.55, 0.0085],
+    [0.985, 0.003],
+  ];
+
+  for (const [y, radius] of profile) {
+    const ring = [];
+    const shade = THREE.MathUtils.lerp(0.42, 0.62, y);
+    for (let side = 0; side < sides; side += 1) {
+      const angle = (side / sides) * Math.PI * 2;
+      positions.push(Math.cos(angle) * radius, y, Math.sin(angle) * radius);
+      const colour = PANICLE_STEM_BASE.clone()
+        .lerp(PANICLE_STEM_TIP, y)
+        .multiplyScalar(shade / 0.5);
+      colors.push(colour.r, colour.g, colour.b);
+      normals.push(Math.cos(angle), 0, Math.sin(angle));
+      // The plate's central floret, well inside its opaque core, so the axis
+      // survives the same alpha test the cards are drawn with.
+      uvs.push(0.5, 0.52);
+      ring.push(positions.length / 3 - 1);
+    }
+    rings.push(ring);
   }
 
-  const buffers = { positions: [], colors: [], indices: [] };
-  appendTaperedTube(buffers, {
-    start: new THREE.Vector3(0, 0, 0),
-    end: new THREE.Vector3(0, 0.985, 0),
-    startRadius: 0.014,
-    endRadius: 0.0035,
-    sides,
-    startColour: PANICLE_STEM_BASE,
-    endColour: PANICLE_STEM_TIP,
-    capStart: true,
-    capEnd: true,
-  });
-
-  let branchCount = 0;
-  for (let level = 0; level < levels; level += 1) {
-    const levelT = levels === 1 ? 0.5 : level / (levels - 1);
-    const y = THREE.MathUtils.lerp(0.105, 0.82, levelT);
-    const branchesInWhorl = level % 3 === 1 ? 3 : 2;
-    const phase = level * GOLDEN_ANGLE;
-    const shellRadius = panicleRadius(y);
-    const primaryReach = shellRadius * (0.5 + 0.08 * (1 - levelT));
-    const branchColour = PANICLE_STEM_BASE.clone().lerp(
-      PANICLE_STEM_TIP,
-      0.35 + 0.55 * levelT,
-    );
-
-    for (let branch = 0; branch < branchesInWhorl; branch += 1) {
-      const angle = phase + (branch / branchesInWhorl) * Math.PI * 2;
-      const radial = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle));
-      const start = new THREE.Vector3(0, y, 0);
-      const fork = start
-        .clone()
-        .addScaledVector(radial, primaryReach)
-        .add(new THREE.Vector3(0, 0.025 + 0.025 * levelT, 0));
-      appendTaperedTube(buffers, {
-        start,
-        end: fork,
-        startRadius: THREE.MathUtils.lerp(0.007, 0.0038, levelT),
-        endRadius: THREE.MathUtils.lerp(0.0035, 0.002, levelT),
-        sides,
-        startColour: branchColour.clone().multiplyScalar(0.88),
-        endColour: branchColour,
-        capEnd: false,
-      });
-      branchCount += 1;
-
-      // A compact two-way terminal fork is the visible remnant of the compound
-      // panicle branching once the dense sterile sepals are instanced over it.
-      for (let forkSide = -1; forkSide <= 1; forkSide += 2) {
-        const forkAngle = angle + forkSide * (0.18 + 0.05 * levelT);
-        const forkDirection = new THREE.Vector3(
-          Math.cos(forkAngle),
-          0,
-          Math.sin(forkAngle),
-        );
-        const end = fork
-          .clone()
-          .addScaledVector(
-            forkDirection,
-            shellRadius * THREE.MathUtils.lerp(0.24, 0.14, levelT),
-          )
-          .add(new THREE.Vector3(0, 0.025 + 0.015 * levelT, 0));
-        appendTaperedTube(buffers, {
-          start: fork,
-          end,
-          startRadius: THREE.MathUtils.lerp(0.0034, 0.0019, levelT),
-          endRadius: THREE.MathUtils.lerp(0.0015, 0.0009, levelT),
-          sides,
-          startColour: branchColour,
-          endColour: PANICLE_STEM_TIP,
-        });
-        branchCount += 1;
-      }
+  for (let ring = 0; ring < rings.length - 1; ring += 1) {
+    for (let side = 0; side < sides; side += 1) {
+      const next = (side + 1) % sides;
+      const a = rings[ring][side];
+      const b = rings[ring][next];
+      const c = rings[ring + 1][side];
+      const d = rings[ring + 1][next];
+      indices.push(a, c, b, b, c, d);
     }
   }
-
-  return finishGeometry({
-    ...buffers,
-    userData: {
-      organ: 'panicle-stem',
-      branchCount,
-      branchingLevels: levels,
-    },
-  });
 }
 
 /**

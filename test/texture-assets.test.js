@@ -14,6 +14,13 @@ const LEAF_FILES = ['ash.webp', 'aspen.webp', 'oak.webp', 'pine.webp'];
 const PLANT_ROOT = new URL('../src/lib/plants/', import.meta.url);
 const PLANT_LEAF_PLATES = ['blackcurrant', 'forsythia', 'hydrangea'];
 
+// Plates that are not leaves. A hydrangea's flower head is clothed in cards
+// cut from this one, so it is held to the same contract as a foliage plate.
+const PLANT_ORGAN_PLATES = [
+  ['hydrangea', 'floret.webp'],
+  ['miscanthus', 'raceme.webp'],
+];
+
 const BARK_IDS = [
   'Bark001',
   'Bark002',
@@ -97,6 +104,10 @@ test('leaf plates are compact 1024px WebP assets with alpha', () => {
     ...PLANT_LEAF_PLATES.map((plant) => [
       `${plant}/leaf.webp`,
       new URL(`${plant}/leaf.webp`, PLANT_ROOT),
+    ]),
+    ...PLANT_ORGAN_PLATES.map(([plant, file]) => [
+      `${plant}/${file}`,
+      new URL(`${plant}/${file}`, PLANT_ROOT),
     ]),
   ];
 

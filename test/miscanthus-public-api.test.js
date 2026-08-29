@@ -11,10 +11,10 @@ import {
   BLADE_WIDTH_RATIOS,
   bladeTipOffset,
   bladeVariantFor,
+  bladeArchTilt,
+  BLADE_BAKED_ARCH,
   createBladeGeometry,
-  createPlumeGeometry,
-  createRacemeFanGeometry,
-  createSpikeletGeometry,
+  createPanicleGeometry,
 } from '../src/lib/plants/miscanthus/geometry.js';
 
 const APP_SOURCE_URL = new URL('../src/app/plants.js', import.meta.url);
@@ -107,52 +107,68 @@ test('every blade variant is a unit-length arc with a real width', () => {
   assert.equal(bladeVariantFor(2), BLADE_ARCH_VARIANTS.length - 1);
 });
 
-test('the three panicle geometries share one raceme layout', () => {
+test('the head is one instanced organ inside the unit contract', () => {
   const racemes = 15;
-  const parts = {
-    fan: createRacemeFanGeometry({ racemes }),
-    spikelets: createSpikeletGeometry({ racemes }),
-    plumes: createPlumeGeometry({ racemes }),
-  };
+  const geometry = createPanicleGeometry({ racemes });
   try {
-    for (const [name, geometry] of Object.entries(parts)) {
-      geometry.computeBoundingBox();
-      const box = geometry.boundingBox;
-      assert.ok(box.min.y >= -1e-6, `${name} must not dip below its own base`);
-      assert.ok(box.max.y <= 1.12, `${name} must fit the unit organ contract`);
-      assert.ok(geometry.attributes.uv, `${name} needs wind UVs`);
-      assert.ok(geometry.attributes.color, `${name} needs vertex colours`);
-      assert.equal(geometry.userData.racemeCount, racemes);
-    }
-
-    // Only the rachis reaches the base of the head; spikelets and their hairs
-    // start where the racemes leave the central axis, which is why a
-    // just-emerged panicle shows a bare stalk under a coppery tuft.
-    assert.ok(Math.abs(parts.fan.boundingBox.min.y) < 1e-6);
-    assert.ok(parts.spikelets.boundingBox.min.y > 0.05);
-    assert.ok(parts.plumes.boundingBox.min.y > 0.05);
-
-    // All three are instanced with one shared matrix, so the flowers and
-    // hairs must sit inside the fan's envelope or they would float off their
-    // racemes. Hairs are allowed to project slightly past the raceme tips.
-    for (const name of ['spikelets', 'plumes']) {
-      const box = parts[name].boundingBox;
-      const fan = parts.fan.boundingBox;
-      assert.ok(box.max.x <= fan.max.x + 0.08, `${name} overhangs the fan`);
-      assert.ok(box.min.x >= fan.min.x - 0.08, `${name} overhangs the fan`);
-      assert.ok(box.max.y <= fan.max.y + 0.08, `${name} overhangs the fan`);
-    }
+    geometry.computeBoundingBox();
+    const box = geometry.boundingBox;
+    assert.ok(box.min.y >= -0.06, 'the head must not dip below its own base');
+    assert.ok(box.max.y <= 1.12, 'the head must fit the unit organ contract');
+    assert.ok(box.max.x <= 0.62 && box.min.x >= -0.62, 'head is half a unit');
+    assert.ok(geometry.attributes.uv, 'the head needs wind and plate UVs');
+    assert.ok(geometry.attributes.color, 'the head needs vertex colours');
+    assert.equal(geometry.userData.racemeCount, racemes);
+    // Every rung stays crossed. A flat card is invisible edge-on, and a fan
+    // thrown out in every azimuth always has some of itself edge-on to any
+    // viewer, so single cards would leave holes wherever you stood.
+    assert.equal(geometry.userData.crossed, true);
+    assert.equal(
+      geometry.index.count / 3,
+      racemes * 2 * geometry.userData.segments * 2,
+      'a raceme is two ribbons of `segments` quads and nothing else',
+    );
   } finally {
-    for (const geometry of Object.values(parts)) geometry.dispose();
+    geometry.dispose();
+  }
+});
+
+test('one blade is meshed, and posture arrives as a rotation', () => {
+  // Library rule 9 gives a grass three draws at its near band and it needs
+  // them for blades, head and culms — so the three arch variants cannot be
+  // three meshes. Rule 9 names the fix: one kind with three transforms.
+  const tilts = BLADE_ARCH_VARIANTS.map((arch) => bladeArchTilt(arch));
+  assert.equal(
+    bladeArchTilt(BLADE_BAKED_ARCH),
+    0,
+    'the baked arch is untilted',
+  );
+  for (let index = 1; index < tilts.length; index += 1) {
+    assert.ok(tilts[index] > tilts[index - 1], 'more arch must tilt further');
+  }
+  assert.ok(
+    Math.max(...tilts.map(Math.abs)) < 0.3,
+    'baking at the middle variant keeps every correction under ~17 degrees',
+  );
+
+  // And the reach a model predicts stays the reach that is drawn: every
+  // variant is the same blade, so every variant reaches the same distance and
+  // differs only in direction.
+  const reaches = BLADE_ARCH_VARIANTS.map((arch) => {
+    const tip = bladeTipOffset(arch);
+    return Math.hypot(tip.along, tip.across);
+  });
+  for (const reach of reaches) {
+    assert.ok(Math.abs(reach - reaches[0]) < 1e-9);
+    assert.ok(reach <= 1.0001, 'a tip cannot pass its own arc length');
   }
 });
 
 test('organ geometry generation is deterministic', () => {
   const build = () => ({
     blade: createBladeGeometry({ arch: 0.62, twist: 0.52 }),
-    fan: createRacemeFanGeometry(),
-    plumes: createPlumeGeometry(),
-    spikelets: createSpikeletGeometry(),
+    bladeCoarse: createBladeGeometry({ segments: 6, columns: 2 }),
+    panicle: createPanicleGeometry(),
   });
   const first = build();
   const second = build();
@@ -171,9 +187,10 @@ test('geometry options reject topology they cannot build', () => {
   assert.throws(() => createBladeGeometry({ segments: 2 }), RangeError);
   assert.throws(() => createBladeGeometry({ arch: 3 }), RangeError);
   assert.throws(() => createBladeGeometry({ twist: 9 }), RangeError);
-  assert.throws(() => createRacemeFanGeometry({ racemes: 2 }), RangeError);
-  assert.throws(() => createRacemeFanGeometry({ sides: 1.5 }), RangeError);
-  assert.throws(() => createPlumeGeometry({ hairsPerTuft: 0 }), RangeError);
+  assert.throws(() => createBladeGeometry({ columns: 4 }), RangeError);
+  assert.throws(() => createPanicleGeometry({ racemes: 2 }), RangeError);
+  assert.throws(() => createPanicleGeometry({ segments: 0 }), RangeError);
+  assert.throws(() => createPanicleGeometry({ hairSpread: 0 }), RangeError);
 });
 
 test('types and the React entry point declare the plant', () => {

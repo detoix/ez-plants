@@ -10,28 +10,21 @@ import { getMalepartusCalendar } from '../src/lib/plants/miscanthus/phenology.js
 
 const CALENDAR = getMalepartusCalendar();
 
+// Three kinds, where there were seven. A grass carries no wood mesh, so rule 9
+// allows it three draws at its near band for everything it owns: blades, head
+// and culms. The three blade kinds differed only in posture, which is now a
+// rotation; the three head kinds were a raceme skeleton, the spikelets on it
+// and the hairs over them, all drawn at the same place with the same matrix.
 const MESH_NAMES = Object.freeze({
   wood: 'Miscanthus_Wood',
   culms: 'Miscanthus_Culms',
-  bladesErect: 'Miscanthus_Blades_Erect',
-  bladesArching: 'Miscanthus_Blades_Arching',
-  bladesRecurved: 'Miscanthus_Blades_Recurved',
-  fans: 'Miscanthus_Panicle_RacemeFans',
-  spikelets: 'Miscanthus_Panicle_Spikelets',
-  plumes: 'Miscanthus_Panicle_Plumes',
+  blades: 'Miscanthus_Blades',
+  panicles: 'Miscanthus_Panicles',
 });
 
-const BLADE_MESHES = Object.freeze([
-  MESH_NAMES.bladesErect,
-  MESH_NAMES.bladesArching,
-  MESH_NAMES.bladesRecurved,
-]);
+const BLADE_MESHES = Object.freeze([MESH_NAMES.blades]);
 
-const PANICLE_MESHES = Object.freeze([
-  MESH_NAMES.fans,
-  MESH_NAMES.spikelets,
-  MESH_NAMES.plumes,
-]);
+const PANICLE_MESHES = Object.freeze([MESH_NAMES.panicles]);
 
 function meshes(plant) {
   const found = [];
@@ -113,7 +106,7 @@ test('blade geometry keeps the wind UVs the shared shader bends by', () => {
 test('a blade is scaled uniformly and stays a 1-2 cm strap', () => {
   const plant = makePlant({ dayOfYear: 250 });
   try {
-    const mesh = meshNamed(plant, MESH_NAMES.bladesArching);
+    const mesh = meshNamed(plant, MESH_NAMES.blades);
     assert.ok(mesh.count > 0);
     mesh.geometry.computeBoundingBox();
     const local = mesh.geometry.boundingBox;

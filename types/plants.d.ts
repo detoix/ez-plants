@@ -38,8 +38,24 @@ export type ShadowCastMode = 'all' | 'wood' | 'none';
 export interface PlantDetail {
   sectionStride: number;
   segmentFactor: number;
+  /**
+   * Thins the attachment landmarks a woody tube is pinned to. Ring count on a
+   * leafy shrub is set by the organs hanging off an axis rather than by its own
+   * curve, so on such a plant this moves far more triangles than
+   * `sectionStride` does.
+   */
+  landmarkStride: number;
   leafStride: number;
   leafScale: number;
+  /**
+   * Which rung of an organ kind's geometry ladder to draw. Kinds that supplied
+   * a single geometry ignore it, and a level past the end of a ladder clamps to
+   * its coarsest rung. This is the only LOD lever that makes an organ *simpler*
+   * rather than rarer, which is what a plant whose cost is its flowers needs.
+   */
+  organLevel: number;
+  /** Organ kinds that draw nothing at this band, whatever the plant emits. */
+  dropKinds: readonly string[];
   billboard: unknown;
   /**
    * Which mesh families cast into the shadow map. Left unset on a LOD level,

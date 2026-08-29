@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 
 import { createLeafCardGeometry } from '../../leaf-geometry.js';
-import { createLeafMaterialSet } from '../../leaf-material.js';
+import {
+  createLeafMaterialSet,
+  keepAuthoredNormalsOnBackFaces,
+} from '../../leaf-material.js';
 import { keyedRange } from '../../keyed-random.js';
 import { PlantRenderer } from '../../plant-renderer.js';
 import { loadLeafPlate } from '../../leaf-plate.js';
@@ -11,9 +14,7 @@ import {
   vector,
 } from '../../plant-transforms.js';
 import {
-  createFertilePanicleGeometry,
-  createPanicleStemGeometry,
-  createSterilePanicleGeometry,
+  createPanicleGeometry,
   createVegetativeBudGeometry,
 } from './geometry.js';
 import { LIMELIGHT_PROFILE } from './limelight.js';
@@ -24,8 +25,6 @@ const UP = new THREE.Vector3(0, 1, 0);
 const SPRING_LEAF_TINT = new THREE.Color(0xcbdc8c);
 const SUMMER_LEAF_TINT = new THREE.Color(0xffffff);
 const AUTUMN_LEAF_TINT = new THREE.Color(0xc27c4f);
-const PETIOLE_GREEN = new THREE.Color(0x668342);
-const PETIOLE_RED = new THREE.Color(0x83514c);
 const BUD_BROWN = new THREE.Color(0x72543e);
 const CURRENT_SHOOT_GREEN = new THREE.Color(0x657a43);
 const CURRENT_SHOOT_RED = new THREE.Color(0x79544b);
@@ -45,38 +44,79 @@ const COLOURS = Object.freeze({
   deepTan: new THREE.Color(0x80664e),
 });
 
-const INSTANCE_KINDS = Object.freeze([
-  'leaves',
-  'petioles',
-  'buds',
-  'currentShoots',
-  'peduncles',
-  'panicleStems',
-  'fertilePanicles',
-  'sterileLower',
-  'sterileUpper',
+/**
+ * Four kinds, where there were nine.
+ *
+ * A hydrangea's cost is its heads, and heads were split five ways -- peduncle,
+ * rachis, fertile interior, lower sterile layer, upper sterile layer -- so one
+ * flower cost five draws and 6,468 triangles. `panicles` is all of it: one
+ * card shell per head, one instance, one draw. `stems` is every thin green
+ * tube the plant still needs, and petioles are gone into the leaf card.
+ *
+ * See library rule 9 and `test/geometry-budget.test.js`.
+ */
+const INSTANCE_KINDS = Object.freeze(['leaves', 'buds', 'stems', 'panicles']);
+
+/**
+ * The head's detail ladder, indexed by `organLevel`.
+ *
+ * Card counts fall roughly with the square of apparent size, and card edges
+ * grow to match, so a head keeps its coverage as it simplifies rather than
+ * thinning into a see-through cone -- the failure a plain instance-count LOD
+ * would have produced, and the reason heads could never be thinned before.
+ */
+const PANICLE_LADDER = Object.freeze([
+  Object.freeze({ cards: 68, cardSize: 0.36, rachis: false }),
+  Object.freeze({ cards: 30, cardSize: 0.5, rachis: false }),
+  Object.freeze({ cards: 14, cardSize: 0.62, rachis: false }),
 ]);
 
+/**
+ * The petiole, as a fraction of the leaf card it now belongs to.
+ *
+ * Measured across all 1,757 leaves of the five-year plant: the meshed petiole
+ * ran 0.138 to 0.235 of card scale, median 0.162. A constant is worth a few
+ * millimetres of error on a 1.5 cm stalk to be rid of an organ that cost more
+ * than the leaves it carried.
+ */
+const PETIOLE_CARD_FRACTION = 0.162;
+
 const DEFAULT_LOD_LEVELS = Object.freeze([
-  Object.freeze({ distance: 0, detail: Object.freeze({}) }),
+  // `landmarkStride` is the band's biggest single lever on this plant. Wood
+  // rings are pinned by leaf attachments, not by the curve, so a shrub with
+  // 1,260 landmarks against 780 sections barely responds to `sectionStride`
+  // alone: thinning them alongside the leaves takes band 2's wood from 7,041
+  // triangles to 2,433 without moving a twig anyone can see.
+  Object.freeze({
+    distance: 0,
+    detail: Object.freeze({ landmarkStride: 6, organLevel: 0 }),
+  }),
   Object.freeze({
     distance: 7,
     hysteresis: 0.1,
     detail: Object.freeze({
       sectionStride: 2,
       segmentFactor: 0.75,
+      landmarkStride: 6,
       leafStride: 2,
       leafScale: 1.16,
+      organLevel: 1,
+      // Stems are 1.5 mm across. Past seven metres they are thinner than the
+      // pixel that would have drawn them.
+      dropKinds: Object.freeze(['stems', 'buds']),
     }),
   }),
   Object.freeze({
     distance: 12,
     hysteresis: 0.1,
     detail: Object.freeze({
-      sectionStride: 3,
-      segmentFactor: 0.55,
+      sectionStride: 4,
+      segmentFactor: 0.4,
+      landmarkStride: 8,
       leafStride: 3,
       leafScale: 1.3,
+      organLevel: 2,
+      dropKinds: Object.freeze(['stems', 'buds']),
     }),
   }),
 ]);
@@ -93,8 +133,9 @@ const clamp01 = (value) => THREE.MathUtils.clamp(value, 0, 1);
  * sparse fertile interior and two four-sepal sterile-floret layers, preserving
  * the biology without one draw call per flower.
  */
-/** This plant's own leaf plate, resolved beside its source. */
+/** This plant's own plates, resolved beside its source. */
 const LEAF_PLATE = loadLeafPlate(new URL('./leaf.webp', import.meta.url));
+const FLORET_PLATE = loadLeafPlate(new URL('./floret.webp', import.meta.url));
 
 export class Hydrangea extends PlantRenderer {
   #model;
@@ -181,49 +222,47 @@ export class Hydrangea extends PlantRenderer {
       leaf: leafMaterials.surface,
       leafDepth: leafMaterials.depth,
       leafDistance: leafMaterials.distance,
-      petiole: this._material({ color: 0xffffff, roughness: 0.88 }),
+      stem: this._material({ color: 0xffffff, roughness: 0.88 }),
       bud: this._material({
         color: 0xffffff,
         vertexColors: true,
         roughness: 0.94,
       }),
-      peduncle: this._material({ color: 0xffffff, roughness: 0.82 }),
-      panicleStem: this._material({
-        color: 0xffffff,
-        vertexColors: true,
-        roughness: 0.86,
-      }),
-      fertile: this._material({
-        color: 0xffffff,
-        vertexColors: true,
-        roughness: 0.78,
-      }),
-      sterile: this._material({
-        color: 0xffffff,
-        vertexColors: true,
-        side: THREE.DoubleSide,
-        roughness: 0.72,
-      }),
+      // Cut-out cards, so the head's outline comes from the plate's alpha
+      // rather than from its quads. Three's own shadow pass copies `map` and
+      // `alphaTest` across, so the head casts a flower-shaped shadow without a
+      // custom depth material -- the panicle is stiff enough not to want the
+      // leaf wind, which bends by uv.y and would set each card boiling in
+      // place rather than nodding the head.
+      floret: keepAuthoredNormalsOnBackFaces(
+        this._material({
+          color: 0xffffff,
+          map: FLORET_PLATE,
+          alphaTest: FLORET_PLATE ? 0.36 : 0,
+          vertexColors: true,
+          side: THREE.DoubleSide,
+          roughness: 0.72,
+        }),
+      ),
     };
   }
 
   #createInstances() {
-    const stemGeometry = this._stemGeometry(5);
+    const stemGeometry = this._stemGeometry(3, { openEnded: true });
 
+    // The stalk is worth two triangles a leaf at arm's length and nothing at
+    // all past seven metres, where a 1.5 mm petiole is thinner than a pixel.
+    // Two rungs of the same card, so it simply stops being meshed.
+    const leafCard = (stalk) =>
+      this._sharedGeometry(
+        'shared/leaf-card',
+        { roundedNormals: this._assets.leaf.roundedNormals, stalk },
+        createLeafCardGeometry,
+      );
     this._addInstancedOrgan('leaves', {
       name: 'Hydrangea_Leaves_Opposite_Ovate',
-      geometry: this._sharedGeometry(
-        'shared/leaf-card',
-        { roundedNormals: this._assets.leaf.roundedNormals },
-        createLeafCardGeometry,
-      ),
+      geometries: [leafCard(PETIOLE_CARD_FRACTION), leafCard(0)],
       material: this._materials.leaf,
-      group: this._leafGroup,
-    });
-    this._addInstancedOrgan('petioles', {
-      name: 'Hydrangea_Petioles',
-      geometry: stemGeometry,
-      material: this._materials.petiole,
       group: this._leafGroup,
     });
     this._addInstancedOrgan('buds', {
@@ -236,57 +275,31 @@ export class Hydrangea extends PlantRenderer {
       material: this._materials.bud,
       group: this._woodyGroup,
     });
-    this._addInstancedOrgan('currentShoots', {
-      name: 'Hydrangea_CurrentSeasonShoots',
+    // Current-season shoots and peduncles are the same organ to a renderer: a
+    // short green tube between two points. They were two kinds because they
+    // were two names.
+    this._addInstancedOrgan('stems', {
+      name: 'Hydrangea_GreenStems',
       geometry: stemGeometry,
-      material: this._materials.petiole,
-      group: this._woodyGroup,
-    });
-    this._addInstancedOrgan('peduncles', {
-      name: 'Hydrangea_PaniclePeduncles',
-      geometry: stemGeometry,
-      material: this._materials.peduncle,
+      material: this._materials.stem,
       group: this._flowerGroup,
     });
-    this._addInstancedOrgan('panicleStems', {
-      name: 'Hydrangea_PanicleRachises',
-      geometry: this._sharedGeometry(
-        'hydrangea/panicle-stem',
-        {},
-        createPanicleStemGeometry,
+    this._addInstancedOrgan('panicles', {
+      name: 'Hydrangea_Panicles',
+      geometries: PANICLE_LADDER.map((rung, level) =>
+        this._sharedGeometry(
+          `hydrangea/panicle-${level}`,
+          rung,
+          createPanicleGeometry,
+        ),
       ),
-      material: this._materials.panicleStem,
+      material: this._materials.floret,
       group: this._flowerGroup,
-    });
-    this._addInstancedOrgan('fertilePanicles', {
-      name: 'Hydrangea_Panicles_FertileInterior',
-      geometry: this._sharedGeometry(
-        'hydrangea/fertile-panicle',
-        {},
-        createFertilePanicleGeometry,
-      ),
-      material: this._materials.fertile,
-      group: this._flowerGroup,
-    });
-    this._addInstancedOrgan('sterileLower', {
-      name: 'Hydrangea_Panicles_SterileLower',
-      geometry: this._sharedGeometry(
-        'hydrangea/sterile-panicle',
-        { region: 'lower' },
-        createSterilePanicleGeometry,
-      ),
-      material: this._materials.sterile,
-      group: this._flowerGroup,
-    });
-    this._addInstancedOrgan('sterileUpper', {
-      name: 'Hydrangea_Panicles_SterileUpper',
-      geometry: this._sharedGeometry(
-        'hydrangea/sterile-panicle',
-        { region: 'upper' },
-        createSterilePanicleGeometry,
-      ),
-      material: this._materials.sterile,
-      group: this._flowerGroup,
+      // A head casts, but is not shadowed. Forty-four cards standing in for
+      // two hundred florets shadow one another into hard grey blotches across
+      // what a photograph shows as one soft cream mass; its own outward-facing
+      // normals already shade it as the cone it is.
+      receivesShadow: false,
     });
 
     const leaves = this._instancePool.mesh('leaves');
@@ -328,7 +341,7 @@ export class Hydrangea extends PlantRenderer {
               radial,
               sourceLength: leaf.lengthM,
             });
-            count({ leaves: 1, petioles: 1, buds: 1 });
+            count({ leaves: 1, buds: 1 });
           }
         }
 
@@ -339,7 +352,7 @@ export class Hydrangea extends PlantRenderer {
             id: currentShoot.id,
             identity: this._renderIdentity(currentShoot.id, 'current-shoot'),
           });
-          count({ currentShoots: 1 });
+          count({ stems: 1 });
 
           for (const cohort of ['previous', 'current']) {
             const id = `${panicle.id}:${cohort}`;
@@ -348,13 +361,8 @@ export class Hydrangea extends PlantRenderer {
               identity: this._renderIdentity(id, 'panicle'),
             });
           }
-          count({
-            peduncles: 2,
-            panicleStems: 2,
-            fertilePanicles: 2,
-            sterileLower: 2,
-            sterileUpper: 2,
-          });
+          // One peduncle and one head per cohort slot.
+          count({ stems: 2, panicles: 2 });
         }
       });
     }
@@ -401,18 +409,6 @@ export class Hydrangea extends PlantRenderer {
         position,
         quaternion,
         new THREE.Vector3(cardScale, cardScale, cardScale),
-      ),
-    );
-
-    const petiole = new THREE.Object3D();
-    composeSegmentMatrix(petiole, start, position, 0.00145);
-    this._writeInstance(
-      'petioles',
-      identity,
-      petiole.matrix,
-      PETIOLE_GREEN.clone().lerp(
-        PETIOLE_RED,
-        keyedRange(this.seed, [runtime.id, 'petiole-red'], 0.12, 0.62),
       ),
     );
   }
@@ -464,7 +460,7 @@ export class Hydrangea extends PlantRenderer {
       0.0028 * THREE.MathUtils.lerp(0.45, 1, clamp01(state.scale)),
     );
     this._writeInstance(
-      'currentShoots',
+      'stems',
       runtime.identity,
       shoot.matrix,
       CURRENT_SHOOT_GREEN.clone().lerp(
@@ -493,25 +489,26 @@ export class Hydrangea extends PlantRenderer {
       ? 1
       : clamp01(Math.max(phenology.dryProgress, panicleState.dryVisibility));
 
-    const lower = COLOURS.lime
+    // The head's own colour is its base, where the season has got furthest.
+    // Panicles open from the base to the apex and the apex runs about a week
+    // behind, which the card geometry carries as a baked multiplicative
+    // gradient rather than as a second, separately-coloured mesh.
+    const head = COLOURS.lime
       .clone()
       .lerp(COLOURS.cream, limeMix)
       .lerp(COLOURS.blush, pinkMix)
       .lerp(COLOURS.dustyRose, burgundyMix)
       .lerp(COLOURS.tan, dryMix);
-    // Panicles open from the base to the apex. The upper layer remains about
-    // a week behind, giving real mixed green/white/pink heads during change.
-    const upper = COLOURS.lime
-      .clone()
-      .lerp(COLOURS.cream, clamp01((limeMix - 0.18) / 0.82))
-      .lerp(COLOURS.blush, clamp01(pinkMix - 0.28))
-      .lerp(COLOURS.dustyRose, clamp01(burgundyMix - 0.22))
-      .lerp(COLOURS.deepTan, dryMix);
-    const fertile = COLOURS.bud
-      .clone()
-      .lerp(COLOURS.creamGreen, limeMix * 0.45)
-      .lerp(COLOURS.deepTan, dryMix);
-    return { lower, upper, fertile, dryMix };
+    // Before the sepals expand, the head is a tight green cone -- the same
+    // florets on the same cone, so the same cards, only smaller (by the
+    // model's own panicle scale) and greener. `sterileVisibility` is what used
+    // to decide whether to draw the showy layers at all; now it decides how
+    // far the head has opened out of its bud colour.
+    // A drying head is fully open, not returning to bud: as a retained head's
+    // sterile visibility decays through the spring pruning window it must stay
+    // parchment, not creep back towards green.
+    const opened = clamp01(Math.max(panicleState.sterileVisibility, dryMix));
+    return { head: COLOURS.bud.clone().lerp(head, opened), dryMix };
   }
 
   #setPanicle(state, phenology, detailScale) {
@@ -535,7 +532,7 @@ export class Hydrangea extends PlantRenderer {
     );
     const colours = this.#panicleColours(phenology, state);
     this._writeInstance(
-      'peduncles',
+      'stems',
       runtime.identity,
       peduncle.matrix,
       PANICLE_STEM_GREEN.clone().lerp(PANICLE_STEM_TAN, colours.dryMix),
@@ -549,34 +546,7 @@ export class Hydrangea extends PlantRenderer {
       new THREE.Vector3(width, length, width),
     );
 
-    this._writeInstance(
-      'panicleStems',
-      runtime.identity,
-      matrix,
-      PANICLE_STEM_GREEN.clone().lerp(PANICLE_STEM_TAN, colours.dryMix),
-    );
-    if (state.fertileVisibility > 0.015) {
-      this._writeInstance(
-        'fertilePanicles',
-        runtime.identity,
-        matrix,
-        colours.fertile,
-      );
-    }
-    if (state.sterileVisibility > 0.015) {
-      this._writeInstance(
-        'sterileLower',
-        runtime.identity,
-        matrix,
-        colours.lower,
-      );
-      this._writeInstance(
-        'sterileUpper',
-        runtime.identity,
-        matrix,
-        colours.upper,
-      );
-    }
+    this._writeInstance('panicles', runtime.identity, matrix, colours.head);
   }
 
   #setLeafPhenology(phenology) {

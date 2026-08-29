@@ -270,10 +270,21 @@ test('slack from demotions is reported, and compact() reclaims it', async () => 
       demoted.unusedSlots > 0,
       'demoting every plant freed slots but reported none',
     );
-    assert.equal(
-      demoted.slots,
-      built.slots,
-      'the span should hold at the mark',
+    // Per kind, because hydrangea's coarse bands drop `stems` and `buds`
+    // entirely: every slot in those buffers becomes tail at once, so they are
+    // wholly reclaimed. That is the tail rule, not an exception to it. The
+    // kinds the band still draws are the ones that must hold at the mark.
+    for (const [kind, span] of Object.entries(demoted.slotsByKind)) {
+      if (span === 0) continue;
+      assert.equal(
+        span,
+        built.slotsByKind[kind],
+        `${kind}: the span should hold at the mark`,
+      );
+    }
+    assert.ok(
+      demoted.slots <= built.slots,
+      'the span should never grow on a demotion',
     );
     assert.equal(demoted.slots - demoted.organInstances, demoted.unusedSlots);
 

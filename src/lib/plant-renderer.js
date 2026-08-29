@@ -7,6 +7,7 @@ import { normalizePlantLODLevels } from './plant-lod.js';
 import {
   normalizePlantDetail,
   samplePlantDetailSections,
+  sampleWoodyLandmarks,
   stablePlantOrganDetailScale,
 } from './plant-detail.js';
 import { createUnitStemGeometry, vector } from './plant-transforms.js';
@@ -33,7 +34,8 @@ const DEFAULT_BARK_WRAPS_PER_METRE_RADIUS = 250;
 // resource by its factory as well as its id, so an arrow written at each call
 // site would look like a different factory every time and trip the collision
 // guard rather than share anything.
-const unitStem = ({ segments }) => createUnitStemGeometry(segments);
+const unitStem = ({ segments, openEnded }) =>
+  createUnitStemGeometry(segments, openEnded);
 
 /**
  * Machinery shared by every multi-cane shrub renderer in this library.
@@ -305,8 +307,12 @@ export class PlantRenderer extends THREE.Group {
    * The unit stem every plant extrudes its petioles, pedicels and rachises
    * from. One geometry for the whole library, not one per plant per organ.
    */
-  _stemGeometry(segments = 5) {
-    return this._sharedGeometry('shared/unit-stem', { segments }, unitStem);
+  _stemGeometry(segments = 5, { openEnded = false } = {}) {
+    return this._sharedGeometry(
+      'shared/unit-stem',
+      { segments, openEnded },
+      unitStem,
+    );
   }
 
   _createWoodMesh(material) {
@@ -581,6 +587,7 @@ export class PlantRenderer extends THREE.Group {
       signature: JSON.stringify([
         resolved.sectionStride,
         resolved.segmentFactor,
+        resolved.landmarkStride,
         signatureAxes,
       ]),
     };
@@ -610,7 +617,18 @@ export class PlantRenderer extends THREE.Group {
           binormal: section.binormal.clone(),
           radius: section.radius * radiusScale,
         }));
-        const transformedLandmarks = runtime.landmarks.map((landmark) => {
+        // Attachment landmarks, not sections, are what actually set a shrub's
+        // wood ring count: hydrangea carries 1,260 of them against 780
+        // sections, so `sectionStride` alone bottoms out almost immediately.
+        // A landmark exists to stop a tube pinching through an organ that is
+        // drawn on it, so once a band stops drawing those organs the landmark
+        // has nothing left to protect. Endpoints always survive -- they carry
+        // the axis' own origin, not an interpolated one.
+        const keptLandmarks = sampleWoodyLandmarks(
+          runtime.landmarks,
+          resolved.landmarkStride,
+        );
+        const transformedLandmarks = keptLandmarks.map((landmark) => {
           const sampled = sampleBranchSection(
             transformedSections,
             landmark.position,
@@ -729,8 +747,10 @@ export class PlantRenderer extends THREE.Group {
     const unchanged =
       resolved.sectionStride === this._detail.sectionStride &&
       resolved.segmentFactor === this._detail.segmentFactor &&
+      resolved.landmarkStride === this._detail.landmarkStride &&
       resolved.leafStride === this._detail.leafStride &&
       resolved.leafScale === this._detail.leafScale &&
+      resolved.organLevel === this._detail.organLevel &&
       sameKinds(resolved.dropKinds, this._detail.dropKinds) &&
       resolved.billboard === this._detail.billboard &&
       resolved.shadowCast === this._detail.shadowCast &&
@@ -739,12 +759,14 @@ export class PlantRenderer extends THREE.Group {
 
     const woodChanged =
       resolved.sectionStride !== this._detail.sectionStride ||
-      resolved.segmentFactor !== this._detail.segmentFactor;
+      resolved.segmentFactor !== this._detail.segmentFactor ||
+      resolved.landmarkStride !== this._detail.landmarkStride;
     const shadowsChanged =
       resolved.shadowCast !== this._detail.shadowCast ||
       resolved.shadowReceive !== this._detail.shadowReceive;
     this._detail = resolved;
     this._instancePool.suppress(resolved.dropKinds);
+    this._instancePool.setOrganLevel(resolved.organLevel);
     if (shadowsChanged) this._applyShadowDetail();
     if (woodChanged) this._woodSnapshotKey = null;
     if (this._snapshot) this._applySnapshot(this._snapshot);

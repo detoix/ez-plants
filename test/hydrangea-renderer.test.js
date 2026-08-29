@@ -12,26 +12,21 @@ import {
 import { LIMELIGHT_CALENDAR } from '../src/lib/plants/hydrangea/phenology.js';
 import { isSharedResource } from '../src/lib/shared-resources.js';
 
+// One head is one instance of one mesh. The five meshes that used to make a
+// panicle -- peduncle, rachis, fertile interior, and a lower and upper sterile
+// layer -- cost 6,468 triangles and five draws for a single flower, against a
+// library budget of 25,000 triangles and three draws for the entire plant.
+// Petioles are gone into the leaf card, and the two thin green tubes the plant
+// still needs share one pool.
 const MESH_NAMES = Object.freeze({
   wood: 'Hydrangea_Wood',
   leaves: 'Hydrangea_Leaves_Opposite_Ovate',
-  petioles: 'Hydrangea_Petioles',
   buds: 'Hydrangea_VegetativeBuds',
-  currentShoots: 'Hydrangea_CurrentSeasonShoots',
-  peduncles: 'Hydrangea_PaniclePeduncles',
-  panicleStems: 'Hydrangea_PanicleRachises',
-  fertilePanicles: 'Hydrangea_Panicles_FertileInterior',
-  sterileLower: 'Hydrangea_Panicles_SterileLower',
-  sterileUpper: 'Hydrangea_Panicles_SterileUpper',
+  stems: 'Hydrangea_GreenStems',
+  panicles: 'Hydrangea_Panicles',
 });
 
-const HEAD_MESH_NAMES = Object.freeze([
-  MESH_NAMES.peduncles,
-  MESH_NAMES.panicleStems,
-  MESH_NAMES.fertilePanicles,
-  MESH_NAMES.sterileLower,
-  MESH_NAMES.sterileUpper,
-]);
+const HEAD_MESH_NAMES = Object.freeze([MESH_NAMES.panicles]);
 
 // At the app's alphaTest 0.5 threshold, the baked 1024 px square plate has a
 // 562 x 1022 px visible blade. The square GPU card must not apply that aspect
@@ -146,31 +141,23 @@ function snapshotInstanceCounts(snapshot) {
     for (const axis of cane.axes) {
       for (const node of axis.nodes) {
         for (const leaf of node.leaves) {
-          if (leaf.visible) {
-            counts[MESH_NAMES.leaves] += 1;
-            counts[MESH_NAMES.petioles] += 1;
-          }
+          if (leaf.visible) counts[MESH_NAMES.leaves] += 1;
           if (!leaf.visible || showBuds) counts[MESH_NAMES.buds] += 1;
         }
       }
 
       const terminalPanicle = axis.terminalPanicle;
       const currentShoot = terminalPanicle?.currentShoot;
+      // Shoots and peduncles are the same organ to the renderer, so they
+      // share one pool and both count towards it.
       if (currentShoot?.visible && currentShoot.lengthM > 1e-6) {
-        counts[MESH_NAMES.currentShoots] += 1;
+        counts[MESH_NAMES.stems] += 1;
       }
 
       for (const head of physicalPanicles(terminalPanicle)) {
         if (!head.visible || head.headVisibility <= 0.015) continue;
-        counts[MESH_NAMES.peduncles] += 1;
-        counts[MESH_NAMES.panicleStems] += 1;
-        if (head.fertileVisibility > 0.015) {
-          counts[MESH_NAMES.fertilePanicles] += 1;
-        }
-        if (head.sterileVisibility > 0.015) {
-          counts[MESH_NAMES.sterileLower] += 1;
-          counts[MESH_NAMES.sterileUpper] += 1;
-        }
+        counts[MESH_NAMES.stems] += 1;
+        counts[MESH_NAMES.panicles] += 1;
       }
     }
   }
@@ -217,37 +204,26 @@ test('the renderer rejects cultivars outside its Limelight profile', () => {
   }
 });
 
-test('summer draws opposite leaves and every biological layer of each panicle', () => {
+test('summer draws opposite leaves and one instanced head per panicle', () => {
   const plant = makePlant({ ageYears: 8, dayOfYear: 230 });
   try {
     const stats = plant.stats();
     const leaves = meshNamed(plant, MESH_NAMES.leaves);
-    const petioles = meshNamed(plant, MESH_NAMES.petioles);
-    const panicleCount = meshNamed(plant, MESH_NAMES.panicleStems).count;
+    const panicleCount = meshNamed(plant, MESH_NAMES.panicles).count;
 
     assert.ok(leaves.count > 1_000);
-    assert.equal(petioles.count, leaves.count);
     assert.equal(stats.visibleLeaves, leaves.count);
     assert.ok(panicleCount > 30);
-    assert.ok(meshNamed(plant, MESH_NAMES.currentShoots).count > 30);
     assert.equal(stats.visiblePanicles, panicleCount);
     assert.equal(stats.freshPanicles, panicleCount);
     assert.equal(stats.visibleDryPanicles, 0);
     assert.equal(stats.phenology.phase, 'cream-flowering');
 
-    for (const name of HEAD_MESH_NAMES) {
-      assert.equal(
-        meshNamed(plant, name).count,
-        panicleCount,
-        `${name} must contribute once to every open head`,
-      );
-    }
-    for (const id of instancesByOrganId(
-      plant,
-      MESH_NAMES.currentShoots,
-    ).keys()) {
-      assert.match(id, /:current-shoot$/);
-    }
+    // A peduncle per head, and a current-season shoot per flowering tip.
+    const stems = meshNamed(plant, MESH_NAMES.stems).count;
+    assert.ok(stems > panicleCount);
+    const shootIds = [...instancesByOrganId(plant, MESH_NAMES.stems).keys()];
+    assert.ok(shootIds.some((id) => /:current-shoot$/.test(id)));
   } finally {
     plant.dispose();
   }
@@ -306,10 +282,9 @@ test('winter is leafless but retains dry tan panicle skeletons', () => {
   const plant = makePlant({ ageYears: 8, dayOfYear: 20 });
   try {
     const stats = plant.stats();
-    const dryHeads = meshNamed(plant, MESH_NAMES.panicleStems).count;
+    const dryHeads = meshNamed(plant, MESH_NAMES.panicles).count;
 
     assert.equal(meshNamed(plant, MESH_NAMES.leaves).count, 0);
-    assert.equal(meshNamed(plant, MESH_NAMES.petioles).count, 0);
     assert.ok(meshNamed(plant, MESH_NAMES.buds).count > 0);
     assert.ok(dryHeads > 0);
     assert.equal(stats.visiblePanicles, dryHeads);
@@ -327,13 +302,8 @@ test('winter is leafless but retains dry tan panicle skeletons', () => {
 
 test('retained heads stay parchment-coloured while spring pruning removes them', () => {
   const plant = makePlant({ ageYears: 8, dayOfYear: 20 });
-  const colourPools = [
-    MESH_NAMES.peduncles,
-    MESH_NAMES.panicleStems,
-    MESH_NAMES.fertilePanicles,
-    MESH_NAMES.sterileLower,
-    MESH_NAMES.sterileUpper,
-  ];
+  // In winter no shoot is growing, so every stem instance is a peduncle.
+  const colourPools = [MESH_NAMES.stems, MESH_NAMES.panicles];
   try {
     const winterColours = Object.fromEntries(
       colourPools.map((name) => [name, firstInstanceColour(plant, name)]),
@@ -351,15 +321,10 @@ test('retained heads stay parchment-coloured while spring pruning removes them',
       }
     }
 
-    // Fertile points fall below their visibility threshold first, but the
-    // last visible showy sepals and their support remain just as dry-coloured.
+    // The last retained heads and their peduncles stay just as dry-coloured
+    // right up to the end of the pruning window.
     plant.setTime({ dayOfYear: 89 });
-    for (const name of [
-      MESH_NAMES.peduncles,
-      MESH_NAMES.panicleStems,
-      MESH_NAMES.sterileLower,
-      MESH_NAMES.sterileUpper,
-    ]) {
+    for (const name of colourPools) {
       assert.deepEqual(firstInstanceColour(plant, name), winterColours[name]);
     }
   } finally {
@@ -393,21 +358,11 @@ test('fresh florets remain rendered throughout the dry-head colour handoff', () 
 
       for (let day = freshDisplayEnd; day <= dryPanicleFull; day += 1) {
         plant.setTime({ dayOfYear: day });
-        const headCount = meshNamed(plant, MESH_NAMES.panicleStems).count;
+        const headCount = meshNamed(plant, MESH_NAMES.panicles).count;
         assert.ok(headCount > 0, `${seasonProfile} lost heads on day ${day}`);
-        assert.equal(
-          meshNamed(plant, MESH_NAMES.sterileLower).count,
-          headCount,
-          `${seasonProfile} lost lower sepals on day ${day}`,
-        );
-        assert.equal(
-          meshNamed(plant, MESH_NAMES.sterileUpper).count,
-          headCount,
-          `${seasonProfile} lost upper sepals on day ${day}`,
-        );
         assert.ok(
-          meshNamed(plant, MESH_NAMES.fertilePanicles).count > 0,
-          `${seasonProfile} lost fertile flowers on day ${day}`,
+          meshNamed(plant, MESH_NAMES.stems).count >= headCount,
+          `${seasonProfile} lost peduncles on day ${day}`,
         );
       }
     }
@@ -468,23 +423,45 @@ test('time scrubbing A-B-A restores exact active counts and matrices', () => {
 });
 
 test('early and late profiles shift opening without changing plant age', () => {
+  // A head no longer appears out of nowhere when its sepals expand. It is one
+  // mesh from bud to parchment -- the same cone of the same florets -- so an
+  // unopened panicle is present, small and green rather than absent, and the
+  // difference between an early and a late season is read off its colour and
+  // its size instead of off whether it exists.
   const plant = makePlant({ ageYears: 8, dayOfYear: 196 });
+  const BUD_GREEN = new THREE.Color(0xb8cb75).toArray();
   try {
     plant.setPhenologyProfile({ seasonProfile: 'early' });
     const early = plant.stats().phenology;
-    const earlyOpen = meshNamed(plant, MESH_NAMES.sterileLower).count;
+    const earlyColour = firstInstanceColour(plant, MESH_NAMES.panicles);
+    const earlySize = mean(
+      instanceScales(plant, MESH_NAMES.panicles).map((scale) => scale.y),
+    );
 
     plant.setPhenologyProfile({ seasonProfile: 'late' });
     const late = plant.stats().phenology;
-    const lateOpen = meshNamed(plant, MESH_NAMES.sterileLower).count;
+    const lateColour = firstInstanceColour(plant, MESH_NAMES.panicles);
+    const lateSize = mean(
+      instanceScales(plant, MESH_NAMES.panicles).map((scale) => scale.y),
+    );
 
     assert.equal(plant.ageYears, 8);
     assert.equal(plant.dayOfYear, 196);
     assert.equal(early.phase, 'lime-flowering');
     assert.equal(late.phase, 'panicle-bud');
     assert.ok(early.calendar.floweringStart < late.calendar.floweringStart);
-    assert.ok(earlyOpen > 0);
-    assert.equal(lateOpen, 0);
+
+    assert.ok(
+      lateSize < earlySize,
+      'a panicle still in bud must be smaller than one already in flower',
+    );
+    for (const channel of [0, 1, 2]) {
+      assert.ok(
+        Math.abs(lateColour[channel] - BUD_GREEN[channel]) < 0.01,
+        'an unopened head must still be carrying its bud green',
+      );
+    }
+    assert.notDeepEqual(earlyColour, lateColour);
   } finally {
     plant.dispose();
   }
@@ -668,16 +645,25 @@ test('a coarse level thins leaves and heads without erasing the cultivar display
   const plant = makePlant({ ageYears: 20, dayOfYear: 230 });
   try {
     const nearLeaves = meshNamed(plant, MESH_NAMES.leaves).count;
-    const nearHeads = meshNamed(plant, MESH_NAMES.sterileLower).count;
+    const nearHeads = meshNamed(plant, MESH_NAMES.panicles).count;
+    const nearHeadGeometry = meshNamed(plant, MESH_NAMES.panicles).geometry;
 
     plant.setLevel(plant.lodLevels.length - 1);
     const farLeaves = meshNamed(plant, MESH_NAMES.leaves).count;
-    const farHeads = meshNamed(plant, MESH_NAMES.sterileLower).count;
+    const farHeadMesh = meshNamed(plant, MESH_NAMES.panicles);
 
     assert.ok(farLeaves > 0 && farLeaves < nearLeaves);
-    assert.ok(farHeads > 0 && farHeads < nearHeads);
-    assert.equal(meshNamed(plant, MESH_NAMES.sterileUpper).count, farHeads);
-    assert.equal(meshNamed(plant, MESH_NAMES.panicleStems).count, farHeads);
+    assert.ok(farHeadMesh.count > 0 && farHeadMesh.count < nearHeads);
+    // The head thins *and* simplifies. Thinning alone cannot pay for a
+    // hydrangea: its heads are the cultivar, so they can never be thinned far
+    // enough to matter, which is what the organ-geometry ladder is for.
+    assert.notStrictEqual(farHeadMesh.geometry, nearHeadGeometry);
+    assert.ok(
+      farHeadMesh.geometry.index.count < nearHeadGeometry.index.count,
+      'the far head must be cheaper geometry, not merely fewer of the same',
+    );
+    // Millimetre-wide stems are dropped outright at this distance.
+    assert.equal(meshNamed(plant, MESH_NAMES.stems).count, 0);
     assert.ok(meshNamed(plant, MESH_NAMES.wood).visible);
   } finally {
     plant.dispose();
@@ -694,12 +680,12 @@ test('distance LOD thins the head cohort and restores exact near slots', () => {
   });
   try {
     const nearInstances = captureInstances(plant);
-    const nearHeads = instancesByOrganId(plant, MESH_NAMES.panicleStems);
+    const nearHeads = instancesByOrganId(plant, MESH_NAMES.panicles);
     assert.ok(nearHeads.size > 0);
     for (const id of nearHeads.keys()) assert.match(id, /:current$/);
 
     plant.setLevel(plant.lodLevels.length - 1);
-    const farHeads = instancesByOrganId(plant, MESH_NAMES.panicleStems);
+    const farHeads = instancesByOrganId(plant, MESH_NAMES.panicles);
 
     assert.ok(farHeads.size > 0);
     assert.ok(farHeads.size < nearHeads.size);

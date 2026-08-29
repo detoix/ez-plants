@@ -29,15 +29,24 @@ export function makeBasisQuaternion(forward, preferredNormal = UP) {
   return new THREE.Quaternion().setFromRotationMatrix(basis);
 }
 
-/** A unit cylinder aligned from local y=0 to local y=1. */
-export function createUnitStemGeometry(radialSegments = 5) {
+/**
+ * A unit cylinder aligned from local y=0 to local y=1.
+ *
+ * `openEnded` drops the end caps, which on a stem are half the triangles for
+ * nothing: a petiole is capped by the twig it leaves and the blade it carries,
+ * a peduncle by the shoot below and the head above. A five-sided capped tube
+ * costs 20 triangles; a three-sided open one costs 6, and at the width these
+ * organs are actually drawn -- one to three millimetres -- nothing downstream
+ * can tell the difference.
+ */
+export function createUnitStemGeometry(radialSegments = 5, openEnded = false) {
   const geometry = new THREE.CylinderGeometry(
     1,
     1,
     1,
     radialSegments,
     1,
-    false,
+    openEnded,
   );
   geometry.translate(0, 0.5, 0);
   return geometry;

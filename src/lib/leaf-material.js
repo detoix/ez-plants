@@ -3,6 +3,34 @@ import * as THREE from 'three';
 import { LeafWind, createLeafWindShadowMaterials } from './leaf-wind.js';
 
 /**
+ * Keep a double-sided card's authored normals when it is seen from behind.
+ *
+ * Three flips the shading normal by `faceDirection` on back faces, which is
+ * right for a solid surface and wrong for a card standing in for a rounded
+ * mass. Half the cards clothing a flower head or a canopy face away from the
+ * camera at any moment; flipping their normals turns them to face the viewer
+ * and therefore *away* from the sun, and they shade black in the middle of a
+ * lit plant. Authoring the normal a card would have if it were part of the
+ * convex surface it approximates, and then leaving it alone, is EZ-Tree's own
+ * answer for leaves and works the same for florets.
+ */
+export function keepAuthoredNormalsOnBackFaces(material) {
+  const previous = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    previous?.call(material, shader, renderer);
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <normal_fragment_begin>',
+      THREE.ShaderChunk.normal_fragment_begin.replace(
+        'normal *= faceDirection;',
+        '',
+      ),
+    );
+  };
+  material.customProgramCacheKey = () => 'authored-normals';
+  return material;
+}
+
+/**
  * Create one EZ-Tree leaf surface material and its matching shadow passes.
  * The caller owns the texture and supplies it directly; no asset URL or leaf
  * variant is embedded in the shared library.

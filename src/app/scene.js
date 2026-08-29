@@ -121,12 +121,12 @@ export async function createScene(renderer, descriptor, initialState) {
 
   const plant = descriptor.create(initialState);
   plant.name = `${descriptor.label} '${descriptor.cultivar}'`;
-  plant.traverse((object) => {
-    if (object.isMesh) {
-      object.castShadow = true;
-      object.receiveShadow = true;
-    }
-  });
+  // The plant sets its own shadow flags, per organ kind and per LOD band, and
+  // it knows things this scene does not: a hydrangea head is a shell of
+  // cards standing in for hundreds of florets, and letting them shadow each other
+  // blotches one soft cream mass into grey facets. Casting stays on -- the
+  // heads shadow the leaves below them, which is real. Overriding the lot on
+  // the way in silently threw all of that away.
   scene.add(plant);
 
   const camera = new THREE.PerspectiveCamera(

@@ -718,7 +718,9 @@ export class PlantField extends THREE.Group {
     ).length;
 
     let slots = 0;
-    for (const { mesh } of this._organMeshes.values()) {
+    const slotsByKind = {};
+    for (const [kind, { mesh }] of this._organMeshes) {
+      slotsByKind[kind] = mesh._instancesArrayCount;
       slots += mesh._instancesArrayCount;
     }
 
@@ -767,6 +769,15 @@ export class PlantField extends THREE.Group {
        * for, because freed slots are only reclaimed from the tail.
        */
       slots,
+      /**
+       * The same span, per organ kind. A band that drops a kind outright --
+       * hydrangea's millimetre-wide stems past seven metres -- empties that
+       * kind's buffer to its first slot, and because every freed slot in it is
+       * then tail, the whole span goes back. Reading `slots` alone, that looks
+       * like the high-water mark falling; per kind it is visibly the rule
+       * working rather than an exception to it.
+       */
+      slotsByKind,
       /**
        * Slots inside that span which draw nothing. They cost one array read
        * each per frame in the culling pass; `compact()` reclaims them.

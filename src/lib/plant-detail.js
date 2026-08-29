@@ -8,6 +8,8 @@ import { sampleBranchSection } from './woody-geometry.js';
 export const DEFAULT_PLANT_DETAIL = Object.freeze({
   sectionStride: 1,
   segmentFactor: 1,
+  landmarkStride: 1,
+  organLevel: 0,
   leafStride: 1,
   leafScale: 1,
   dropKinds: Object.freeze([]),
@@ -24,6 +26,14 @@ function positiveInteger(value, fallback, name) {
     throw new TypeError(`${name} must be a finite number.`);
   }
   return Math.max(1, Math.floor(resolved));
+}
+
+function nonNegativeInteger(value, fallback, name) {
+  const resolved = value ?? fallback;
+  if (!Number.isFinite(resolved)) {
+    throw new TypeError(`${name} must be a finite number.`);
+  }
+  return Math.max(0, Math.floor(resolved));
 }
 
 function positiveNumber(value, fallback, name) {
@@ -88,6 +98,16 @@ export function normalizePlantDetail(detail = {}, fallback = {}) {
       fallback.segmentFactor ?? DEFAULT_PLANT_DETAIL.segmentFactor,
       'segmentFactor',
     ),
+    landmarkStride: positiveInteger(
+      detail.landmarkStride,
+      fallback.landmarkStride ?? DEFAULT_PLANT_DETAIL.landmarkStride,
+      'landmarkStride',
+    ),
+    organLevel: nonNegativeInteger(
+      detail.organLevel,
+      fallback.organLevel ?? DEFAULT_PLANT_DETAIL.organLevel,
+      'organLevel',
+    ),
     leafStride: positiveInteger(
       detail.leafStride,
       fallback.leafStride ?? DEFAULT_PLANT_DETAIL.leafStride,
@@ -148,6 +168,33 @@ export function samplePlantDetailSections(sections, stride, landmarks = null) {
     sections: ordered.map(({ section }) => section),
     positions: ordered.map(({ position }) => position),
   };
+}
+
+/**
+ * Thin the attachment landmarks a woody tube is pinned to.
+ *
+ * Every organ attached to an axis contributes a landmark, and every landmark
+ * forces a ring into the tube. On a leafy shrub that is the dominant term: the
+ * landmarks outnumber the curve's own sections, so raising `sectionStride`
+ * alone barely moves the triangle count. Thinning them alongside the organs
+ * they anchor is what actually makes a distant plant cheap.
+ *
+ * Endpoints are never dropped. A `base` or `tip` landmark carries the axis'
+ * true origin rather than a sampled one, so losing it visibly detaches a twig
+ * from its parent -- the one artefact this simplification must not produce.
+ */
+export function sampleWoodyLandmarks(landmarks, stride) {
+  const resolvedStride = positiveInteger(stride, 1, 'landmarkStride');
+  if (resolvedStride <= 1) return landmarks;
+  if (!Array.isArray(landmarks)) {
+    throw new TypeError('Woody landmarks must be an array.');
+  }
+
+  let interior = 0;
+  return landmarks.filter((landmark) => {
+    if (landmark.kind !== 'node') return true;
+    return interior++ % resolvedStride === 0;
+  });
 }
 
 /**

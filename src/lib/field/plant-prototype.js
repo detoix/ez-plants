@@ -23,9 +23,11 @@ import * as THREE from 'three';
  *
  * ## What the prototype keeps
  *
- * A bake per band. Wood differs between them and is copied; organ geometry is
- * byte-identical across bands and comes from the shared cache, so only the
- * matrices and counts actually differ.
+ * A bake per band. Wood differs between them and is copied. Organ geometry
+ * comes from the shared cache and is usually the same object at every band --
+ * what differs is the matrices and counts -- but a kind that declares an
+ * `organLevel` ladder hands over a different rung per band, so a bake's organ
+ * geometry is read from the mesh rather than assumed constant.
  *
  * **The source plant must stay alive.** A prototype holds the plant's
  * materials — including the leaf wind, which lives on the material's compiled

@@ -49,7 +49,10 @@ export class PlantInstancePool {
     this._cursors = {};
     this._identityAt = {};
     this._shadowEligible = {};
+    this._shadowReceiving = {};
     this._suppressed = new Set();
+    this._geometries = {};
+    this._organLevel = 0;
   }
 
   /**
@@ -59,15 +62,41 @@ export class PlantInstancePool {
    *   worth a shadow-map draw. A per-kind capability, fixed at construction —
    *   petioles and other hidden structure can opt out permanently. The LOD
    *   band decides whether an eligible kind casts *right now*.
+   * @param {boolean} [options.receivesShadow] Whether the kind should be
+   *   shadowed at all. The opt-out is for organs meshed as a shell of cards
+   *   standing in for a solid mass: the cards shadow each other, and because
+   *   they are a sparse approximation of something dense the result is hard
+   *   mottling across a surface that should read as one soft body. Such a kind
+   *   still *casts* — a flower head shadowing the leaves below it is real.
    */
   add(
     kind,
-    { name, geometry, material, group, capacity, castsShadow = true } = {},
+    {
+      name,
+      geometry,
+      geometries,
+      material,
+      group,
+      capacity,
+      castsShadow = true,
+      receivesShadow = true,
+    } = {},
   ) {
     if (!kind) throw new TypeError('An instance-pool kind is required.');
     if (this._meshes[kind]) {
       throw new Error(`Instance pool already contains kind: ${kind}`);
     }
+
+    // An organ kind may bring a whole ladder instead of one mesh. Thinning
+    // counts and dropping kinds are the only LOD levers a pool used to have,
+    // and neither helps an organ that is both irreducible and the reason the
+    // plant is worth drawing -- a hydrangea's panicle cannot be thinned away
+    // and cannot be dropped, so it has to get simpler instead.
+    const ladder = geometries ?? [geometry];
+    if (!ladder.length) {
+      throw new TypeError(`Instance-pool kind ${kind} needs geometry.`);
+    }
+    geometry = ladder[0];
 
     const activeCapacity = capacity ?? this._capacities[kind] ?? 0;
     if (!Number.isInteger(activeCapacity) || activeCapacity < 0) {
@@ -83,11 +112,13 @@ export class PlantInstancePool {
     mesh.count = 0;
 
     this._capacities[kind] = activeCapacity;
+    this._geometries[kind] = ladder;
     this._meshes[kind] = mesh;
     this._kindByMesh.set(mesh, kind);
     this._cursors[kind] = 0;
     this._identityAt[kind] = [];
     this._shadowEligible[kind] = castsShadow;
+    this._shadowReceiving[kind] = receivesShadow;
     group?.add(mesh);
     return mesh;
   }
@@ -104,7 +135,33 @@ export class PlantInstancePool {
   applyShadowPolicy({ cast = true, receive = true } = {}) {
     for (const [kind, mesh] of Object.entries(this._meshes)) {
       mesh.castShadow = cast && this._shadowEligible[kind] !== false;
-      mesh.receiveShadow = receive;
+      mesh.receiveShadow = receive && this._shadowReceiving[kind] !== false;
+    }
+    return this;
+  }
+
+  /**
+   * Select one rung of every organ kind's geometry ladder.
+   *
+   * A kind that supplied a single geometry ignores this, and a kind whose
+   * ladder is shorter than the requested level clamps to its last rung -- so a
+   * plant only describes the organs it actually wants to simplify, and a band
+   * past the end of a ladder keeps the coarsest version rather than failing.
+   *
+   * Swapping `mesh.geometry` is all this costs: the matrices already written
+   * for the kind stay valid, because every rung of a ladder is authored in the
+   * same unit frame.
+   *
+   * @param {number} level
+   */
+  setOrganLevel(level = 0) {
+    if (!Number.isInteger(level) || level < 0) {
+      throw new RangeError('Organ level must be a non-negative integer.');
+    }
+    this._organLevel = level;
+    for (const [kind, mesh] of Object.entries(this._meshes)) {
+      const ladder = this._geometries[kind];
+      mesh.geometry = ladder[Math.min(level, ladder.length - 1)];
     }
     return this;
   }

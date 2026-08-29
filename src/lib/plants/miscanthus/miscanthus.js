@@ -2,6 +2,7 @@ import * as THREE from 'three';
 
 import { createLeafMaterialSet } from '../../leaf-material.js';
 import { keyedRange } from '../../keyed-random.js';
+import { loadLeafPlate } from '../../leaf-plate.js';
 import { PlantRenderer } from '../../plant-renderer.js';
 import { sharedTexture } from '../../shared-resources.js';
 import {
@@ -10,19 +11,28 @@ import {
   vector,
 } from '../../plant-transforms.js';
 import {
-  BLADE_ARCH_VARIANTS,
+  BLADE_BAKED_ARCH,
   BLADE_TWIST_VARIANTS,
   BLADE_WIDTH_RATIOS,
+  bladeArchTilt,
   createBladeGeometry,
   createMidribEmissiveTexture,
-  createPlumeGeometry,
-  createRacemeFanGeometry,
-  createSpikeletGeometry,
+  createPanicleGeometry,
 } from './geometry.js';
 import { MALEPARTUS_PROFILE } from './malepartus.js';
 import { createMalepartusModel, evaluateMalepartusModel } from './model.js';
 
+/** This plant's own raceme plate, resolved beside its source. */
+const RACEME_PLATE = loadLeafPlate(new URL('./raceme.webp', import.meta.url));
+
 const UP = new THREE.Vector3(0, 1, 0);
+
+/**
+ * The blade's own width axis, which its arch plane turns about. Negative Z
+ * because the geometry arches toward local +X: a positive rotation about -Z
+ * carries the tip from the emergence axis out into the arch.
+ */
+const BLADE_TILT_AXIS = new THREE.Vector3(0, 0, -1);
 const clamp01 = (value) => THREE.MathUtils.clamp(value, 0, 1);
 
 // Culm colours run green through a late-summer wine flush to straw, then to
@@ -66,35 +76,65 @@ const PLUME_IVORY = new THREE.Color(0xd6cdb9);
 const RACHIS_GREEN = new THREE.Color(0x93985c);
 const RACHIS_STRAW = new THREE.Color(0xbfae83);
 
-const INSTANCE_KINDS = Object.freeze([
-  'culms',
-  'bladesErect',
-  'bladesArching',
-  'bladesRecurved',
-  'racemeFans',
-  'spikelets',
-  'plumes',
+/**
+ * Three kinds, where there were seven.
+ *
+ * A grass carries no wood mesh, so library rule 9 gives it three draws at its
+ * near band for everything it has — and it needs all three for blades, head
+ * and culms. The three blade kinds differed only in posture, which rule 9
+ * names outright as one kind with three transforms; the three head kinds were
+ * a raceme skeleton, the spikelets on it and the hairs over them, all drawn
+ * at the same place with the same matrix.
+ */
+const INSTANCE_KINDS = Object.freeze(['culms', 'blades', 'panicles']);
+
+/**
+ * The blade's detail ladder, indexed by `organLevel`.
+ *
+ * Two vertex columns at every rung: 759 blades cannot afford five, and the
+ * midrib comes from an emissive strip sampled by `uv.x` rather than from a
+ * centre column, so it survives the drop. What changes down the ladder is
+ * how finely the arch is sampled.
+ */
+const BLADE_LADDER = Object.freeze([
+  Object.freeze({ segments: 9, columns: 2 }),
+  Object.freeze({ segments: 5, columns: 2 }),
+  Object.freeze({ segments: 4, columns: 2 }),
 ]);
 
-/** Pool kind for each baked blade curvature, in `BLADE_ARCH_VARIANTS` order. */
-const BLADE_KINDS = Object.freeze([
-  'bladesErect',
-  'bladesArching',
-  'bladesRecurved',
+/**
+ * The head's detail ladder, indexed by `organLevel`.
+ *
+ * Racemes thin rather than the cards shrinking, because a head's silhouette is
+ * its outermost racemes and those are the ones a coarse rung must keep. Every
+ * rung stays crossed: a flat card is invisible edge-on, and a fan thrown out
+ * in every azimuth always has a third of itself edge-on to any viewer.
+ */
+const PANICLE_LADDER = Object.freeze([
+  Object.freeze({ segments: 2, crossed: true }),
+  Object.freeze({ racemes: 9, segments: 2, crossed: true }),
+  Object.freeze({ racemes: 7, segments: 1, crossed: true }),
 ]);
 
 // A clump carries far more instances than this library's shrubs, so it drops
 // detail sooner and harder.
 const DEFAULT_LOD_LEVELS = Object.freeze([
-  Object.freeze({ distance: 0, detail: Object.freeze({}) }),
+  // `sectionStride` is the culm lever even at the near band. A mature clump
+  // draws 930 culm segments, and at two triangles a side that is a fifth of
+  // the plant's entire budget spent on stems that the blades bury.
+  Object.freeze({
+    distance: 0,
+    detail: Object.freeze({ sectionStride: 2, organLevel: 0 }),
+  }),
   Object.freeze({
     distance: 6,
     hysteresis: 0.1,
     detail: Object.freeze({
-      sectionStride: 2,
+      sectionStride: 4,
       segmentFactor: 0.7,
       leafStride: 2,
       leafScale: 1.2,
+      organLevel: 1,
     }),
   }),
   // Three levels, like every other plant in the library. This one used to
@@ -107,8 +147,12 @@ const DEFAULT_LOD_LEVELS = Object.freeze([
     detail: Object.freeze({
       sectionStride: 4,
       segmentFactor: 0.42,
-      leafStride: 5,
-      leafScale: 1.7,
+      // Thinned less hard than the old far band, which was tuned when a blade
+      // cost 176 triangles. At 8 it can afford to keep more of the clump, and
+      // a clump's silhouette at eleven metres is the only thing left of it.
+      leafStride: 3,
+      leafScale: 1.4,
+      organLevel: 2,
     }),
   }),
 ]);
@@ -228,15 +272,29 @@ export class Miscanthus extends PlantRenderer {
     foliage.surface.emissiveIntensity = MIDRIB_INTENSITY;
     foliage.surface.needsUpdate = true;
 
+    // The head is cards cut out of a plate, so its silhouette is the plate's
+    // alpha. `roundedNormals: false` keeps three's own back-face flip, which
+    // for a hair card is the right answer twice over: a plume is translucent,
+    // and a crossed card is meant to look lit from whichever side you are on.
     const panicle = createLeafMaterialSet({
       name: 'Miscanthus_Malepartus_Panicles',
-      map: null,
-      alphaTest: 0,
+      map: RACEME_PLATE,
+      alphaTest: RACEME_PLATE ? 0.12 : 0,
       roundedNormals: false,
       vertexColors: true,
       wind: this._leafWind,
       windVariant: 'miscanthus-malepartus-panicles',
     });
+    // Alpha-to-coverage, because a plume is the one organ in this library that
+    // a cut-out cannot represent. The old head drew a thousand sub-pixel hair
+    // triangles, and what made it read as silky was that each pixel came out a
+    // blend of hair and sky. A card with a plain alpha test has no such middle:
+    // every pixel is either solid wine or gone, and fifteen of them turn a
+    // feathery whisk into a set of blunt fingers. Converting alpha into an MSAA
+    // coverage mask restores the partial coverage without the sort order a
+    // transparent material would need. Where the host renderer has no MSAA it
+    // degrades to the plain alpha test, which is the behaviour above.
+    panicle.surface.alphaToCoverage = true;
     this._resources.trackMaterial(panicle.surface);
     this._resources.trackMaterial(panicle.depth);
     this._resources.trackMaterial(panicle.distance);
@@ -262,67 +320,51 @@ export class Miscanthus extends PlantRenderer {
 
     this._addInstancedOrgan('culms', {
       name: 'Miscanthus_Culms',
-      geometry: this._stemGeometry(5),
+      geometry: this._stemGeometry(3, { openEnded: true }),
       material: this._materials.culm,
       group: this._woodyGroup,
     });
 
-    BLADE_KINDS.forEach((kind, variant) => {
-      this._addInstancedOrgan(kind, {
-        name: `Miscanthus_Blades_${kind.slice('blades'.length)}`,
-        geometry: this._sharedGeometry(
+    this._addInstancedOrgan('blades', {
+      name: 'Miscanthus_Blades',
+      geometries: BLADE_LADDER.map((rung) =>
+        this._sharedGeometry(
           'miscanthus/blade',
           {
-            arch: BLADE_ARCH_VARIANTS[variant],
-            twist: BLADE_TWIST_VARIANTS[variant],
-            widthRatio: BLADE_WIDTH_RATIOS[variant],
+            arch: BLADE_BAKED_ARCH,
+            twist: BLADE_TWIST_VARIANTS[1],
+            widthRatio: BLADE_WIDTH_RATIOS[1],
+            ...rung,
           },
           createBladeGeometry,
         ),
-        material: this._materials.blade,
-        group: this._leafGroup,
-      });
-      const mesh = this._instancePool.mesh(kind);
-      mesh.customDepthMaterial = this._materials.bladeDepth;
-      mesh.customDistanceMaterial = this._materials.bladeDistance;
+      ),
+      material: this._materials.blade,
+      group: this._leafGroup,
     });
+    const blades = this._instancePool.mesh('blades');
+    blades.customDepthMaterial = this._materials.bladeDepth;
+    blades.customDistanceMaterial = this._materials.bladeDistance;
 
-    this._addInstancedOrgan('racemeFans', {
-      name: 'Miscanthus_Panicle_RacemeFans',
-      geometry: this._sharedGeometry(
-        'miscanthus/raceme-fan',
-        { racemes: racemeCount },
-        createRacemeFanGeometry,
+    this._addInstancedOrgan('panicles', {
+      name: 'Miscanthus_Panicles',
+      geometries: PANICLE_LADDER.map((rung) =>
+        this._sharedGeometry(
+          'miscanthus/panicle',
+          { racemes: racemeCount, ...rung },
+          createPanicleGeometry,
+        ),
       ),
       material: this._materials.panicle,
       group: this._flowerGroup,
+      // Fifteen crossed cards standing in for a thousand hairs shadow one
+      // another into grey facets across what a photograph shows as one soft
+      // plume. It still casts onto the blades below it, which is real.
+      receivesShadow: false,
     });
-    this._addInstancedOrgan('spikelets', {
-      name: 'Miscanthus_Panicle_Spikelets',
-      geometry: this._sharedGeometry(
-        'miscanthus/spikelet',
-        { racemes: racemeCount },
-        createSpikeletGeometry,
-      ),
-      material: this._materials.panicle,
-      group: this._flowerGroup,
-    });
-    this._addInstancedOrgan('plumes', {
-      name: 'Miscanthus_Panicle_Plumes',
-      geometry: this._sharedGeometry(
-        'miscanthus/plume',
-        { racemes: racemeCount },
-        createPlumeGeometry,
-      ),
-      material: this._materials.panicle,
-      group: this._flowerGroup,
-    });
-
-    for (const kind of ['racemeFans', 'spikelets', 'plumes']) {
-      const mesh = this._instancePool.mesh(kind);
-      mesh.customDepthMaterial = this._materials.panicleDepth;
-      mesh.customDistanceMaterial = this._materials.panicleDistance;
-    }
+    const panicles = this._instancePool.mesh('panicles');
+    panicles.customDepthMaterial = this._materials.panicleDepth;
+    panicles.customDistanceMaterial = this._materials.panicleDistance;
   }
 
   #buildStableGraph() {
@@ -345,14 +387,12 @@ export class Miscanthus extends PlantRenderer {
       count({ culms: (tiller.points.length - 1) * 2 });
       for (const node of tiller.nodes) {
         if (!node.blade) continue;
-        // A blade steps down through the arch variants as it expands, so it
-        // can appear in any of the pools over a season. Sizing all three for
-        // every blade costs a matrix buffer and nothing else.
-        for (const kind of BLADE_KINDS) count({ [kind]: 1 });
+        // A blade steps down through the arch variants as it expands, but
+        // posture is a rotation now rather than a pool, so one slot covers it
+        // for the whole season.
+        count({ blades: 1 });
       }
-      if (tiller.panicle) {
-        count({ racemeFans: 1, spikelets: 1, plumes: 1 });
-      }
+      if (tiller.panicle) count({ panicles: 1 });
     }
 
     this._sizeInstancePool({
@@ -525,12 +565,22 @@ export class Miscanthus extends PlantRenderer {
     quaternion.multiply(
       new THREE.Quaternion().setFromAxisAngle(UP, blade.roll),
     );
+    // One blade is meshed for the whole plant, so its posture arrives as a
+    // rotation in its own arch plane rather than as a second geometry. Applied
+    // innermost, before the roll, so the roll still spins a correctly-arched
+    // blade about its emergence axis. See `bladeArchTilt`.
+    quaternion.multiply(
+      new THREE.Quaternion().setFromAxisAngle(
+        BLADE_TILT_AXIS,
+        bladeArchTilt(blade.arch),
+      ),
+    );
 
     // One uniform scale: the blade carries its own aspect ratio, because its
     // twist puts part of the width axis into the plane the arch lives in.
     const lengthM = blade.lengthM * detailScale;
     this._writeInstance(
-      BLADE_KINDS[blade.archVariant],
+      'blades',
       this.#identity(blade.id, 'blade'),
       new THREE.Matrix4().compose(
         vector(blade.position),
@@ -566,31 +616,19 @@ export class Miscanthus extends PlantRenderer {
         new THREE.Vector3(across, lengthM, across),
       );
 
+    // One head, one instance. The hair mass used to be a second mesh so it
+    // could bulge past the racemes as it fluffed; it is the same bulge applied
+    // to the whole head now, which is also what a real head does — the fan
+    // broadens as the hairs elongate, it does not grow a separate skin.
     this._writeInstance(
-      'racemeFans',
+      'panicles',
       identity,
-      compose(widthM),
-      colours.rachis,
+      compose(
+        widthM * THREE.MathUtils.lerp(0.9, 1.06, panicle.plumeVisibility),
+      ),
+      colours.hairs,
     );
-    this._writeInstance(
-      'spikelets',
-      identity,
-      compose(widthM),
-      colours.spikelets,
-    );
-    if (panicle.plumeVisibility > 0.02) {
-      // The hair mass bulges a little past the racemes as it fluffs out.
-      this._writeInstance(
-        'plumes',
-        identity,
-        compose(
-          widthM * THREE.MathUtils.lerp(0.84, 1.06, panicle.plumeVisibility),
-        ),
-        colours.hairs,
-      );
-      return true;
-    }
-    return false;
+    return panicle.plumeVisibility > 0.02;
   }
 
   _applySnapshot(snapshot) {

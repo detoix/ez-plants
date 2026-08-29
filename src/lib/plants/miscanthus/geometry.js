@@ -1,13 +1,9 @@
 import * as THREE from 'three';
 
 import {
-  appendTaperedTube,
-  createOrganBuffers,
   finishGeometry,
   fract,
   GOLDEN_ANGLE,
-  heightUVs,
-  pushOrganVertex,
   validatePositiveInteger,
 } from '../../organ-geometry.js';
 
@@ -38,13 +34,6 @@ const BLADE_LAMINA = new THREE.Color(0.86, 0.9, 0.83);
 const BLADE_MARGIN = new THREE.Color(0.6, 0.64, 0.58);
 const BLADE_BASE_SHADE = 0.82;
 
-const RACHIS_BASE = new THREE.Color(0.52, 0.5, 0.36);
-const RACHIS_TIP = new THREE.Color(0.86, 0.8, 0.62);
-const SPIKELET_BODY = new THREE.Color(0.72, 0.6, 0.58);
-const SPIKELET_TIP = new THREE.Color(0.94, 0.88, 0.86);
-const HAIR_BASE = new THREE.Color(0.66, 0.58, 0.56);
-const HAIR_TIP = new THREE.Color(1.0, 1.0, 1.0);
-
 const clamp01 = (value) => THREE.MathUtils.clamp(value, 0, 1);
 
 /**
@@ -53,6 +42,12 @@ const clamp01 = (value) => THREE.MathUtils.clamp(value, 0, 1);
  * blade to one of these so its predicted reach matches what is drawn.
  */
 export const BLADE_ARCH_VARIANTS = Object.freeze([0.32, 0.62, 0.9]);
+
+/**
+ * The single arch the blade geometry is meshed at. The middle variant, so no
+ * instance is tilted more than about fifteen degrees off what it was baked as.
+ */
+export const BLADE_BAKED_ARCH = BLADE_ARCH_VARIANTS[1];
 
 /** Blade twist that goes with each arch: longer, laxer blades turn over more. */
 export const BLADE_TWIST_VARIANTS = Object.freeze([0.24, 0.52, 0.82]);
@@ -88,6 +83,44 @@ export function bladeVariantFor(arch) {
  * ==================================================================== */
 
 /**
+ * Across-blade vertex columns, by how many the caller asks for.
+ *
+ * Five is the shape the blade was authored at: two margins, two lamina and a
+ * midrib, with the inner pair close to the centre so the pale midrib band
+ * stays a fine line. Spacing them evenly — as an earlier version did —
+ * brightened half the blade and made it read as a variegated cultivar rather
+ * than 'Malepartus'.
+ *
+ * Two is what a clump of 759 blades can actually afford, and it costs less
+ * than it looks. The midrib is drawn by an additive emissive strip sampled by
+ * `uv.x`, and `uv.x` interpolates across a fragment whether there are two
+ * vertices spanning it or five — so the signature white stripe survives
+ * intact. What goes is the basal keel, which needs a centre column to lift
+ * (and falls out of the arithmetic on its own here), and the margin shading,
+ * so both edges take the lamina tone rather than the darker margin one.
+ */
+const COLUMN_LAYOUTS = Object.freeze({
+  5: {
+    offsets: [-0.5, -0.14, 0, 0.14, 0.5],
+    colours: [
+      BLADE_MARGIN,
+      BLADE_LAMINA,
+      BLADE_MIDRIB,
+      BLADE_LAMINA,
+      BLADE_MARGIN,
+    ],
+  },
+  3: {
+    offsets: [-0.5, 0, 0.5],
+    colours: [BLADE_MARGIN, BLADE_MIDRIB, BLADE_MARGIN],
+  },
+  2: {
+    offsets: [-0.5, 0.5],
+    colours: [BLADE_LAMINA, BLADE_LAMINA],
+  },
+});
+
+/**
  * Half-width of the blade at arc position `s`, as a fraction of full width.
  * Grasses widen fast out of the sheath, hold width through the middle, then
  * run out in a long fine point rather than an ovate tip.
@@ -102,10 +135,13 @@ function bladeHalfWidth(s) {
 /**
  * Where the tip of a unit blade lands, for a given arch.
  *
- * This runs the same integration `createBladeGeometry` uses, so a growth
- * model can predict a blade's reach — for the plant's spread, for a camera
- * frame — without building the geometry, and cannot drift away from what is
- * actually drawn.
+ * This reports where the tip of the blade that is *actually drawn* lands, so a
+ * growth model can predict a blade's reach — for the plant's spread, for a
+ * camera frame — without building the geometry, and cannot drift away from it.
+ *
+ * Since only one blade is meshed and the variants are rotations of it (see
+ * `bladeArchTilt`), every arch reaches the same distance and differs only in
+ * direction. That is why this is not simply the integration of `arch`.
  *
  * @param {number} arch Same 0..1.4 value passed to `createBladeGeometry`.
  * @param {number} [segments=22] Same sampling as the geometry.
@@ -113,6 +149,14 @@ function bladeHalfWidth(s) {
  *   `along` in the blade's emergence direction and `across` in its arch.
  */
 export function bladeTipOffset(arch, segments = 22) {
+  const drawn = integrateBladeTip(BLADE_BAKED_ARCH, segments);
+  const reach = Math.hypot(drawn.along, drawn.across);
+  const angle = bladeTipAngle(arch, segments);
+  return { along: reach * Math.cos(angle), across: reach * Math.sin(angle) };
+}
+
+/** The raw unit-speed integration of one arch, before any variant tilt. */
+function integrateBladeTip(arch, segments) {
   const tipAngle = arch * (Math.PI * 0.5 + 0.5);
   let across = 0;
   let along = 0;
@@ -124,6 +168,37 @@ export function bladeTipOffset(arch, segments = 22) {
     along += ((Math.cos(previous) + Math.cos(current)) / 2) * step;
   }
   return { along, across };
+}
+
+/** Angle of an arch's tip from the blade's emergence axis, in radians. */
+function bladeTipAngle(arch, segments = 22) {
+  const tip = integrateBladeTip(arch, segments);
+  return Math.atan2(tip.across, tip.along);
+}
+
+/**
+ * The extra rotation that makes the one baked blade reach like `arch`.
+ *
+ * Only one blade geometry is meshed, because a plant gets three draws at its
+ * near band and this one needs them for blades, head and culms — and library
+ * rule 9 is explicit that "three blade kinds that differ only in posture are
+ * one kind with three transforms". This is that transform: a rotation in the
+ * blade's own arch plane, about its width axis, applied before the roll.
+ *
+ * Baking at the middle variant keeps the correction small — the three tip
+ * angles are 15.7°, 30.2° and 43.6°, so nothing is tilted more than fifteen
+ * degrees, and a grass blade leaving its sheath at a slightly different angle
+ * is what a grass blade does anyway. What a rigid rotation cannot reproduce is
+ * the *shape* difference: an erect flag leaf is now a gently arched blade held
+ * upright rather than a straighter one, and it shares the middle variant's
+ * twist and width ratio. Across a clump of several hundred blades that reads
+ * as the same fountain; at the scale of one blade it is an approximation.
+ *
+ * @param {number} arch Same 0..1.4 value the model carries.
+ * @returns {number} Radians, positive to arch further out.
+ */
+export function bladeArchTilt(arch) {
+  return bladeTipAngle(arch) - bladeTipAngle(BLADE_BAKED_ARCH);
 }
 
 /**
@@ -143,6 +218,8 @@ export function bladeTipOffset(arch, segments = 22) {
  * @param {number} [options.widthRatio=0.028] Full width, as a fraction of length.
  * @param {number} [options.keel=0.16] Depth of the V-section near the base.
  * @param {number} [options.segments=22] Samples along the blade.
+ * @param {number} [options.columns=5] Vertex columns across the blade: 5, 3
+ *   or 2. See `COLUMN_LAYOUTS`.
  * @returns {THREE.BufferGeometry} Instancing-ready blade with UVs for wind.
  */
 export function createBladeGeometry({
@@ -151,6 +228,7 @@ export function createBladeGeometry({
   widthRatio = 0.028,
   keel = 0.16,
   segments = 22,
+  columns = 5,
 } = {}) {
   validatePositiveInteger(segments, 'segments');
   if (segments < 4) throw new RangeError('A blade needs at least 4 segments.');
@@ -168,20 +246,11 @@ export function createBladeGeometry({
   const colors = [];
   const uvs = [];
   const indices = [];
-  // Five columns: two margins, two lamina, one midrib. That is the smallest
-  // strip that can show a distinct midrib stripe and a shaded margin.
-  // The inner pair sits close to the centre so the pale midrib band stays a
-  // fine line. Spacing them evenly across the blade — as an earlier version
-  // did — brightened half its width and made it read as a variegated
-  // cultivar rather than 'Malepartus'.
-  const columns = [-0.5, -0.14, 0, 0.14, 0.5];
-  const columnColour = [
-    BLADE_MARGIN,
-    BLADE_LAMINA,
-    BLADE_MIDRIB,
-    BLADE_LAMINA,
-    BLADE_MARGIN,
-  ];
+  const layout = COLUMN_LAYOUTS[columns];
+  if (!layout) {
+    throw new RangeError(`A blade needs 2, 3 or 5 columns, not ${columns}.`);
+  }
+  const { offsets: columnOffsets, colours: columnColour } = layout;
   // A cantilevered blade bends increasingly toward its tip, so the slope
   // grows faster than arc length. The exponent is what stops the base from
   // curling straight out of the sheath.
@@ -216,9 +285,9 @@ export function createBladeGeometry({
     const keelDepth = keel * widthRatio * Math.pow(clamp01(1 - s / 0.55), 1.6);
     const row = [];
 
-    for (let column = 0; column < columns.length; column += 1) {
-      const across = columns[column] * halfWidth * 2;
-      const lift = keelDepth * (1 - Math.abs(columns[column]) / 0.5);
+    for (let column = 0; column < columnOffsets.length; column += 1) {
+      const across = columnOffsets[column] * halfWidth * 2;
+      const lift = keelDepth * (1 - Math.abs(columnOffsets[column]) / 0.5);
       // Rolling mixes the across-blade axis (local Z) into the face normal.
       const outOfPlane = across * sinRoll + lift * cosRoll;
       const inPlane = across * cosRoll - lift * sinRoll;
@@ -233,14 +302,14 @@ export function createBladeGeometry({
       // uv.y runs along the blade and is the wind bend weight the shared
       // leaf-wind shader multiplies by, so a blade sways from a still base to
       // a mobile tip exactly like a leaf card.
-      uvs.push(columns[column] + 0.5, s);
+      uvs.push(columnOffsets[column] + 0.5, s);
       row.push(positions.length / 3 - 1);
     }
     rows.push(row);
   }
 
   for (let index = 0; index < segments; index += 1) {
-    for (let column = 0; column < columns.length - 1; column += 1) {
+    for (let column = 0; column < columnOffsets.length - 1; column += 1) {
       const a = rows[index][column];
       const b = rows[index][column + 1];
       const c = rows[index + 1][column];
@@ -410,228 +479,137 @@ function normalisation(racemes) {
 }
 
 /**
- * Build the rachis and raceme skeleton of one whole panicle.
+ * How wide a raceme card is, as a fraction of the raceme's own length.
  *
- * Unlike a hydrangea head, a Miscanthus panicle's own branches are visible
- * all winter once the hairs have blown away, so they are real tapered tubes
- * rather than a hidden support.
+ * The plate's hairs span about 56% of the tile's width, and the model's hairs
+ * are about 0.05 head-lengths on a raceme of about 0.7 -- so the hair mass is
+ * roughly 14% of a raceme's length across, and the card has to be 0.14/0.56
+ * wide for the plate to land at that scale. Get this wrong and the head is
+ * either a bottlebrush or a bare whisk.
+ */
+const RACEME_CARD_WIDTH = 0.26;
+
+const HEAD_UP = new THREE.Vector3(0, 1, 0);
+const HEAD_SIDE = new THREE.Vector3(1, 0, 0);
+
+/**
+ * Build one whole Malepartus head as a fan of textured raceme cards.
+ *
+ * Unit frame is unchanged from the three meshes this replaces: rooted at y=0,
+ * one unit tall, half a unit in radius, so the same instance matrix (X/Z to
+ * head width, Y to length) still places it.
+ *
+ * Each raceme is a **crossed** pair of ribbons following its own curve. Single
+ * cards would be the obvious saving, but a head is a fan thrown out in every
+ * azimuth at once: whichever way it is seen, a third of its racemes are edge
+ * on, and with flat cards those simply vanish. Crossing them doubles a raceme
+ * from four triangles to eight and keeps the head a solid feathery mass from
+ * any angle, which is the whole reason to draw it.
+ *
+ * There is no central rachis. The real one is under two centimetres long,
+ * buried where fifteen racemes converge, and the culm is already drawn up to
+ * it -- it was costing triangles to be invisible.
  *
  * @param {object} [options]
  * @param {number} [options.racemes=15] Finger-like racemes in the fan.
- * @param {number} [options.sides=4] Polygon sides per tube.
- * @returns {THREE.BufferGeometry} Normalized, vertex-coloured fan geometry.
+ * @param {number} [options.segments=2] Card segments along each raceme.
+ * @param {boolean} [options.crossed=true] Two ribbons per raceme, not one.
+ * @param {number} [options.hairSpread=RACEME_CARD_WIDTH] Card width, in
+ *   raceme lengths.
+ * @returns {THREE.BufferGeometry} Instancing-ready, textured, vertex-coloured.
  */
-export function createRacemeFanGeometry({ racemes = 15, sides = 4 } = {}) {
-  validatePositiveInteger(racemes, 'racemes');
-  validatePositiveInteger(sides, 'sides');
-  if (racemes < 3 || sides < 3) {
-    throw new RangeError('A raceme fan needs at least 3 racemes and 3 sides.');
-  }
-
-  const layout = racemeLayout(racemes);
-  const { scaleXZ, scaleY } = normalisation(layout);
-  const buffers = createOrganBuffers();
-  const topAttach = Math.max(...layout.map((raceme) => raceme.attachY));
-
-  appendTaperedTube(buffers, {
-    start: new THREE.Vector3(0, 0, 0),
-    end: new THREE.Vector3(0, topAttach * scaleY, 0),
-    startRadius: 0.016,
-    endRadius: 0.007,
-    sides,
-    startColour: RACHIS_BASE,
-    endColour: RACHIS_BASE.clone().lerp(RACHIS_TIP, 0.4),
-    capStart: true,
-    capEnd: true,
-  });
-
-  for (const raceme of layout) {
-    const steps = raceme.points.length - 1;
-    for (let step = 0; step < steps; step += 1) {
-      const from = step / steps;
-      const to = (step + 1) / steps;
-      appendTaperedTube(buffers, {
-        start: racemePoint(raceme, from, scaleXZ, scaleY),
-        end: racemePoint(raceme, to, scaleXZ, scaleY),
-        startRadius: THREE.MathUtils.lerp(0.008, 0.0022, from),
-        endRadius: THREE.MathUtils.lerp(0.008, 0.0022, to),
-        sides,
-        startColour: RACHIS_BASE.clone().lerp(RACHIS_TIP, from),
-        endColour: RACHIS_BASE.clone().lerp(RACHIS_TIP, to),
-        capEnd: step === steps - 1,
-      });
-    }
-  }
-
-  return finishGeometry({
-    ...buffers,
-    uvs: heightUVs(buffers.positions),
-    userData: { organ: 'raceme-fan', racemeCount: racemes },
-  });
-}
-
-/**
- * Build the paired spikelets carried along every raceme.
- *
- * These are the actual flowers. They are small, and in a fluffed head they
- * are almost hidden by their own hairs, but they carry the wine-red that
- * makes a fresh 'Malepartus' head coppery rather than white.
- *
- * @param {object} [options]
- * @param {number} [options.racemes=15] Must match the fan geometry.
- * @param {number} [options.perRaceme=7] Spikelet pairs sampled per raceme.
- * @returns {THREE.BufferGeometry} Normalized, vertex-coloured spikelet mass.
- */
-export function createSpikeletGeometry({ racemes = 15, perRaceme = 7 } = {}) {
-  validatePositiveInteger(racemes, 'racemes');
-  validatePositiveInteger(perRaceme, 'perRaceme');
-
-  const layout = racemeLayout(racemes);
-  const { scaleXZ, scaleY } = normalisation(layout);
-  const buffers = createOrganBuffers();
-  let spikeletCount = 0;
-
-  for (const raceme of layout) {
-    for (let index = 0; index < perRaceme; index += 1) {
-      const sample = 0.16 + (index / perRaceme) * 0.82;
-      const centre = racemePoint(raceme, sample, scaleXZ, scaleY);
-      const ahead = racemePoint(
-        raceme,
-        Math.min(1, sample + 0.04),
-        scaleXZ,
-        scaleY,
-      );
-      const along = ahead.clone().sub(centre);
-      if (along.lengthSq() < 1e-12) along.set(0, 1, 0);
-      along.normalize();
-      const side = new THREE.Vector3(0, 1, 0).cross(along).normalize();
-      if (side.lengthSq() < 1e-6) side.set(1, 0, 0);
-
-      // One sessile and one pedicelled spikelet at each node, which is the
-      // arrangement across the whole Andropogoneae tribe.
-      for (const pedicel of [0, 1]) {
-        const offset = centre
-          .clone()
-          .addScaledVector(side, (pedicel ? 1 : -1) * 0.004)
-          .addScaledVector(along, pedicel * 0.012);
-        appendTaperedTube(buffers, {
-          start: offset,
-          end: offset.clone().addScaledVector(along, 0.02),
-          startRadius: 0.0035,
-          endRadius: 0.0012,
-          // Three sides and no caps: at 5 mm inside a fluffed head these are
-          // a colour cue, and every extra face is paid for 50 times over in
-          // a mature clump.
-          sides: 3,
-          startColour: SPIKELET_BODY,
-          endColour: SPIKELET_TIP,
-          capEnd: false,
-        });
-        spikeletCount += 1;
-      }
-    }
-  }
-
-  return finishGeometry({
-    ...buffers,
-    uvs: heightUVs(buffers.positions),
-    userData: {
-      organ: 'spikelets',
-      racemeCount: racemes,
-      representativeSpikeletCount: spikeletCount,
-    },
-  });
-}
-
-/**
- * Build the silky hair mass that is the actual ornamental display.
- *
- * Each spikelet sits in a tuft of long hairs; collectively they are what
- * catches low autumn light and what turns the head from coppery to silver.
- * Rendering them as thin tapered blades rather than as a texture keeps the
- * head readable in silhouette against a winter sky.
- *
- * @param {object} [options]
- * @param {number} [options.racemes=15] Must match the fan geometry.
- * @param {number} [options.perRaceme=12] Tuft sites per raceme.
- * @param {number} [options.hairsPerTuft=7] Hairs drawn at each site.
- * @returns {THREE.BufferGeometry} Normalized, vertex-coloured hair mass.
- */
-export function createPlumeGeometry({
+export function createPanicleGeometry({
   racemes = 15,
-  perRaceme = 12,
-  hairsPerTuft = 7,
+  segments = 2,
+  crossed = true,
+  hairSpread = RACEME_CARD_WIDTH,
 } = {}) {
   validatePositiveInteger(racemes, 'racemes');
-  validatePositiveInteger(perRaceme, 'perRaceme');
-  validatePositiveInteger(hairsPerTuft, 'hairsPerTuft');
+  validatePositiveInteger(segments, 'segments');
+  if (racemes < 3) throw new RangeError('A head needs at least 3 racemes.');
+  if (!Number.isFinite(hairSpread) || hairSpread <= 0 || hairSpread > 1) {
+    throw new RangeError('hairSpread must be a finite number from 0 to 1.');
+  }
 
   const layout = racemeLayout(racemes);
   const { scaleXZ, scaleY } = normalisation(layout);
-  const buffers = createOrganBuffers();
-  const { indices } = buffers;
-  let hairCount = 0;
+  const positions = [];
+  const colors = [];
+  const normals = [];
+  const uvs = [];
+  const indices = [];
 
   for (const raceme of layout) {
-    for (let index = 0; index < perRaceme; index += 1) {
-      const sample = 0.16 + (index / perRaceme) * 0.82;
-      const centre = racemePoint(raceme, sample, scaleXZ, scaleY);
-      const ahead = racemePoint(
+    // The raceme's own length in the normalised frame, which is what the card
+    // width is a fraction of.
+    const root = racemePoint(raceme, 0, scaleXZ, scaleY);
+    const tip = racemePoint(raceme, 1, scaleXZ, scaleY);
+    const halfWidth = root.distanceTo(tip) * hairSpread * 0.5;
+
+    const rows = [];
+    for (let step = 0; step <= segments; step += 1) {
+      const s = step / segments;
+      const centre = racemePoint(raceme, s, scaleXZ, scaleY);
+      const ahead = racemePoint(raceme, Math.min(1, s + 0.05), scaleXZ, scaleY);
+      const behind = racemePoint(
         raceme,
-        Math.min(1, sample + 0.04),
+        Math.max(0, s - 0.05),
         scaleXZ,
         scaleY,
       );
-      const along = ahead.clone().sub(centre);
-      if (along.lengthSq() < 1e-12) along.set(0, 1, 0);
-      along.normalize();
-      const side = new THREE.Vector3(0, 1, 0).cross(along).normalize();
-      if (side.lengthSq() < 1e-6) side.set(1, 0, 0);
-      const up = along.clone().cross(side).normalize();
+      const tangent = ahead.clone().sub(behind);
+      if (tangent.lengthSq() < 1e-12) tangent.copy(HEAD_UP);
+      tangent.normalize();
 
-      for (let hair = 0; hair < hairsPerTuft; hair += 1) {
-        const sequence = raceme.index * 97 + index * 31 + hair * 13;
-        const around =
-          (hair / hairsPerTuft) * Math.PI * 2 +
-          fract(sequence * 0.618034) * 1.4;
-        const splay = 0.5 + 0.55 * fract(sequence * 0.7548);
-        const direction = along
-          .clone()
-          .addScaledVector(side, Math.cos(around) * splay)
-          .addScaledVector(up, Math.sin(around) * splay)
-          .normalize();
-        const length = 0.05 * (0.72 + 0.5 * fract(sequence * 0.3247));
-        const tip = centre.clone().addScaledVector(direction, length);
-        // The hair is a single tapered ribbon; its flat face is turned toward
-        // the tuft's own axis so a tuft reads as volume, not as a fan.
-        const across = direction.clone().cross(up).normalize();
-        if (across.lengthSq() < 1e-6) across.copy(side);
-        const halfWidth = length * 0.075;
-
-        const a = pushOrganVertex(
-          buffers,
-          centre.clone().addScaledVector(across, -halfWidth),
-          HAIR_BASE,
-        );
-        const b = pushOrganVertex(
-          buffers,
-          centre.clone().addScaledVector(across, halfWidth),
-          HAIR_BASE,
-        );
-        const c = pushOrganVertex(buffers, tip, HAIR_TIP);
-        indices.push(a, b, c);
-        hairCount += 1;
-      }
+      // Two width axes perpendicular to the raceme and to each other. The
+      // seed is whichever world axis the raceme is least parallel to, so a
+      // near-vertical topmost raceme gets a stable frame like any other.
+      const seed = Math.abs(tangent.y) < 0.9 ? HEAD_UP : HEAD_SIDE;
+      const axisA = seed.clone().cross(tangent).normalize();
+      const axisB = tangent.clone().cross(axisA).normalize();
+      rows.push({ centre, axisA, axisB, s });
     }
+
+    const ribbon = (across, facing) => {
+      const base = positions.length / 3;
+      for (const row of rows) {
+        for (const side of [-1, 1]) {
+          const point = row.centre
+            .clone()
+            .addScaledVector(row[across], side * halfWidth);
+          positions.push(point.x, point.y, point.z);
+          // Neutral: the plate carries the pattern and the instance colour
+          // carries the season, from wine-red through silver to winter straw.
+          colors.push(1, 1, 1);
+          const normal = row[facing];
+          normals.push(normal.x, normal.y, normal.z);
+          // uv.x across the card, uv.y along the raceme -- which is also the
+          // shared leaf wind's bend weight, so a raceme sways from a still
+          // attachment to a mobile tip exactly as it should.
+          uvs.push((side + 1) / 2, row.s);
+        }
+      }
+      for (let step = 0; step < segments; step += 1) {
+        const a = base + step * 2;
+        indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+      }
+    };
+
+    ribbon('axisA', 'axisB');
+    if (crossed) ribbon('axisB', 'axisA');
   }
 
   return finishGeometry({
-    ...buffers,
-    uvs: heightUVs(buffers.positions),
+    positions,
+    colors,
+    indices,
+    normals,
+    uvs,
     userData: {
-      organ: 'plume-hairs',
+      organ: 'panicle',
       racemeCount: racemes,
-      representativeHairCount: hairCount,
+      crossed,
+      segments,
     },
   });
 }
