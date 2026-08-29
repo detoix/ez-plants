@@ -82,6 +82,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (!stage) return;
       stage.camera.aspect = width / height;
       stage.camera.updateProjectionMatrix();
+      // Turning the phone changes which way the plant has to fit, so the pose
+      // is laid out again. Nothing else about a resize does.
+      stage.refitOnRotation();
     }
 
     await mountPlant(readPlantStateFromUrl());

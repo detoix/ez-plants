@@ -9,6 +9,7 @@ export const DEFAULT_PLANT_DETAIL = Object.freeze({
   sectionStride: 1,
   segmentFactor: 1,
   landmarkStride: 1,
+  woodOrderLimit: Infinity,
   organLevel: 0,
   leafStride: 1,
   leafScale: 1,
@@ -32,6 +33,20 @@ function nonNegativeInteger(value, fallback, name) {
   const resolved = value ?? fallback;
   if (!Number.isFinite(resolved)) {
     throw new TypeError(`${name} must be a finite number.`);
+  }
+  return Math.max(0, Math.floor(resolved));
+}
+
+/**
+ * A branch order, or `Infinity` for "every order". Written as its own reader
+ * because this is the one detail control whose neutral value is unbounded:
+ * a stride of 1 keeps everything, but an order limit has to say so.
+ */
+function branchOrderLimit(value, fallback, name) {
+  const resolved = value ?? fallback;
+  if (resolved === Infinity) return Infinity;
+  if (!Number.isFinite(resolved)) {
+    throw new TypeError(`${name} must be a finite number or Infinity.`);
   }
   return Math.max(0, Math.floor(resolved));
 }
@@ -102,6 +117,11 @@ export function normalizePlantDetail(detail = {}, fallback = {}) {
       detail.landmarkStride,
       fallback.landmarkStride ?? DEFAULT_PLANT_DETAIL.landmarkStride,
       'landmarkStride',
+    ),
+    woodOrderLimit: branchOrderLimit(
+      detail.woodOrderLimit,
+      fallback.woodOrderLimit ?? DEFAULT_PLANT_DETAIL.woodOrderLimit,
+      'woodOrderLimit',
     ),
     organLevel: nonNegativeInteger(
       detail.organLevel,

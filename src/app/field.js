@@ -82,6 +82,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const walk = createWalkControls(stage.camera, renderer.domElement, {
       limit: stage.extent + 14,
+      stickHost: container,
     });
     const view = new FieldViewDriver(stage.fields);
     const hud = createFieldHUD(document.getElementById('ui-container'));
@@ -97,13 +98,32 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.addEventListener('resize', resize);
     resize();
 
-    renderer.domElement.addEventListener('click', () => walk.controls.lock());
-    walk.controls.addEventListener('lock', () =>
-      hint?.setAttribute('hidden', ''),
-    );
-    walk.controls.addEventListener('unlock', () =>
-      hint?.removeAttribute('hidden'),
-    );
+    // Pointer lock is a mouse feature: asking for it from a touch tap either
+    // fails outright or, on the browsers that do grant it, hides a cursor that
+    // was never there and swallows the drags the thumbstick needs. So the
+    // click-to-lock path is offered only to a real pointer.
+    const finePointer = window.matchMedia('(pointer: fine)');
+    renderer.domElement.addEventListener('click', () => {
+      if (finePointer.matches) walk.controls.lock();
+    });
+    walk.onEngaged(() => hint?.setAttribute('hidden', ''));
+    walk.controls.addEventListener('unlock', () => {
+      if (!walk.isTouchDriving) hint?.removeAttribute('hidden');
+    });
+
+    // The hint is written for a keyboard. Swap it for the gestures that
+    // actually exist as soon as the page is touched rather than clicked.
+    const touchHint = document.getElementById('walk-hint-touch');
+    if (touchHint) {
+      const showTouchHint = () => {
+        document.getElementById('walk-hint-keys')?.setAttribute('hidden', '');
+        touchHint.removeAttribute('hidden');
+      };
+      if (window.matchMedia('(hover: none)').matches) showTouchHint();
+      renderer.domElement.addEventListener('pointerdown', (event) => {
+        if (event.pointerType === 'touch') showTouchHint();
+      });
+    }
 
     // The sun follows the walker so a shadow map fitted to the garden keeps its
     // resolution wherever you stand, instead of covering ground you have left.

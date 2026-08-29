@@ -45,6 +45,15 @@ export interface PlantDetail {
    * `sectionStride` does.
    */
   landmarkStride: number;
+  /**
+   * The highest branch order still meshed as wood; `Infinity` keeps every
+   * order, and order 0 is never dropped. Strides bottom out at two rings an
+   * axis, so a shrub carrying hundreds of short shoots has a wood floor no
+   * stride can reach under. Past the limit the twig stops being drawn while
+   * the foliage it carried stays: at the distance this is meant for, the twig
+   * is thinner than a pixel and its own leaves already fill the space.
+   */
+  woodOrderLimit: number;
   leafStride: number;
   leafScale: number;
   /**

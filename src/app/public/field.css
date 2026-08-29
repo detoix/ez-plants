@@ -3,6 +3,10 @@
    hint card that gets out of the way once you are moving. */
 
 .fx-hud {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 100%;
   pointer-events: none;
   background: var(--bc-panel);
   border: 1px solid var(--bc-line);
@@ -15,6 +19,56 @@
   backdrop-filter: blur(8px);
   box-shadow: 0 12px 34px rgba(0, 0, 0, 0.34);
   max-width: 300px;
+}
+
+.fx-hud-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* The fold-away summary. It is a button, so it is reachable by keyboard and
+   announces its own state; on a wide screen there is nothing to fold, so it
+   stops being a control and becomes a heading. */
+.fx-hud-toggle {
+  display: none;
+  pointer-events: auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  margin: -4px 0 8px;
+  padding: 0;
+  color: var(--bc-ink);
+  font-family: var(--bc-font-mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.fx-hud-chevron {
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid var(--bc-muted);
+  border-bottom: 2px solid var(--bc-muted);
+  transform: rotate(-135deg);
+  transform-origin: 60% 60%;
+  transition: transform 0.18s ease;
+}
+
+.fx-hud-collapsed .fx-hud-chevron {
+  transform: rotate(45deg);
+}
+
+.fx-hud-collapsed .fx-hud-body {
+  display: none;
+}
+
+.fx-hud-collapsed .fx-hud-toggle {
+  margin-bottom: -4px;
 }
 
 .fx-hud h2 {
@@ -55,6 +109,35 @@
   color: #f0b46a;
 }
 
+/* The floating thumbstick. It is placed by `field-controls.js` at whatever
+   point the thumb lands and hidden the moment it lifts, so it is furniture
+   only while it is being used. Nothing here is interactive: the pointer events
+   are handled on the canvas, and a stick that could swallow them would put a
+   dead zone in the middle of the one control the page has. */
+.fx-stick {
+  position: absolute;
+  z-index: 110;
+  width: 116px;
+  height: 116px;
+  margin: -58px 0 0 -58px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(18, 26, 20, 0.28);
+  backdrop-filter: blur(2px);
+  pointer-events: none;
+}
+
+.fx-stick-nub {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  background: rgba(226, 236, 220, 0.5);
+}
+
 .fx-hint {
   position: fixed;
   left: 50%;
@@ -74,7 +157,10 @@
   text-align: center;
   backdrop-filter: blur(8px);
   box-shadow: 0 12px 34px rgba(0, 0, 0, 0.34);
-  z-index: 120;
+  /* Under the readout, not over it. They never overlap on a wide screen, and
+     on a narrow one an expanded readout should simply cover an instruction
+     the visitor has evidently already read. */
+  z-index: 90;
 }
 
 .fx-hint strong {
@@ -105,9 +191,67 @@
   font-family: var(--bc-font-mono);
 }
 
+#walk-hint-keys,
+#walk-hint-touch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Upright, the readout moves to the top. A thumb reaches for the stick low and
+   to the left, which is exactly where a bottom-anchored bar would be, and a
+   control the page cannot be used without wins that argument against one that
+   is only being read. Sideways there is room for both, so the readout stays in
+   its usual right-hand column. */
 @media (max-width: 640px) {
+  #ui-container {
+    inset: max(8px, env(safe-area-inset-top))
+      max(8px, env(safe-area-inset-right)) auto
+      max(8px, env(safe-area-inset-left));
+    width: auto;
+    max-height: min(72dvh, 640px);
+  }
+}
+
+@media (max-width: 640px), (max-height: 520px) {
   .fx-hud {
     font-size: 11px;
-    max-width: min(280px, calc(100vw - 32px));
+    max-width: none;
+    padding: 8px 14px 10px;
+  }
+
+  .fx-hud-toggle {
+    display: flex;
+  }
+
+  /* Only as tall as it needs to be when folded, and never more than half the
+     garden when open. */
+  #ui-container:has(.fx-hud-collapsed) {
+    max-height: none;
+  }
+
+  .fx-hint {
+    left: max(10px, env(safe-area-inset-left));
+    right: max(10px, env(safe-area-inset-right));
+    top: 50%;
+    bottom: auto;
+    /* Centred, and no wider than the sentence needs: stretched across a phone
+       held sideways, three short lines read as a banner. */
+    max-width: 420px;
+    margin-inline: auto;
+    transform: translateY(-50%);
+    padding: 12px 16px;
+    font-size: 12px;
+  }
+
+  .fx-hint strong {
+    font-size: 14px;
+  }
+
+  /* A URL is a desktop affordance: it cannot be copied off a hint card and it
+     costs two lines on the screen the garden is meant to fill. */
+  .fx-hint-note {
+    display: none;
   }
 }

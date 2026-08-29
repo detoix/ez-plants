@@ -5,6 +5,91 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### The demo pages work on a phone
+
+Both pages were built for a mouse and a wide window, and on a phone that showed.
+The field walkaround had **no input at all** — its only controls were pointer
+lock and WASD, neither of which exists on a touch screen, so the page loaded,
+showed one fixed view of the garden and could not be moved. The review page put
+a control panel over two thirds of a portrait screen before anything had been
+asked of it, and framed the plant so that a shrub as wide as it is tall had its
+outer canes cut off at both edges.
+
+- **The field walks by thumb.** A floating thumbstick appears wherever a thumb
+  lands on the left of the screen, and a drag anywhere else looks around; the
+  stick is analogue, so half a tilt is half the speed and a full one runs.
+  Which input is live follows what the visitor actually uses rather than a
+  device sniff, so a touchscreen laptop keeps both — and pointer lock is now
+  only offered to a real pointer, since asking for it from a tap either fails
+  or swallows the drags the stick needs.
+- **The field HUD folds.** On a small screen it is a one-line summary — frame
+  rate and frame time, live — that opens on a tap. It was previously the whole
+  readout, which on a phone is most of the screen and overflowed the bottom of
+  it.
+- **The review panel is a bottom sheet.** It starts peeked at its header, so
+  the plant is the first thing on screen, and opens with a grab handle. Held
+  sideways the same panel peeks from the right, because at 844 × 390 there is
+  no more room for it open than there is upright.
+- **The camera frames the plant for the viewport it is in.** The review poses
+  were distances that fit the plant's height, which is also the tighter fit on
+  anything wider than about 4:5 — so nothing changes on a desktop. Below that
+  the shortfall in width is measured against the `front` pose and applied to
+  all of them, which keeps `close-up` a close-up instead of quietly promoting
+  it to the same shot. Upright, the frustum is also sheared to lift the plant
+  clear of the sheet, so it stays watchable while the day is scrubbed.
+- Sliders are 34 px tall rather than 16 on touch, the canvas no longer
+  competes with pull-to-refresh, and the walk hint says what the gestures are
+  instead of naming keys that are not there.
+
+### Forsythia inside its geometry budget, with the display the photographs show
+
+Library rule 9 gives a plant 25,000 / 10,000 / 5,000 triangles and 3 / 2 / 2
+draws across its three LOD bands. 'Lynwood' was drawing 154,508 / 86,334 /
+58,780 in four draws at every band on a summer day, and 392,330 at band 0 in
+full bloom — **15.7× over**. It is now inside triangles and draws at every
+band on every day of its year, worst case 24,774 / 8,752 / 4,804 at the
+flowering peak, while carrying roughly three times the corollas it used to.
+
+- **The corolla is a two-triangle alpha card.** It was a 66-triangle mesh —
+  four twisted lobes on a floored tube — and 2,895 of them came to 191,070
+  triangles for a flower 3.5 cm across. A four-armed star with wide gaps
+  between its arms is the best case for alpha and the worst case for triangles,
+  exactly as rule 9 says of dense small florets. A new `flower.webp`, generated
+  by `scripts/make-flower-texture.mjs`, holds one corolla: deliberately
+  off-quadrant lobes of unequal length, because every flower on the plant is
+  cut from that one tile and a stamped cross is visible instantly.
+- **More flowers, because the source says so.** Bean gives 1-6 flowers _per
+  leaf-scar_; the model was reading that as a per-node total, and this species
+  is opposite-leaved, so every node has two scars. Each scar now draws its own
+  count, the weights moved toward the top of the sourced range, and node
+  occupancy went up after a photo pass — a cane in full bloom flowers along
+  essentially its whole length. Peak display goes from about 3,100 corollas to
+  close to 11,000, and the branches read as the yellow ropes the references
+  show rather than as dotted whips.
+- **The petiole is painted into the leaf plate.** Not into the leaf card, the
+  way hydrangea's is: this plant has 3,720 leaves and a 1 cm stalk, so two more
+  triangles each would have been a third of the band-0 budget. The plate's
+  bottom eighth is now the stalk and the card is rooted at the node, so the
+  same two triangles draw both, and 74,400 triangles and a draw call are gone.
+- **Seven organ kinds became four.** Pedicels were dropped — a 3-9 mm stalk
+  standing directly behind the corolla hanging on it, meshed as a tube 3,280
+  times. The dormant leaf buds and the swelling flower buds merged into one
+  `buds` kind, since they are the same pointed teardrop at two sizes in two
+  colours, and colour and size are per-instance values rather than meshes. A
+  bud is now one triangle.
+- **`woodOrderLimit`, a new LOD lever for twiggy wood.** Strides bottom out at
+  two rings an axis, so a shrub whose wood cost is its branch count — 464 axes,
+  309 of them short shoots — has a 7,086-triangle floor no stride reaches
+  under, which is already over what band 2 is allowed in total. Bands 1 and 2
+  stop meshing the short shoots and keep everything growing on them: what
+  leaves is a 15 cm stick, thinner than a pixel at seven metres, inside foliage
+  its own leaves already fill. Off by default, so no other plant moves.
+- **A plant is now built at its own band 0.** `plant.level` said 0 while the
+  plant was drawn at the species-neutral default detail, and `setLevel(0)`
+  could not fix it because the level was already 0 and the call returned early.
+  Hydrangea's and miscanthus's band-0 detail now actually applies to a live
+  plant, as their bands always said it should.
+
 ### Miscanthus inside its geometry budget
 
 Library rule 9 gives a plant 25,000 / 10,000 / 5,000 triangles and 3 / 2 / 2

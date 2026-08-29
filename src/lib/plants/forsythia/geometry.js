@@ -1,229 +1,129 @@
 import * as THREE from 'three';
 
+import {
+  createOrganBuffers,
+  finishGeometry,
+  pushOrganVertex,
+} from '../../organ-geometry.js';
+
 // 'Lynwood Variety' is described as a lighter, less brassy yellow than its
-// 'Spectabilis' parent, with broader and less curled lobes. The lobe faces are
-// a clear golden yellow; only the very throat runs deeper, and it must stay
-// confined there or the whole flower reads orange instead of forsythia yellow.
-const LOBE_YELLOW = new THREE.Color(0xffdc2d);
-const LOBE_EDGE = new THREE.Color(0xffff82);
-const THROAT_AMBER = new THREE.Color(0xefb51d);
-const TUBE_GREEN = new THREE.Color(0xc7cc63);
+// 'Spectabilis' parent, with broader and less curled lobes. The corolla itself
+// now lives in `flower.webp` -- these are the colours of the parts around it,
+// which are still meshed.
+const BUD_BASE = new THREE.Color(0xa8973f);
+const BUD_TIP = new THREE.Color(0xf2c62b);
 
 /**
- * One open forsythia corolla, built as a unit organ along +Y.
+ * One open forsythia corolla, as a single alpha card.
  *
- * The flower is a short tube opening into four deeply divided oblong lobes.
- * The lobes are modelled as twisted strips that spread outward and then roll
- * back on themselves, which is the "often revolute and twisted" habit that
- * separates a forsythia corolla from a flat four-petalled star.
+ * The card lies in the XZ plane facing +Y, so composing it with the flower's
+ * own outward-and-downward direction points its face where the corolla faces.
+ * One unit of scale is one corolla width, tip to tip, exactly as the meshed
+ * corolla it replaces -- the placement code did not have to change.
  *
- * The geometry is normalised so one unit of scale equals one corolla width.
+ * Two triangles, where the mesh spent 66. Library rule 9's own words for this
+ * case: a four-lobed star with wide gaps between its arms is the best case for
+ * alpha and the worst case for triangles. See `scripts/make-flower-texture.mjs`
+ * for what the plate carries and why the yellow is baked into it.
+ *
+ * `rise` lifts the card off the attachment point by the corolla tube, so the
+ * flower still stands proud of the stem rather than sinking into the bark.
  */
-export function createFlowerGeometry({
-  lobes = 4,
-  lobeSegments = 6,
-  tubeSegments = 6,
-  twist = 0.2,
-} = {}) {
+export function createCorollaCardGeometry({ rise = 0.3, dish = 1 } = {}) {
+  const half = 0.5;
+  const corners = [
+    [-half, -half],
+    [-half, half],
+    [half, half],
+    [half, -half],
+  ];
   const positions = [];
-  const colors = [];
-  const indices = [];
-
-  const pushVertex = (point, color) => {
-    positions.push(point.x, point.y, point.z);
-    colors.push(color.r, color.g, color.b);
-    return positions.length / 3 - 1;
-  };
-
-  const tubeBaseRadius = 0.055;
-  const tubeMouthRadius = 0.072;
-  const tubeHeight = 0.26;
-
-  // --- Corolla tube -------------------------------------------------------
-  const tubeRings = [];
-  for (let ring = 0; ring <= 1; ring += 1) {
-    const t = ring;
-    const radius = THREE.MathUtils.lerp(tubeBaseRadius, tubeMouthRadius, t);
-    const y = tubeHeight * t;
-    const color = TUBE_GREEN.clone().lerp(THROAT_AMBER, t);
-    const rowIndices = [];
-    for (let segment = 0; segment < tubeSegments; segment += 1) {
-      const angle = (segment / tubeSegments) * Math.PI * 2;
-      rowIndices.push(
-        pushVertex(
-          new THREE.Vector3(
-            Math.cos(angle) * radius,
-            y,
-            Math.sin(angle) * radius,
-          ),
-          color,
-        ),
-      );
-    }
-    tubeRings.push(rowIndices);
+  // Rounded normals, the way EZ-Tree rounds a leaf card's. A single flat +Y
+  // normal is what a flat quad deserves and what makes a mass of them wrong:
+  // every corolla facing away from the sun goes dark at once, and a forsythia
+  // in bloom turns olive. Splaying the corners outward instead gives the card
+  // the shading of the shallow funnel a corolla actually is, so a flower
+  // turned away still catches light on the lobes that face the light.
+  const normals = [];
+  for (const [x, z] of corners) {
+    positions.push(x, rise, z);
+    const length = Math.hypot(x * dish * 2, 1, z * dish * 2);
+    normals.push((x * dish * 2) / length, 1 / length, (z * dish * 2) / length);
   }
-  for (let segment = 0; segment < tubeSegments; segment += 1) {
-    const next = (segment + 1) % tubeSegments;
-    const a = tubeRings[0][segment];
-    const b = tubeRings[0][next];
-    const c = tubeRings[1][segment];
-    const d = tubeRings[1][next];
-    indices.push(a, c, b, b, c, d);
-  }
-
-  // Floor the tube. Left open, the corolla is a pipe you can see the sky
-  // through when the flower is viewed face on.
-  const throatCentre = pushVertex(
-    new THREE.Vector3(0, tubeHeight * 0.16, 0),
-    THROAT_AMBER.clone().multiplyScalar(0.72),
-  );
-  for (let segment = 0; segment < tubeSegments; segment += 1) {
-    const next = (segment + 1) % tubeSegments;
-    indices.push(throatCentre, tubeRings[0][next], tubeRings[0][segment]);
-  }
-
-  // --- Four spreading, revolute lobes -------------------------------------
-  for (let lobe = 0; lobe < lobes; lobe += 1) {
-    const lobeAngle = (lobe / lobes) * Math.PI * 2;
-    const outward = new THREE.Vector3(
-      Math.cos(lobeAngle),
-      0,
-      Math.sin(lobeAngle),
-    );
-    const sideways = new THREE.Vector3(-outward.z, 0, outward.x);
-    const rows = [];
-
-    for (let step = 0; step <= lobeSegments; step += 1) {
-      const s = step / lobeSegments;
-      // Reach outward to a half-width of 0.5, so a unit scale is one corolla
-      // width tip to tip.
-      const radial = tubeMouthRadius + (0.5 - tubeMouthRadius) * s;
-      // Rise off the mouth, then roll back down: the revolute tip.
-      const height = tubeHeight + 0.12 * s - 0.14 * Math.pow(s, 2.3);
-      // Oblong: near parallel-sided for most of its length, then rounded off.
-      // A lobe that swells through the middle reads as a broad petal, which is
-      // a buttercup or a kerria -- forsythia lobes are narrow straps.
-      const halfWidth =
-        0.174 * Math.pow(Math.sin(Math.PI * (0.3 + 0.7 * s)), 0.3);
-      // The lobe twists about its own axis along its length.
-      const lobeTwist = twist * s;
-      const centre = outward
-        .clone()
-        .multiplyScalar(radial)
-        .add(new THREE.Vector3(0, height, 0));
-      // Keep the deeper gold in the throat only.
-      const color = THROAT_AMBER.clone().lerp(
-        LOBE_YELLOW,
-        THREE.MathUtils.smoothstep(s, 0.0, 0.2),
-      );
-
-      const rowIndices = [];
-      for (let edge = -1; edge <= 1; edge += 2) {
-        const offset = sideways
-          .clone()
-          .multiplyScalar(Math.cos(lobeTwist) * halfWidth * edge)
-          .add(new THREE.Vector3(0, Math.sin(lobeTwist) * halfWidth * edge, 0));
-        rowIndices.push(
-          pushVertex(
-            centre.clone().add(offset),
-            color.clone().lerp(LOBE_EDGE, 0.3 * s),
-          ),
-        );
-      }
-      rows.push(rowIndices);
-    }
-
-    for (let step = 0; step < lobeSegments; step += 1) {
-      const [a, b] = rows[step];
-      const [c, d] = rows[step + 1];
-      indices.push(a, c, b, b, c, d);
-    }
-  }
-
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute(
-    'position',
-    new THREE.Float32BufferAttribute(positions, 3),
-  );
-  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-  geometry.computeBoundingSphere();
-  return geometry;
+  const uvs = [0, 1, 0, 0, 1, 0, 1, 1];
+  const colors = new Array(12).fill(1);
+  return finishGeometry({
+    positions,
+    colors,
+    normals,
+    uvs,
+    indices: [0, 1, 2, 0, 2, 3],
+  });
 }
 
 /**
- * A closed flower bud: the swollen, still-furled corolla that sits on bare
- * wood for weeks before the display opens. Built along +Y like the open
- * corolla so both share one instancing convention.
+ * One furled bud, open flower's predecessor and dormant leaf bud alike.
+ *
+ * These were two organ kinds and two meshes -- a five-ring teardrop for the
+ * flower bud, a three-ring one for the vegetative bud -- costing 30 and 60
+ * triangles each on a plant that carries thousands of both. Rule 9 says merge
+ * kinds before dropping them, and these two merge cleanly: a 4 mm leaf bud and
+ * a 7 mm flower bud are the same pointed teardrop at two sizes in two colours,
+ * and colour and size are per-instance values, not meshes.
+ *
+ * ONE triangle: two shoulders and a drawn-out tip. That is the whole
+ * silhouette of a bud, and at the scale a bud is ever drawn -- 3 mm for a leaf
+ * bud, 12 for a swelling flower bud -- there is nothing else in it. It matters
+ * because there are a great many: on the day before the display opens this
+ * plant carries close to ten thousand of them, so a second triangle each is
+ * ten thousand more, and they are competing for the budget with the flowers
+ * they are about to become.
+ *
+ * The vertex colours run dark at the base to light at the tip and are
+ * multiplied by the instance colour, so one geometry gives an olive leaf bud
+ * and a gold flower bud without a second mesh.
  */
-export function createFlowerBudGeometry({ segments = 6, rings = 5 } = {}) {
-  const positions = [];
-  const colors = [];
-  const indices = [];
-  // Unopened buds are duller and browner than the open corolla; the yellow
-  // only shows once the lobes start to separate at the tip.
-  const budBase = new THREE.Color(0xa8973f);
-  const budTip = new THREE.Color(0xf2c62b);
+export function createBudCardGeometry({ width = 0.5 } = {}) {
+  const buffers = createOrganBuffers();
+  const shade = (t) => BUD_BASE.clone().lerp(BUD_TIP, Math.pow(t, 1.5));
 
-  const pushVertex = (point, color) => {
-    positions.push(point.x, point.y, point.z);
-    colors.push(color.r, color.g, color.b);
-    return positions.length / 3 - 1;
-  };
-
-  const rows = [];
-  for (let ring = 0; ring <= rings; ring += 1) {
-    const t = ring / rings;
-    // A slender teardrop: widest below the middle, drawn to a soft point.
-    const radius = 0.28 * Math.sin(Math.PI * Math.pow(t, 0.78));
-    const y = t;
-    const color = budBase.clone().lerp(budTip, Math.pow(t, 1.6));
-    const rowIndices = [];
-    for (let segment = 0; segment < segments; segment += 1) {
-      const angle = (segment / segments) * Math.PI * 2;
-      // A faint longitudinal groove marks where the four lobes are furled.
-      const groove = 1 + 0.06 * Math.cos(angle * 4);
-      rowIndices.push(
-        pushVertex(
-          new THREE.Vector3(
-            Math.cos(angle) * radius * groove,
-            y,
-            Math.sin(angle) * radius * groove,
-          ),
-          color,
-        ),
-      );
-    }
-    rows.push(rowIndices);
-  }
-
-  for (let ring = 0; ring < rings; ring += 1) {
-    for (let segment = 0; segment < segments; segment += 1) {
-      const next = (segment + 1) % segments;
-      const a = rows[ring][segment];
-      const b = rows[ring][next];
-      const c = rows[ring + 1][segment];
-      const d = rows[ring + 1][next];
-      indices.push(a, c, b, b, c, d);
-    }
-  }
-
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute(
-    'position',
-    new THREE.Float32BufferAttribute(positions, 3),
+  const left = pushOrganVertex(
+    buffers,
+    new THREE.Vector3(-width, 0, 0),
+    shade(0),
   );
-  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-  geometry.computeBoundingSphere();
-  return geometry;
+  const right = pushOrganVertex(
+    buffers,
+    new THREE.Vector3(width, 0, 0),
+    shade(0),
+  );
+  const tip = pushOrganVertex(buffers, new THREE.Vector3(0, 1, 0), shade(1));
+  buffers.indices.push(left, right, tip);
+
+  // A bud sits on bare wood with light coming from anywhere, so a single flat
+  // face normal would switch every bud on the plant dark together as it turns.
+  // Splaying the base corners outward gives a rounded read for free.
+  const normals = [];
+  for (const [x, y, z] of [
+    [-0.85, -0.1, 0.6],
+    [0.85, -0.1, 0.6],
+    [0, 0.45, 0.9],
+  ]) {
+    const length = Math.hypot(x, y, z);
+    normals.push(x / length, y / length, z / length);
+  }
+  return finishGeometry({ ...buffers, normals });
 }
 
-/** A dry, two-celled dehiscent capsule: small, brown, beaked, unshowy. */
-export function createCapsuleGeometry() {
-  const geometry = new THREE.SphereGeometry(0.5, 8, 6);
+/**
+ * A dry, two-celled dehiscent capsule: small, brown, beaked, unshowy.
+ *
+ * 'Lynwood' is a thrum clone that sets almost no seed, so a five-year plant
+ * carries eighteen of these. They are here for botanical completeness, and the
+ * sphere they are cut from is the coarsest one that still reads as a pod.
+ */
+export function createCapsuleGeometry({ segments = 6, rings = 4 } = {}) {
+  const geometry = new THREE.SphereGeometry(0.5, segments, rings);
   const position = geometry.getAttribute('position');
   const colors = [];
   const dry = new THREE.Color(0x6d5a3a);

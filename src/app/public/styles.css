@@ -27,6 +27,11 @@ html,
 body {
   margin: 0;
   overflow: hidden;
+  /* Both pages are one canvas the visitor drags on. Without this, a drag that
+     starts near the top edge of a phone is a pull-to-refresh and a drag near
+     the bottom rubber-bands the page instead of turning the plant. */
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
   background: #cbd8ca;
   font-family: var(--bc-font-sans);
 }
@@ -36,7 +41,10 @@ input {
   font: inherit;
 }
 
-#root {
+#root,
+#app {
+  /* Both are containing blocks: the field's thumbstick is placed inside #app
+     in its own coordinates, and it has to land where the thumb did. */
   position: relative;
 }
 
@@ -89,6 +97,27 @@ input {
   justify-content: space-between;
   padding: 18px 18px 16px;
   border-bottom: 1px solid var(--bc-line);
+}
+
+/* The bottom-sheet grip. Rendered only where the panel is a sheet, which is
+   the one place a pull-up affordance means anything. */
+.bc-sheet-grip {
+  display: none;
+  width: 100%;
+  min-height: 30px;
+  padding: 0;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.bc-sheet-handle {
+  display: block;
+  width: 40px;
+  height: 4px;
+  margin: 0 auto;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.28);
 }
 
 .bc-kicker,
@@ -650,20 +679,29 @@ input {
     inset: auto max(8px, env(safe-area-inset-right))
       max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
     width: auto;
-    max-height: min(58dvh, 590px);
+    max-height: min(56dvh, 560px);
   }
 
   .bc-panel {
-    max-height: min(58dvh, 590px);
+    max-height: min(56dvh, 560px);
     border-radius: 15px;
   }
 
   .bc-header {
-    padding: 13px 15px 11px;
+    padding: 6px 15px 11px;
   }
 
   .bc-header h1 {
     font-size: 27px;
+  }
+
+  /* A 16px-tall slider is a 16px-tall target, and scrubbing age and day is
+     what this page is for. The track stays native -- `accent-color` draws it,
+     and taking that over with `-webkit-appearance: none` would mean
+     re-authoring the thumb for every engine -- so the row grows instead, which
+     is the part a thumb actually has to land in. */
+  .bc-range-row input[type='range'] {
+    height: 34px;
   }
 
   .bc-ui-reveal {
@@ -685,6 +723,38 @@ input {
   .bc-ui-reveal {
     min-height: 40px;
     font-size: 11px;
+  }
+}
+
+/* Peeking is about ROOM, not about width: a phone held sideways is 844 px
+   across and 390 tall, and the panel that fits beside a desktop plant covers
+   half of that one and runs off the bottom of it. Both shapes get the grip;
+   only the narrow one gets the bottom-sheet layout above. */
+@media (max-width: 800px), (max-height: 560px) {
+  .bc-sheet-grip {
+    display: block;
+  }
+
+  /* Peeked: the header stays, so the panel still says which plant and which
+     stage is on screen, and everything under it folds away. */
+  .bc-panel.bc-peeked .bc-scroll,
+  .bc-panel.bc-peeked .bc-footer {
+    display: none;
+  }
+
+  .bc-panel.bc-peeked .bc-header {
+    border-bottom: 0;
+    padding-top: 6px;
+  }
+}
+
+@media (max-height: 560px) and (min-width: 801px) {
+  #ui-container {
+    width: min(330px, calc(100vw - 32px));
+  }
+
+  .bc-header h1 {
+    font-size: 26px;
   }
 }
 

@@ -3,11 +3,13 @@ import { createHash } from 'node:crypto';
 import test from 'node:test';
 import * as THREE from 'three';
 
+import { normalizePlantDetail } from '../src/lib/plant-detail.js';
 import {
   normalizePlantLODLevels,
   PlantLODController,
 } from '../src/lib/plant-lod.js';
 import { Blackcurrant } from '../src/lib/plants/blackcurrant/blackcurrant.js';
+import { Forsythia } from '../src/lib/plants/forsythia/forsythia.js';
 
 function levels() {
   return [
@@ -218,4 +220,78 @@ test('changing level disposes replaced and live wood geometry exactly once', () 
   plant.dispose();
   assert.equal(initialDisposals, 1);
   assert.equal(liveDisposals, 1);
+});
+
+/* -------------------------------------------------------------------- *
+ * woodOrderLimit
+ * -------------------------------------------------------------------- */
+
+test('woodOrderLimit defaults to every order and normalizes to a whole one', () => {
+  assert.equal(normalizePlantDetail().woodOrderLimit, Infinity);
+  assert.equal(normalizePlantDetail({ woodOrderLimit: 1.8 }).woodOrderLimit, 1);
+  assert.equal(normalizePlantDetail({ woodOrderLimit: -3 }).woodOrderLimit, 0);
+  assert.equal(
+    normalizePlantDetail({ woodOrderLimit: Infinity }).woodOrderLimit,
+    Infinity,
+  );
+  assert.throws(
+    () => normalizePlantDetail({ woodOrderLimit: 'most' }),
+    TypeError,
+  );
+});
+
+test('a band past woodOrderLimit stops meshing twigs and keeps what grows on them', () => {
+  // Strides bottom out at two rings an axis, so a shrub whose wood cost is its
+  // branch count has a triangle floor no stride reaches under. This is the
+  // lever for that, and the contract is that it takes the twig and nothing
+  // else: the leaves the twig carried stay, so a coarse band loses a sub-pixel
+  // stick rather than a piece of its own silhouette.
+  const detail = {
+    landmarkStride: 12,
+    sectionStride: 12,
+    segmentFactor: 0.6,
+  };
+  const withTwigs = new Forsythia({
+    seed: 'wood-order-limit',
+    ageYears: 5,
+    dayOfYear: 230,
+    lodLevels: [{ distance: 0, detail }],
+  });
+  const withoutTwigs = new Forsythia({
+    seed: 'wood-order-limit',
+    ageYears: 5,
+    dayOfYear: 230,
+    lodLevels: [{ distance: 0, detail: { ...detail, woodOrderLimit: 1 } }],
+  });
+
+  try {
+    const triangles = (plant) =>
+      meshNamed(plant, 'Forsythia_Wood').geometry.index.count / 3;
+    const leaves = (plant) =>
+      meshNamed(plant, 'Forsythia_Leaves_Opposite').count;
+
+    assert.ok(
+      triangles(withoutTwigs) < triangles(withTwigs) * 0.6,
+      `${triangles(withoutTwigs)} of ${triangles(withTwigs)} wood triangles remain`,
+    );
+    assert.equal(leaves(withoutTwigs), leaves(withTwigs));
+
+    // Order 0 is never dropped, whatever the limit says: a shrub with no canes
+    // is not a coarser shrub.
+    const trunksOnly = new Forsythia({
+      seed: 'wood-order-limit',
+      ageYears: 5,
+      dayOfYear: 230,
+      lodLevels: [{ distance: 0, detail: { ...detail, woodOrderLimit: 0 } }],
+    });
+    try {
+      assert.ok(triangles(trunksOnly) > 0);
+      assert.ok(meshNamed(trunksOnly, 'Forsythia_Wood').visible);
+    } finally {
+      trunksOnly.dispose();
+    }
+  } finally {
+    withTwigs.dispose();
+    withoutTwigs.dispose();
+  }
 });

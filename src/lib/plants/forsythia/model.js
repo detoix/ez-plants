@@ -337,30 +337,36 @@ function makeFlowerCluster(seed, node, floweringYear, woodAgeYears) {
   const flower = LYNWOOD_PROFILE.flower;
   const id = `${node.id}:cluster:y${floweringYear}`;
   // Sources constrain a scar to 1-6 flowers but do not publish a cultivar
-  // frequency table. The renderer prior favours 3-4, with short shoots a
-  // little richer than vigorous basal axes; this avoids six-way pinwheels.
+  // frequency table, so the frequencies are a renderer prior; the range is not.
+  //
+  // The range is PER LEAF-SCAR, and this species is opposite-leaved: a node has
+  // two scars, and each of them draws its own count. Reading the sourced range
+  // as a per-node total halved the display, which is most of why earlier
+  // renders read as dotted whips rather than the yellow ropes every reference
+  // photograph of a cane in full bloom shows.
   const order = clamp(
     node.axisOrder,
     0,
     LYNWOOD_RENDER_PRIORS.clusterSizeWeightsByOrder.length - 1,
   );
   const weights = LYNWOOD_RENDER_PRIORS.clusterSizeWeightsByOrder[order];
-  const [minimumCount, maximumCount] = flower.perNodeRange;
+  const [minimumCount, maximumCount] = flower.perScarRange;
   if (weights.length !== maximumCount - minimumCount + 1) {
     throw new RangeError(
       'Forsythia cluster weights must cover the configured 1-6 range.',
     );
   }
-  const draw = keyedRandom(seed, id, 'count');
-  let cumulative = 0;
-  let count = maximumCount;
-  for (let index = 0; index < weights.length; index += 1) {
-    cumulative += weights[index];
-    if (draw <= cumulative) {
-      count = minimumCount + index;
-      break;
+  const drawScarCount = (channel) => {
+    const draw = keyedRandom(seed, id, channel);
+    let cumulative = 0;
+    for (let index = 0; index < weights.length; index += 1) {
+      cumulative += weights[index];
+      if (draw <= cumulative) return minimumCount + index;
     }
-  }
+    return maximumCount;
+  };
+  const perScar = [drawScarCount('count'), drawScarCount('count-far-scar')];
+  const count = perScar[0] + perScar[1];
   const flowers = [];
   const axisOffset = randomRange(
     seed,
@@ -387,12 +393,12 @@ function makeFlowerCluster(seed, node, floweringYear, woodAgeYears) {
     const flowerId = `${id}:f${index}`;
     // Flowers fan tightly from the two opposite leaf scars. A broad ring hides
     // the node rhythm and makes every cluster look like a manufactured rosette.
-    const scarSide = index % 2 === 0 ? 0 : Math.PI;
+    const scarSide = index < perScar[0] ? 0 : Math.PI;
     const azimuth =
       node.azimuth +
       decussateTurn +
       scarSide +
-      randomRange(seed, [flowerId, 'azimuth'], -0.28, 0.28);
+      randomRange(seed, [flowerId, 'azimuth'], -0.34, 0.34);
     const pedicelLengthM = randomRange(
       seed,
       [flowerId, 'pedicel'],

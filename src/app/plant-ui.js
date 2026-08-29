@@ -106,6 +106,44 @@ function updateUrl(state) {
 }
 
 /**
+ * Turn the side panel into a bottom sheet on a phone.
+ *
+ * The page is a plant. A panel that opens over two thirds of a portrait screen
+ * before anything has been asked of it leaves a strip of shrub above it, which
+ * is the wrong way round -- so on a narrow screen the sheet starts peeked, at
+ * its header, and opens on a tap. Above that width nothing changes and the
+ * grip is not rendered at all: a desktop panel has room to simply be open.
+ *
+ * This is separate from the hide/show the header's × already offers. That one
+ * puts the controls away entirely and is remembered in the URL; this one is
+ * the ordinary reach-for-it gesture, and is not, because which way a sheet was
+ * left is not a property of the plant being looked at.
+ */
+function setupSheet(panel, grip) {
+  if (!grip) return;
+  // Matches the CSS that renders the grip: whichever way the phone is held,
+  // there is not room for the panel to simply be open.
+  const sheet = window.matchMedia('(max-width: 800px), (max-height: 560px)');
+
+  function apply(peeked) {
+    panel.classList.toggle('bc-peeked', peeked);
+    grip.setAttribute('aria-expanded', String(!peeked));
+    grip.setAttribute(
+      'aria-label',
+      peeked ? 'Show the controls' : 'Collapse the controls',
+    );
+  }
+
+  grip.addEventListener('click', () =>
+    apply(!panel.classList.contains('bc-peeked')),
+  );
+  // Rotating a phone into landscape gives the sheet room; rotating back does
+  // not, so the state follows the viewport until the visitor overrides it.
+  sheet.addEventListener('change', (event) => apply(event.matches));
+  apply(sheet.matches);
+}
+
+/**
  * Mounts the shared digital-twin controls.
  *
  * Every species-specific string, stat row, season shortcut and event action
@@ -127,6 +165,9 @@ export function setupPlantUI({
   container.innerHTML = `
     <button class="bc-ui-reveal" type="button" aria-label="Show digital twin controls">${descriptor.label} controls</button>
     <aside class="bc-panel" aria-label="${descriptor.label} digital twin controls">
+      <button class="bc-sheet-grip" type="button" data-action="toggle-sheet" aria-controls="bc-sheet-body">
+        <span class="bc-sheet-handle" aria-hidden="true"></span>
+      </button>
       <header class="bc-header">
         <div>
           <p class="bc-kicker">${descriptor.kicker}</p>
@@ -136,7 +177,7 @@ export function setupPlantUI({
         <button class="bc-icon-button" type="button" data-action="hide-ui" aria-label="Hide controls">×</button>
       </header>
 
-      <div class="bc-scroll">
+      <div class="bc-scroll" id="bc-sheet-body">
         <section class="bc-section" aria-labelledby="bc-plant-heading">
           <div class="bc-section-heading">
             <h2 id="bc-plant-heading">Plant</h2>
@@ -438,6 +479,8 @@ export function setupPlantUI({
     state.ui = true;
     render();
   });
+
+  setupSheet(panel, container.querySelector('[data-action="toggle-sheet"]'));
 
   const pruneButton = container.querySelector('[data-action="prune"]');
   pruneButton?.addEventListener('click', () => {

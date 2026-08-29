@@ -10,13 +10,13 @@ import {
 } from '../src/lib/plants/forsythia/lynwood.js';
 import { isSharedResource } from '../src/lib/shared-resources.js';
 
+// Four organ kinds, where there were seven: petioles are painted into the leaf
+// plate, pedicels are gone, and one `buds` pool now carries both the dormant
+// leaf buds and the swelling flower buds. See library rule 9.
 const MESH_NAMES = Object.freeze({
   wood: 'Forsythia_Wood',
   leaves: 'Forsythia_Leaves_Opposite',
-  petioles: 'Forsythia_Petioles',
-  buds: 'Forsythia_DormantBuds',
-  pedicels: 'Forsythia_Pedicels',
-  flowerBuds: 'Forsythia_FlowerBuds',
+  buds: 'Forsythia_Buds',
   flowers: 'Forsythia_Flowers_FourLobed',
   capsules: 'Forsythia_Capsules',
 });
@@ -65,7 +65,14 @@ function renderedState(plant) {
           {
             count: mesh.count,
             matrices: mesh.instanceMatrix.array.slice(0, mesh.count * 16),
-            colors: mesh.instanceColor?.array.slice(0, mesh.count * 3) ?? null,
+            // The active prefix, not the buffer. A pool allocates its colour
+            // buffer the first time anything writes a colour into it, so a
+            // kind that has drawn nothing yet and one that has drawn and gone
+            // back to zero differ in whether the buffer exists at all -- which
+            // is not a difference in what is on screen.
+            colors:
+              mesh.instanceColor?.array.slice(0, mesh.count * 3) ??
+              new Float32Array(0),
           },
         ];
       }),
@@ -147,13 +154,10 @@ test('the canopy replaces the display: leaves in, flowers out', () => {
   try {
     plant.setTime({ dayOfYear: 200 });
     assert.equal(meshNamed(plant, MESH_NAMES.flowers).count, 0);
-    assert.equal(meshNamed(plant, MESH_NAMES.flowerBuds).count, 0);
+    // Summer wood carries neither kind of bud: the leaf buds broke in spring
+    // and the flower buds for next year are not swollen yet.
+    assert.equal(meshNamed(plant, MESH_NAMES.buds).count, 0);
     assert.ok(meshNamed(plant, MESH_NAMES.leaves).count > 0);
-    // Opposite leaves: petioles are drawn one per leaf.
-    assert.equal(
-      meshNamed(plant, MESH_NAMES.petioles).count,
-      meshNamed(plant, MESH_NAMES.leaves).count,
-    );
   } finally {
     plant.dispose();
   }
@@ -162,8 +166,15 @@ test('the canopy replaces the display: leaves in, flowers out', () => {
 test('closed buds hold the bare wood before the corollas open', () => {
   const plant = makePlant({ ageYears: 6 });
   try {
+    const winter = makePlant({ ageYears: 6, dayOfYear: 20 });
+    const dormantBuds = meshNamed(winter, MESH_NAMES.buds).count;
+    winter.dispose();
+
     plant.setTime({ dayOfYear: LYNWOOD_CALENDAR.budSwellingStart + 14 });
-    assert.ok(meshNamed(plant, MESH_NAMES.flowerBuds).count > 0);
+    // The flower buds ride the same pool as the dormant leaf buds, so what
+    // proves they are there is that the pool has grown well past the winter
+    // count while nothing has opened and no leaf has broken.
+    assert.ok(meshNamed(plant, MESH_NAMES.buds).count > dormantBuds);
     assert.equal(meshNamed(plant, MESH_NAMES.flowers).count, 0);
     assert.equal(meshNamed(plant, MESH_NAMES.leaves).count, 0);
   } finally {
@@ -176,7 +187,6 @@ test('a dormant winter plant draws wood and buds but no soft organs', () => {
   try {
     assert.equal(meshNamed(plant, MESH_NAMES.leaves).count, 0);
     assert.equal(meshNamed(plant, MESH_NAMES.flowers).count, 0);
-    assert.equal(meshNamed(plant, MESH_NAMES.flowerBuds).count, 0);
     assert.equal(meshNamed(plant, MESH_NAMES.capsules).count, 0);
     assert.ok(meshNamed(plant, MESH_NAMES.wood).visible);
     assert.ok(meshNamed(plant, MESH_NAMES.buds).count > 0);

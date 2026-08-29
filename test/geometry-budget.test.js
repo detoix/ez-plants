@@ -75,7 +75,17 @@ const DAY_OF_YEAR = 230;
 const RECORDED = Object.freeze({
   // Inside the budget as of the petiole drop — kept here so it cannot regress.
   blackcurrant: { triangles: [16242, 5096, 3592], draws: [3, 2, 2] },
-  forsythia: { triangles: [154508, 86334, 58780], draws: [4, 4, 4] },
+  // Inside the whole budget, triangles and draws, at every band -- and not
+  // only on the peak-season day this file measures: the worst day of its year
+  // is 24,774 / 8,752 / 4,804 at the flowering peak, when the plant is close
+  // to eleven thousand corollas on bare wood.
+  //
+  // What got it there, in order of size: the corolla became a two-triangle
+  // alpha card where it had been a 66-triangle mesh, the petiole moved into
+  // the leaf plate, the pedicel was dropped, the leaf and flower buds merged
+  // into one one-triangle kind, and `woodOrderLimit` stopped meshing the 309
+  // short shoots at bands 1 and 2 while keeping everything growing on them.
+  forsythia: { triangles: [22680, 8030, 4415], draws: [3, 2, 2] },
   // Inside the *triangle* budget at every band as of the card panicle: the
   // head went from five meshes and 6,468 triangles to one mesh and 100, 40 or
   // 14. What is left is a draw debt, and only that. Band 0 spends its third

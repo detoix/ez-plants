@@ -1,5 +1,12 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/**
+ * How far up the frame the plant sits on a portrait screen, as a fraction of
+ * the frustum's own half-height. Enough to clear the bottom sheet when it is
+ * open; not so much that the plant looks like it is falling out of the top.
+ */
+const PORTRAIT_LIFT = 0.09;
 import { plantReviewViews } from './plants';
 
 /**
@@ -147,17 +154,88 @@ export async function createScene(renderer, descriptor, initialState) {
   controls.maxPolarAngle = Math.PI / 2 - 0.025;
 
   const views = plantReviewViews(descriptor);
+  const target = new THREE.Vector3();
+  const offset = new THREE.Vector3();
+
+  /** Distance from a pose's eye to what it is looking at. */
+  function poseDistance(pose) {
+    return offset
+      .fromArray(pose.position)
+      .sub(target.fromArray(pose.target))
+      .length();
+  }
+
+  /**
+   * How much further back this viewport needs every pose than it was authored.
+   *
+   * The review poses are distances that frame the plant's HEIGHT in a vertical
+   * field of view. On anything wider than about 4:5 height is also the tighter
+   * of the two fits, so the poses were right and this returns 1. Turn the same
+   * page upright on a phone and it is not: at 390 x 844 the horizontal field of
+   * view is 20 degrees, and a shrub as wide as it is tall has its outer canes
+   * cut off at both edges. That was the state of the review page on every
+   * phone -- a page whose entire job is to show one plant, showing most of one.
+   *
+   * The shortfall is measured against `front`, the pose that means "the whole
+   * shrub", and then applied to all of them. Scaling rather than refitting each
+   * pose is what keeps `close-up` a close-up: it stays the same fraction of the
+   * way in, and goes on cropping deliberately, instead of being quietly
+   * promoted to the same shot as `front` because a phone is narrow.
+   */
+  function aspectFit() {
+    const half = THREE.MathUtils.degToRad(camera.fov) / 2;
+    const { radiusM } = descriptor.size;
+    const targetY = views.front.target[1];
+    const halfHeight = Math.max(targetY, heightM - targetY);
+    const forHeight = halfHeight / Math.tan(half);
+    const forWidth = radiusM / (Math.tan(half) * camera.aspect);
+    // A little air, so the outermost twig is not sitting on the frame edge.
+    const required = Math.max(forHeight, forWidth) * 1.04;
+    return Math.max(1, required / poseDistance(views.front));
+  }
+
   let currentView = 'three-quarter';
+  let currentPortrait = camera.aspect < 1;
   function setReviewView(requestedView = 'three-quarter') {
     const view = views[requestedView] ? requestedView : 'three-quarter';
     const pose = views[view];
+    const fit = aspectFit();
     currentView = view;
+    currentPortrait = camera.aspect < 1;
     camera.up.fromArray(pose.up ?? [0, 1, 0]);
-    camera.position.fromArray(pose.position);
-    controls.target.fromArray(pose.target);
+    target.fromArray(pose.target);
+    offset.fromArray(pose.position).sub(target).multiplyScalar(fit);
+    camera.position.copy(target).add(offset);
+    controls.target.copy(target);
+    // A pose that had to be pushed back to fit must be allowed to stay there.
+    controls.maxDistance = Math.max(heightM * 6, offset.length() * 1.15);
+    // Upright, the controls are a sheet along the bottom edge and the plant is
+    // sitting dead centre behind it. Shearing the frustum lifts the plant into
+    // the upper part of the frame, so it stays watchable while the sheet is
+    // open and the day is being scrubbed -- which is the whole point of the
+    // page. This shifts the view without touching the pose, so orbiting still
+    // turns around the plant rather than around a point off to one side.
+    if (currentPortrait) camera.setViewOffset(1, 1, 0, PORTRAIT_LIFT, 1, 1);
+    else camera.clearViewOffset();
     camera.lookAt(controls.target);
     controls.update();
     return view;
+  }
+
+  /**
+   * Reframe after a turn of the phone, and only then.
+   *
+   * Re-running the pose throws away wherever the visitor had orbited to, so it
+   * has to fire on the one change that genuinely invalidates the framing and
+   * not on the ones that do not. A rotation does; a mobile address bar sliding
+   * in and out, which fires `resize` several times a second and moves the
+   * aspect by a tenth, does not.
+   */
+  function refitOnRotation() {
+    const portrait = camera.aspect < 1;
+    if (portrait === currentPortrait) return false;
+    setReviewView(currentView);
+    return true;
   }
 
   setReviewView(initialState.view);
@@ -182,6 +260,7 @@ export async function createScene(renderer, descriptor, initialState) {
     camera,
     controls,
     setReviewView,
+    refitOnRotation,
     getReviewView: () => currentView,
     dispose,
   };

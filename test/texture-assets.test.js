@@ -17,6 +17,7 @@ const PLANT_LEAF_PLATES = ['blackcurrant', 'forsythia', 'hydrangea'];
 // Plates that are not leaves. A hydrangea's flower head is clothed in cards
 // cut from this one, so it is held to the same contract as a foliage plate.
 const PLANT_ORGAN_PLATES = [
+  ['forsythia', 'flower.webp'],
   ['hydrangea', 'floret.webp'],
   ['miscanthus', 'raceme.webp'],
 ];

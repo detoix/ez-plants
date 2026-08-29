@@ -7,12 +7,15 @@ import {
   lynwoodEventTime,
 } from './model.js';
 import {
+  createBudCardGeometry,
   createCapsuleGeometry,
-  createFlowerBudGeometry,
-  createFlowerGeometry,
+  createCorollaCardGeometry,
 } from './geometry.js';
 import { createLeafCardGeometry } from '../../leaf-geometry.js';
-import { createLeafMaterialSet } from '../../leaf-material.js';
+import {
+  createLeafMaterialSet,
+  keepAuthoredNormalsOnBackFaces,
+} from '../../leaf-material.js';
 import { keyedRange } from '../../keyed-random.js';
 import { makeBasisQuaternion, vector } from '../../plant-transforms.js';
 import { PlantRenderer } from '../../plant-renderer.js';
@@ -24,60 +27,110 @@ const UP = new THREE.Vector3(0, 1, 0);
 const SPRING_LEAF_TINT = new THREE.Color(0xdcecc0);
 const SUMMER_LEAF_TINT = new THREE.Color(0xc2d3ac);
 const AUTUMN_LEAF_TINT = new THREE.Color(0xd8a05a);
-const PETIOLE_GREEN = new THREE.Color(0x7d8d4e);
-const PETIOLE_BRONZE = new THREE.Color(0x7d6340);
-const DORMANT_BUD_SCALE = new THREE.Vector3(0.0038, 0.007, 0.0038);
 
-function composeSegmentMatrix(target, direction, start, end, radius) {
-  direction.copy(end).sub(start);
-  const length = direction.length();
-  target.position.copy(start);
+/**
+ * The petiole, as a fraction of the leaf card it is drawn inside.
+ *
+ * Measured across all 4,384 leaves of the five-year plant: the modelled stalk
+ * runs 0.054 to 0.382 of blade length, median 0.141, which is this fraction of
+ * the stalk-plus-blade card. The plate paints its bottom PETIOLE_CARD_FRACTION
+ * as the stalk (`scripts/make-leaf-texture.mjs`), so the card is rooted at the
+ * node and scaled by petiole plus blade, and 3,720 meshed petioles -- 74,400
+ * triangles and a whole draw call -- are simply gone. Hydrangea pays two
+ * triangles a leaf for the same thing; on a plant with twice as many leaves and
+ * a stalk half as long, the plate is the better half of that trade.
+ */
+const PETIOLE_CARD_FRACTION = 0.124;
 
-  if (length < 1e-7) {
-    target.quaternion.identity();
-    target.scale.set(0, 0, 0);
-  } else {
-    target.quaternion.setFromUnitVectors(
-      UP,
-      direction.multiplyScalar(1 / length),
-    );
-    target.scale.set(radius, length, radius);
-  }
+/**
+ * Instance tints for the one bud mesh both kinds of bud now share.
+ *
+ * The geometry carries a dull-gold base to bright-gold tip gradient, which is
+ * the swelling flower bud as it was. A vegetative bud is the same shape in
+ * winter brown-olive, so it is that gradient multiplied down and desaturated.
+ */
+const FLOWER_BUD_TINT = new THREE.Color(0xffffff);
+const DORMANT_BUD_TINT = new THREE.Color(0x9ea9c4);
+/** A leaf bud is 3-5 mm long; a swelling flower bud, 10-14. */
+const DORMANT_BUD_SCALE = new THREE.Vector3(0.0026, 0.005, 0.0026);
+const FLOWER_BUD_WIDTH_FACTOR = 0.13;
+const FLOWER_BUD_ASPECT = 2.5;
 
-  target.updateMatrix();
-  return target.matrix;
-}
+/** The per-flower spread the one corolla plate is tinted across. */
+const PALE_COROLLA = new THREE.Color(0xfffdf2);
+const DEEP_COROLLA = new THREE.Color(0xefdc9e);
 
-const INSTANCE_KINDS = Object.freeze([
-  'leaves',
-  'petioles',
-  'buds',
-  'pedicels',
-  'flowerBuds',
-  'flowers',
-  'capsules',
-]);
+/**
+ * Four kinds, where there were seven.
+ *
+ * `petioles` went into the leaf plate and `pedicels` were dropped -- a 3-9 mm
+ * flower stalk that sits behind the corolla it carries, meshed as a tube 3,280
+ * times. `flowerBuds` merged into `buds`, because a leaf bud and a flower bud
+ * are one teardrop at two sizes in two colours. What is left is wood, foliage,
+ * the display, and the capsule.
+ *
+ * See library rule 9 and `test/geometry-budget.test.js`.
+ */
+const INSTANCE_KINDS = Object.freeze(['leaves', 'buds', 'flowers', 'capsules']);
 
+/**
+ * The bands, and why this plant's wood needs a different lever from hydrangea's.
+ *
+ * A five-year 'Lynwood' is 464 separate axes: fourteen canes, 141 laterals and
+ * 309 short shoots. That branch count, not ring count, is what its wood costs.
+ * `landmarkStride` -- the lever that took hydrangea's band-2 wood from 7,041
+ * triangles to 2,433 -- bottoms out here at 45,856, because thinning the rings
+ * on a twig that only ever had three of them saves nothing. `sectionStride` is
+ * the useful one at band 0, and even with both at their limits the floor is
+ * 7,086 triangles: two rings and a cap for every one of those 464 tubes, which
+ * is already over the 5,000 band 2 is allowed in total.
+ *
+ * So bands 1 and 2 set `woodOrderLimit`, and stop meshing the short shoots
+ * while keeping everything growing on them. A short shoot is 15 cm long and
+ * 2 mm thick; at seven metres it is a sub-pixel line inside a foliage mass its
+ * own leaves already fill. The leaves left behind grow to match, exactly as a
+ * thinned organ ladder grows its cards.
+ */
 const DEFAULT_LOD_LEVELS = Object.freeze([
-  Object.freeze({ distance: 0, detail: Object.freeze({}) }),
+  Object.freeze({
+    distance: 0,
+    // Node landmarks are kept at stride 4 rather than dropped wholesale: they
+    // are sampled from the curve, so they carry the arch of a cane as well as
+    // any section does, and they are what keeps a two-metre whip from meshing
+    // as a polyline once `sectionStride` thins its own samples.
+    detail: Object.freeze({
+      sectionStride: 8,
+      segmentFactor: 0.86,
+      landmarkStride: 4,
+    }),
+  }),
   Object.freeze({
     distance: 7,
     hysteresis: 0.1,
     detail: Object.freeze({
-      sectionStride: 2,
-      segmentFactor: 0.75,
+      sectionStride: 8,
+      segmentFactor: 0.72,
+      landmarkStride: 8,
+      woodOrderLimit: 1,
       leafStride: 2,
-      leafScale: 1.18,
+      leafScale: 1.2,
+      // A 4 mm leaf bud and a 6 mm capsule, at seven metres and beyond: both
+      // are under a pixel across there, and the buds are also what would make
+      // a third mesh at peak bloom, where the corollas are the whole plant.
+      dropKinds: Object.freeze(['capsules', 'buds']),
     }),
   }),
   Object.freeze({
     distance: 12,
     hysteresis: 0.1,
     detail: Object.freeze({
-      sectionStride: 3,
-      segmentFactor: 0.55,
-      leafStride: 3,
-      leafScale: 1.32,
+      sectionStride: 12,
+      segmentFactor: 0.6,
+      landmarkStride: 12,
+      woodOrderLimit: 1,
+      leafStride: 5,
+      leafScale: 1.62,
+      dropKinds: Object.freeze(['capsules', 'buds']),
     }),
   }),
 ]);
@@ -91,19 +144,17 @@ const DEFAULT_LOD_LEVELS = Object.freeze([
  * Everything else -- stable organ pools, the combined EZ-Tree woody mesh,
  * distance LOD and the validated state cycle -- comes from PlantRenderer.
  */
-/** This plant's own leaf plate, resolved beside its source. */
+/** This plant's own plates, resolved beside its source. */
 const LEAF_PLATE = loadLeafPlate(new URL('./leaf.webp', import.meta.url));
+const FLOWER_PLATE = loadLeafPlate(new URL('./flower.webp', import.meta.url));
 
 export class Forsythia extends PlantRenderer {
   #model;
 
   #scratch = {
-    direction: new THREE.Vector3(),
     matrix: new THREE.Matrix4(),
-    nodePosition: new THREE.Vector3(),
     position: new THREE.Vector3(),
     scale: new THREE.Vector3(),
-    segment: new THREE.Object3D(),
   };
 
   constructor(options = {}) {
@@ -206,27 +257,49 @@ export class Forsythia extends PlantRenderer {
       leaf: leafMaterials.surface,
       leafDepth: leafMaterials.depth,
       leafDistance: leafMaterials.distance,
-      petiole: this._material({
-        color: 0xffffff,
-        roughness: 0.84,
-        metalness: 0,
-      }),
-      // Dormant vegetative buds on bare wood: small, dark and pointed.
-      bud: this._material({ color: 0x78694d, roughness: 0.92, metalness: 0 }),
-      flowerBud: this._material({
-        color: 0xffffff,
-        vertexColors: true,
-        roughness: 0.86,
-        metalness: 0,
-      }),
+      // One material for both kinds of bud. The geometry's gold gradient is
+      // multiplied by a per-instance tint, so a winter leaf bud and a swelling
+      // flower bud come out of the same three vertices. The back face keeps
+      // the authored normal: unlike a corolla, a bud card stands in for a
+      // solid teardrop, and the far side of a solid body is not lit from
+      // behind.
+      bud: keepAuthoredNormalsOnBackFaces(
+        this._material({
+          color: 0xffffff,
+          vertexColors: true,
+          side: THREE.DoubleSide,
+          roughness: 0.9,
+          metalness: 0,
+        }),
+      ),
+      // A cut-out card, so the corolla's outline comes from the plate's alpha
+      // rather than from its quad. Three's own shadow pass copies `map` and
+      // `alphaTest` across, so a flower casts a flower-shaped shadow with no
+      // custom depth material.
+      //
+      // Unlike the hydrangea floret shell, the back face is NOT held to its
+      // authored normal. A floret card stands in for part of a solid cone, so
+      // flipping its normal would light the inside of a mass. A forsythia
+      // corolla is one flat flower a fraction of a millimetre thick, and the
+      // back of it really is lit by whatever is behind it.
       flower: this._material({
         color: 0xffffff,
+        map: FLOWER_PLATE,
+        alphaTest: FLOWER_PLATE ? 0.4 : 0,
         vertexColors: true,
-        // A small yellow lift keeps shaded, outward-facing corollas clear
-        // yellow instead of collapsing into ochre clumps at shrub scale.
-        emissive: 0x5a4800,
-        emissiveIntensity: 0.25,
-        roughness: 0.62,
+        // A corolla lobe is a fraction of a millimetre of translucent tissue,
+        // and half the flowers on a shrub face away from the sun at any
+        // moment. Lit by diffuse alone they come out olive, which is the one
+        // thing this plant must not be: photographs of it in bloom are clear
+        // yellow on the shaded side as well as the sunlit one, because the
+        // light goes through the petal. Emitting the plate's own colour at a
+        // fraction of its strength is that, cheaply -- it lifts a shaded
+        // corolla without touching its hue and without a second light.
+        emissiveMap: FLOWER_PLATE,
+        emissive: FLOWER_PLATE ? 0x4a4a4a : 0x000000,
+        // Petals are matt. A tighter highlight puts a white sheen across the
+        // lobes and takes the yellow straight out of them.
+        roughness: 0.86,
         metalness: 0,
         side: THREE.DoubleSide,
       }),
@@ -240,10 +313,10 @@ export class Forsythia extends PlantRenderer {
   }
 
   #createInstances() {
-    const stemGeometry = this._stemGeometry(5);
-
     this._addInstancedOrgan('leaves', {
       name: 'Forsythia_Leaves_Opposite',
+      // No stalk rung: this plant's petiole is painted into its plate, so the
+      // same two triangles carry both at every band.
       geometry: this._sharedGeometry(
         'shared/leaf-card',
         { roundedNormals: this._assets.leaf.roundedNormals },
@@ -252,47 +325,29 @@ export class Forsythia extends PlantRenderer {
       material: this._materials.leaf,
       group: this._leafGroup,
     });
-    this._addInstancedOrgan('petioles', {
-      name: 'Forsythia_Petioles',
-      geometry: stemGeometry,
-      material: this._materials.petiole,
-      group: this._leafGroup,
-    });
     this._addInstancedOrgan('buds', {
-      name: 'Forsythia_DormantBuds',
+      name: 'Forsythia_Buds',
       geometry: this._sharedGeometry(
-        'forsythia/flower-bud',
-        { segments: 5, rings: 3 },
-        createFlowerBudGeometry,
+        'forsythia/bud-card',
+        {},
+        createBudCardGeometry,
       ),
       material: this._materials.bud,
       group: this._woodyGroup,
     });
-    this._addInstancedOrgan('pedicels', {
-      name: 'Forsythia_Pedicels',
-      geometry: stemGeometry,
-      material: this._materials.petiole,
-      group: this._flowerGroup,
-    });
-    this._addInstancedOrgan('flowerBuds', {
-      name: 'Forsythia_FlowerBuds',
-      geometry: this._sharedGeometry(
-        'forsythia/flower-bud',
-        {},
-        createFlowerBudGeometry,
-      ),
-      material: this._materials.flowerBud,
-      group: this._flowerGroup,
-    });
     this._addInstancedOrgan('flowers', {
       name: 'Forsythia_Flowers_FourLobed',
       geometry: this._sharedGeometry(
-        'forsythia/flower',
+        'forsythia/corolla-card',
         {},
-        createFlowerGeometry,
+        createCorollaCardGeometry,
       ),
       material: this._materials.flower,
       group: this._flowerGroup,
+      // A shell of cards standing in for a mass of flowers: they shadow each
+      // other into hard mottling across what should read as one soft body.
+      // They still cast, because a bloom shading the wood under it is real.
+      receivesShadow: false,
     });
     this._addInstancedOrgan('capsules', {
       name: 'Forsythia_Capsules',
@@ -381,17 +436,12 @@ export class Forsythia extends PlantRenderer {
             this._runtime.leaves.set(leaf.id, {
               id: leaf.id,
               identity: this._renderIdentity(leaf.id, 'leaf'),
-              position: end,
               radial,
               leafQuaternion: makeBasisQuaternion(
                 bladeForward,
                 vector(leaf.normal, UP),
               ),
               budQuaternion: makeBasisQuaternion(budForward, UP),
-              petioleColor: PETIOLE_GREEN.clone().lerp(
-                PETIOLE_BRONZE,
-                keyedRange(this.seed, [leaf.id, 'petiole-bronze'], 0.2, 0.7),
-              ),
               size:
                 leaf.lengthM *
                 keyedRange(this.seed, [leaf.id, 'size'], 0.93, 1.07),
@@ -432,6 +482,15 @@ export class Forsythia extends PlantRenderer {
                   0.86,
                   1.18,
                 ),
+                // One plate draws every corolla on the plant, so the
+                // flower-to-flower variation the photographs show has to
+                // arrive per instance. The range is narrow on purpose:
+                // 'Lynwood' is a clone, and its display reads as one colour
+                // with life in it rather than as a mixed planting.
+                tint: PALE_COROLLA.clone().lerp(
+                  DEEP_COROLLA,
+                  keyedRange(this.seed, [flower.id, 'corolla-tint'], 0, 1),
+                ),
               });
             }
 
@@ -467,33 +526,27 @@ export class Forsythia extends PlantRenderer {
     return runtime.detailScale;
   }
 
+  /**
+   * Seat one leaf card, stalk and all.
+   *
+   * The card is rooted at the NODE rather than at the blade, because its plate
+   * paints the petiole across its bottom PETIOLE_CARD_FRACTION -- so the card
+   * spans stalk plus blade and the blade's own length is what is scaled up to
+   * reach it. The leaf still unfolds, through `leafState.scale`, which already
+   * ramps from a third of full size; what it no longer does is slide outward
+   * from the node, which is right, since a leaf grows out of its own bud
+   * rather than travelling away from it.
+   */
   #setLeaf(leafRuntime, leafState, nodeState, detailScale = 1) {
-    const identity = leafRuntime.identity;
-    const unfoldProgress = THREE.MathUtils.clamp(
-      leafState.unfoldProgress,
-      0,
-      1,
-    );
-
-    const { direction, matrix, nodePosition, position, scale, segment } =
-      this.#scratch;
-    nodePosition.copy(nodeState.position);
-    position
-      .copy(nodePosition)
-      .lerp(leafState.position ?? leafRuntime.position, unfoldProgress);
+    const { matrix, position, scale } = this.#scratch;
     const sourceScale = leafState.scale / leafRuntime.sourceSize;
-    const leafScale = leafRuntime.size * sourceScale * detailScale;
-    scale.set(leafScale, leafScale, leafScale);
+    const cardScale =
+      (leafRuntime.size * sourceScale * detailScale) /
+      (1 - PETIOLE_CARD_FRACTION);
+    position.copy(nodeState.position);
+    scale.set(cardScale, cardScale, cardScale);
     matrix.compose(position, leafRuntime.leafQuaternion, scale);
-    this._writeInstance('leaves', identity, matrix);
-
-    composeSegmentMatrix(segment, direction, nodePosition, position, 0.0011);
-    this._writeInstance(
-      'petioles',
-      identity,
-      segment.matrix,
-      leafRuntime.petioleColor,
-    );
+    this._writeInstance('leaves', leafRuntime.identity, matrix);
   }
 
   #setBud(leafRuntime, nodeState, visible) {
@@ -507,13 +560,13 @@ export class Forsythia extends PlantRenderer {
       .copy(nodeState.position)
       .addScaledVector(leafRuntime.radial, 0.0032);
     matrix.compose(position, leafRuntime.budQuaternion, DORMANT_BUD_SCALE);
-    this._writeInstance('buds', leafRuntime.identity, matrix);
+    this._writeInstance('buds', leafRuntime.identity, matrix, DORMANT_BUD_TINT);
   }
 
   #setCluster(
     clusterState,
     nodeState,
-    { flowerStride = 1, flowerScale = 1 } = {},
+    { flowerStride = 1, flowerScale = 1, drawFlowers = true } = {},
     counts,
   ) {
     const capsuleVisibility = THREE.MathUtils.clamp(
@@ -521,9 +574,7 @@ export class Forsythia extends PlantRenderer {
       0,
       1,
     );
-    const { direction, matrix, nodePosition, position, scale, segment } =
-      this.#scratch;
-    nodePosition.copy(nodeState.position);
+    const { matrix, position, scale } = this.#scratch;
 
     for (const flower of clusterState.flowers) {
       const runtime = this._runtime.flowers.get(flower.id);
@@ -542,40 +593,25 @@ export class Forsythia extends PlantRenderer {
         0,
         1,
       );
+      // The pedicel is not drawn: it is 3-9 mm long and stands directly behind
+      // the corolla that hangs on it, so 3,280 meshed tubes bought nothing a
+      // viewer could ever see past the flower in front of them.
       position.copy(flower.position);
 
-      // The pedicel is very short: forsythia flowers sit almost directly on
-      // the stem rather than hanging from an inflorescence axis.
-      if (openVisibility > 0.015 || budVisibility > 0.015) {
-        composeSegmentMatrix(
-          segment,
-          direction,
-          nodePosition,
-          position,
-          0.0009,
-        );
-        this._writeInstance(
-          'pedicels',
-          runtime.identity,
-          segment.matrix,
-          PETIOLE_BRONZE,
-        );
-      }
-
       if (budVisibility > 0.015) {
-        const budScale =
+        const budWidth =
           flower.corollaWidthM *
-          0.42 *
+          FLOWER_BUD_WIDTH_FACTOR *
           budVisibility *
           detailScale *
           runtime.budSizeFactor;
-        scale.set(budScale, budScale * 1.6, budScale);
+        scale.set(budWidth, budWidth * FLOWER_BUD_ASPECT, budWidth);
         matrix.compose(position, runtime.budQuaternion, scale);
-        this._writeInstance('flowerBuds', runtime.identity, matrix);
+        this._writeInstance('buds', runtime.identity, matrix, FLOWER_BUD_TINT);
         counts.visibleFlowerBuds++;
       }
 
-      if (openVisibility > 0.015) {
+      if (openVisibility > 0.015 && drawFlowers) {
         // The corolla expands as it opens rather than fading in at full size.
         const openScale =
           flower.corollaWidthM *
@@ -584,7 +620,7 @@ export class Forsythia extends PlantRenderer {
           runtime.corollaSizeFactor;
         scale.set(openScale, openScale * runtime.tubeRatio, openScale);
         matrix.compose(position, runtime.flowerQuaternion, scale);
-        this._writeInstance('flowers', runtime.identity, matrix);
+        this._writeInstance('flowers', runtime.identity, matrix, runtime.tint);
         counts.visibleFlowers++;
       }
     }
@@ -645,11 +681,15 @@ export class Forsythia extends PlantRenderer {
     };
 
     let totalLeafSites = 0;
+    let totalVisibleLeafSites = 0;
     let totalVisibleFlowerSites = 0;
     for (const cane of snapshot.canes) {
       for (const axis of cane.axes) {
         for (const node of axis.nodes) {
           totalLeafSites += node.leaves.length;
+          for (const leaf of node.leaves) {
+            if (leaf.visible) totalVisibleLeafSites++;
+          }
           for (const cluster of node.clusters) {
             if (!cluster.visible) continue;
             for (const flower of cluster.flowers) {
@@ -674,18 +714,40 @@ export class Forsythia extends PlantRenderer {
       LYNWOOD_RENDER_PRIORS.instanceCapacities.leaves,
       this._detail.leafStride,
     );
+    // Corollas thin one step faster than leaves past band 0. At bloom they are
+    // the only thing on the plant, and there are three of them for every leaf,
+    // so a band that halves its foliage still has more flower cards than the
+    // summer canopy it is sized against. They grow as they thin, the way a
+    // panicle's cards do, so the display keeps its coverage instead of
+    // dissolving into a scatter of dots.
     const flowerStride = capacityStride(
       totalVisibleFlowerSites,
       LYNWOOD_RENDER_PRIORS.instanceCapacities.flowers,
-      this._detail.leafStride,
+      this._detail.leafStride > 1 ? this._detail.leafStride + 1 : 1,
     );
+    // Rule 9 says that past band 0 a plant is wood and foliage. This one has
+    // two foliages -- bare-wood yellow in April and leaves after it -- and for
+    // the eight days at the end of flowering when both are out, that is three
+    // meshes where a coarse band is allowed two. A band that thins its foliage
+    // therefore draws whichever display is in front, and drops the other. At
+    // seven metres and beyond that is the right call anyway: on day 108 the
+    // loser is 280 fading corollas behind 1,886 opening leaves. Band 0, where
+    // the overlap is exactly what a photograph of this plant in April shows,
+    // draws both.
+    const bothDisplays = this._detail.leafStride <= 1;
+    const flowersLead = totalVisibleFlowerSites >= totalVisibleLeafSites;
+    const drawFlowers = bothDisplays || flowersLead;
+    const drawLeaves = bothDisplays || !flowersLead;
     const leafScale =
       this._detail.leafScale *
       (leafStride > this._detail.leafStride ? 1.08 : 1);
-    const flowerScale =
-      flowerStride > this._detail.leafStride
-        ? Math.min(1.12, 1 + (flowerStride - 1) * 0.035)
-        : 1;
+    // Card counts fall with the square of apparent size, so the survivors grow
+    // by the root of the stride -- the reasoning behind a panicle's card
+    // ladder, applied to a stride instead of to hand-picked rungs. Undersized
+    // cards at a coarse band do not read as a thinner display, they read as a
+    // bare shrub with specks on it, which for this plant is the whole thing
+    // missing.
+    const flowerScale = Math.min(2.5, Math.sqrt(flowerStride));
 
     for (const cane of snapshot.canes) {
       if (cane.removed) continue;
@@ -698,6 +760,24 @@ export class Forsythia extends PlantRenderer {
         visibleAxes++;
 
         for (const node of axis.nodes) {
+          // A leaf bud sits in the axil the corollas hang out of. Once they
+          // are open it is behind three to twelve of them and cannot be seen,
+          // so it is not drawn -- which at peak bloom is most of the buds on
+          // the plant, and buys the flowers that are actually in front.
+          let nodeIsFlowering = false;
+          for (const cluster of node.clusters) {
+            if (!cluster.visible) continue;
+            for (const flower of cluster.flowers) {
+              const open =
+                flower.openVisibility ?? cluster.flowerOpenVisibility ?? 0;
+              if (open > 0.015) {
+                nodeIsFlowering = true;
+                break;
+              }
+            }
+            if (nodeIsFlowering) break;
+          }
+
           for (const state of node.leaves) {
             const leafRuntime = this._runtime.leaves.get(state.id);
             if (!leafRuntime) {
@@ -711,19 +791,28 @@ export class Forsythia extends PlantRenderer {
               leafStride,
               leafScale,
             );
-            const visible = biologicallyVisible && detailScale > 0;
+            const visible =
+              biologicallyVisible && detailScale > 0 && drawLeaves;
             if (visible) {
               this.#setLeaf(leafRuntime, state, node, detailScale);
               visibleLeaves++;
             }
             // Bare-wood buds stand in for the leaf all winter and through the
             // entire flowering display, which is most of what makes a
-            // forsythia in bloom read as leafless.
+            // forsythia in bloom read as leafless. They stop at bud break
+            // rather than fading out across the first fifth of leaf
+            // expansion: once the canopy is moving, a scar that has not yet
+            // drawn its leaf is showing a green tip, not a winter bud -- and
+            // drawing both put a leaf and its own unopened bud on the same
+            // scar, which is a third soft mesh in the one week of the year
+            // when the corollas are still out.
             this.#setBud(
               leafRuntime,
               node,
               detailScale > 0 &&
-                (!biologicallyVisible || phenology.leafProgress < 0.2),
+                !biologicallyVisible &&
+                !nodeIsFlowering &&
+                phenology.leafProgress < 0.02,
             );
           }
 
@@ -732,7 +821,7 @@ export class Forsythia extends PlantRenderer {
             this.#setCluster(
               state,
               node,
-              { flowerStride, flowerScale },
+              { flowerStride, flowerScale, drawFlowers },
               organCounts,
             );
           }

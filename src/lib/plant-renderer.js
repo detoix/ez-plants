@@ -148,6 +148,12 @@ export class PlantRenderer extends THREE.Group {
       this._detail,
     );
     this._level = 0;
+    // Built AT level 0, which means built at level 0's detail. Leaving the
+    // species-neutral default here instead made `plant.level` say 0 while the
+    // plant was drawn at something no band had asked for -- and `setLevel(0)`
+    // could not fix it, because the level was already 0 and the call returned
+    // early. A plant whose band 0 states nothing is unaffected.
+    this._detail = this._lodLevels[0].detail;
     this._instancePool = null;
     this._woodMesh = null;
     this._materials = {};
@@ -526,6 +532,15 @@ export class PlantRenderer extends THREE.Group {
         if (!runtime) {
           throw new Error(`Missing render axis for model organ ${axis.id}.`);
         }
+        // Past a band's order limit a twig stops being meshed while the
+        // foliage it carries stays. This is the lever for a shrub whose wood
+        // cost is its *branch count* rather than its ring count: strides
+        // bottom out at two rings an axis, so a plant with hundreds of short
+        // shoots has a triangle floor no stride can reach under. What the
+        // limit removes is a stick a few centimetres long, at a distance where
+        // it is thinner than a pixel and its own leaves already fill the space
+        // it stood in. Order 0 is never dropped, whatever the limit says.
+        if (axis.order > 0 && axis.order > resolved.woodOrderLimit) continue;
         const growth = THREE.MathUtils.clamp(axis.growthScale, 0, 1);
         states.set(axis.id, {
           axis,
@@ -588,6 +603,7 @@ export class PlantRenderer extends THREE.Group {
         resolved.sectionStride,
         resolved.segmentFactor,
         resolved.landmarkStride,
+        resolved.woodOrderLimit,
         signatureAxes,
       ]),
     };
@@ -748,6 +764,7 @@ export class PlantRenderer extends THREE.Group {
       resolved.sectionStride === this._detail.sectionStride &&
       resolved.segmentFactor === this._detail.segmentFactor &&
       resolved.landmarkStride === this._detail.landmarkStride &&
+      resolved.woodOrderLimit === this._detail.woodOrderLimit &&
       resolved.leafStride === this._detail.leafStride &&
       resolved.leafScale === this._detail.leafScale &&
       resolved.organLevel === this._detail.organLevel &&
@@ -760,7 +777,8 @@ export class PlantRenderer extends THREE.Group {
     const woodChanged =
       resolved.sectionStride !== this._detail.sectionStride ||
       resolved.segmentFactor !== this._detail.segmentFactor ||
-      resolved.landmarkStride !== this._detail.landmarkStride;
+      resolved.landmarkStride !== this._detail.landmarkStride ||
+      resolved.woodOrderLimit !== this._detail.woodOrderLimit;
     const shadowsChanged =
       resolved.shadowCast !== this._detail.shadowCast ||
       resolved.shadowReceive !== this._detail.shadowReceive;

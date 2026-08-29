@@ -13,10 +13,19 @@ export const LYNWOOD_RENDER_PRIORS = Object.freeze({
   liveCaneCacheSize: 52,
   foliageStartFractionByOrder: Object.freeze([0, 0.12, 0]),
   foliageNodeOccupancyByOrder: Object.freeze([0.65, 0.82, 0.58]),
+  // Weights over the sourced 1-6 flowers a leaf-scar carries, by branch order.
+  //
+  // Reweighted toward the top of that range after a photo pass: on a plant in
+  // full bloom the wood is very nearly hidden, every scar along the whole
+  // length of a cane is carrying flowers, and clusters of one or two are the
+  // exception rather than the middle of the distribution. The previous weights
+  // centred on three, which is what left the earlier renders reading as dotted
+  // whips rather than the yellow ropes the references show. The range itself
+  // is unchanged -- it is the sourced one -- and six is still uncommon.
   clusterSizeWeightsByOrder: Object.freeze([
-    Object.freeze([0.05, 0.23, 0.3, 0.25, 0.13, 0.04]),
-    Object.freeze([0.03, 0.16, 0.27, 0.29, 0.18, 0.07]),
-    Object.freeze([0.02, 0.11, 0.22, 0.3, 0.23, 0.12]),
+    Object.freeze([0.02, 0.11, 0.24, 0.31, 0.22, 0.1]),
+    Object.freeze([0.01, 0.07, 0.19, 0.31, 0.26, 0.16]),
+    Object.freeze([0.01, 0.05, 0.15, 0.29, 0.29, 0.21]),
   ]),
   anthesisOffsetDays: Object.freeze([-2, 8]),
   corollaOpeningDays: 1.5,
@@ -33,11 +42,13 @@ export const LYNWOOD_RENDER_PRIORS = Object.freeze({
   // the evaluator still reports the unthinned biological counts separately.
   instanceCapacities: Object.freeze({
     leaves: 6500,
-    petioles: 6500,
-    buds: 6500,
-    pedicels: 8000,
-    flowerBuds: 8000,
-    flowers: 8000,
+    // One pool now holds both the dormant leaf buds -- two to a node, on every
+    // node -- and the flower buds swelling on top of them, so it is sized as
+    // the sum of the two pools that can feed it. That is a real bound rather
+    // than a measured high-water mark: the leaf and flower strides hold their
+    // own writes inside their own capacities, so their sum holds this one.
+    buds: 19_500,
+    flowers: 13_000,
     capsules: 256,
   }),
 });
@@ -239,11 +250,17 @@ export const LYNWOOD_PROFILE = Object.freeze({
     // Borne on one- and two-year-old wood, opening before leaf expansion.
     bornOnWoodAgeYears: Object.freeze([1, 2]),
     precedesLeaves: true,
-    perNodeRange: Object.freeze([1, 6]),
+    // Per leaf-scar, as Bean states it. An opposite-leaved node has two, so a
+    // node carries up to twelve flowers -- which is what the shrub-scale
+    // photographs show and what the earlier per-node reading lost.
+    perScarRange: Object.freeze([1, 6]),
     // Lower axils on vigorous long shoots are commonly vegetative. Short side
     // shoots carry the densest display, so eligibility rises with branch order.
-    floweringStartFractionByOrder: Object.freeze([0.28, 0.08, 0.04]),
-    floweringNodeOccupancyByOrder: Object.freeze([0.86, 0.94, 0.96]),
+    // Raised after a photo pass against shrub-scale references: a cane in full
+    // bloom flowers along essentially its whole length, with only the shaded
+    // base of a vigorous basal shoot staying vegetative.
+    floweringStartFractionByOrder: Object.freeze([0.18, 0.05, 0.02]),
+    floweringNodeOccupancyByOrder: Object.freeze([0.94, 0.98, 0.99]),
     corollaLobes: 4,
     corollaWidthM: Object.freeze([0.033, 0.04]),
     corollaTubeLengthM: Object.freeze([0.008, 0.013]),

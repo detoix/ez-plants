@@ -9,6 +9,14 @@ npx vite --config vite.app.config.js --port 5177 --strictPort
 Not a service — start it yourself, it dies with your session. `/` is the
 single-plant review page, `/field` the walkable field.
 
+Both pages have a touch layout, and it is a different layout rather than a
+smaller one: the review panel becomes a peeked bottom sheet, the field HUD folds
+to one line, and the field is walked with an on-screen thumbstick because
+pointer lock and WASD do not exist there. A desktop screenshot proves nothing
+about it — drive a mobile viewport (`isMobile`, `hasTouch`) and dispatch real
+touch events through CDP `Input.dispatchTouchEvent`, since Playwright's mouse
+API produces `pointerType: "mouse"` and takes the desktop path.
+
 To drive it, use the **`gpu-browser` skill**. It owns the browser setup for this
 machine and works from any directory. Do not build a launcher here: without a
 Wayland compositor Chrome silently falls back to SwiftShader, and a

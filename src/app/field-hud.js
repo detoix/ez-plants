@@ -24,6 +24,43 @@ export function createFieldHUD(container) {
   panel.className = 'fx-hud';
   panel.setAttribute('aria-label', 'Field performance readout');
 
+  // On a phone the full readout is most of the screen, and the screen is the
+  // garden. So it folds down to the one line that is worth watching while you
+  // walk -- frame rate and frame time -- and opens on a tap. The summary is
+  // live in both states, so a collapsed HUD is still a working instrument
+  // rather than a closed drawer.
+  const body = document.createElement('div');
+  body.className = 'fx-hud-body';
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'fx-hud-toggle';
+  toggle.setAttribute('aria-controls', 'fx-hud-body');
+  body.id = 'fx-hud-body';
+  const summary = document.createElement('span');
+  summary.className = 'fx-hud-summary';
+  summary.textContent = '—';
+  const chevron = document.createElement('span');
+  chevron.className = 'fx-hud-chevron';
+  chevron.setAttribute('aria-hidden', 'true');
+  toggle.append(summary, chevron);
+  panel.append(toggle, body);
+
+  function setCollapsed(collapsed) {
+    panel.classList.toggle('fx-hud-collapsed', collapsed);
+    toggle.setAttribute('aria-expanded', String(!collapsed));
+    toggle.setAttribute(
+      'aria-label',
+      collapsed ? 'Show the full performance readout' : 'Hide the readout',
+    );
+  }
+
+  toggle.addEventListener('click', () =>
+    setCollapsed(!panel.classList.contains('fx-hud-collapsed')),
+  );
+
+  const compact = window.matchMedia('(max-width: 640px), (max-height: 520px)');
+  setCollapsed(compact.matches);
+
   const groups = new Map();
   const rows = new Map();
 
@@ -31,7 +68,7 @@ export function createFieldHUD(container) {
     const heading = document.createElement('h2');
     heading.textContent = title;
     const list = document.createElement('dl');
-    panel.append(heading, list);
+    body.append(heading, list);
     groups.set(id, list);
   }
 
@@ -145,11 +182,14 @@ export function createFieldHUD(container) {
     }
     const mean = total / Math.max(1, filled);
 
-    set('fps', mean > 0 ? (1 / mean).toFixed(0) : '—');
+    const fps = mean > 0 ? (1 / mean).toFixed(0) : '—';
+    set('fps', fps);
     set(
       'frameMs',
       `${(mean * 1000).toFixed(1)} ms · worst ${(worst * 1000).toFixed(0)}`,
     );
+    const line = `${fps} fps · ${(mean * 1000).toFixed(1)} ms`;
+    if (summary.textContent !== line) summary.textContent = line;
     if (!gpuNamed) {
       gpuNamed = true;
       // Ask the renderer for its own context rather than re-querying the

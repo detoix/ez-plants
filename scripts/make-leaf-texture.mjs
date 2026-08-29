@@ -11,6 +11,18 @@
  * ovate to broad-lanceolate, 4-10 x 2-5 cm, cuneate base, acute apex, and
  * toothed on the upper half with an entire lower margin.
  *
+ * ---------------------------------------------------------------------------
+ * Why the petiole is painted here
+ * ---------------------------------------------------------------------------
+ * Library rule 9 says a petiole belongs in the leaf card rather than in a mesh
+ * of its own. Forsythia has 3,720 leaves at five years, so hydrangea's answer
+ * -- two more triangles on the card, carrying a stalk strip -- would cost 7,440
+ * triangles a plant, which is a third of the whole band-0 budget for a stalk
+ * about a centimetre long. A plate can carry it for nothing: the blade moves up
+ * to leave the bottom PETIOLE_SPAN of the tile for the stalk, and the same four
+ * vertices draw both. Everything above the stalk is the blade, so the card is
+ * scaled by petiole + blade and rooted at the node rather than at the blade.
+ *
  *   node scripts/make-leaf-texture.mjs
  */
 import { spawnSync } from 'node:child_process';
@@ -27,6 +39,21 @@ const BASE_WIDTH = 0.11;
 // width therefore spans ~0.44 of the texture: a 2.2:1 length-to-width leaf.
 const FILL = 0.22;
 const TEETH = 12;
+
+/**
+ * The share of the tile below the blade, holding the leaf stalk.
+ *
+ * Measured across all 4,384 leaves of the five-year plant: the modelled stalk
+ * runs 0.054 to 0.382 of blade length, median 0.141, which is 0.124 of the
+ * stalk-plus-blade card the plate now draws. The published range behind that
+ * is a 6-16 mm petiole on a 4-10 cm blade.
+ */
+const PETIOLE_SPAN = 0.124;
+/** Half-width of the stalk at its base and where the blade takes over. */
+const PETIOLE_HALF_WIDTH = [0.0092, 0.0067];
+
+/** Blade-local height for a tile row: 0 at the blade base, 1 at the tip. */
+const bladeAt = (v) => (v - PETIOLE_SPAN) / (1 - PETIOLE_SPAN);
 
 /** Half-width of the blade at t (0 = petiole, 1 = tip), in texture units. */
 function halfWidthAt(t) {
@@ -51,7 +78,22 @@ function serrationAt(t) {
   return ramp * out * Math.pow(frac, 0.6) * (1 - frac) * (0.14 * FILL);
 }
 
-const margin = (t) => halfWidthAt(t) + serrationAt(t);
+/**
+ * Half-width of whatever the plate draws at tile height v: the stalk below
+ * PETIOLE_SPAN, the blade above it. The stalk tapers upward, so the join is a
+ * narrow stalk running into the blade's cuneate base rather than a step.
+ */
+function marginAt(v) {
+  if (v < PETIOLE_SPAN) {
+    const t = Math.max(0, v) / PETIOLE_SPAN;
+    return (
+      PETIOLE_HALF_WIDTH[0] +
+      (PETIOLE_HALF_WIDTH[1] - PETIOLE_HALF_WIDTH[0]) * t
+    );
+  }
+  const t = bladeAt(v);
+  return halfWidthAt(t) + serrationAt(t);
+}
 
 /** Cheap value noise for blade mottling. */
 function noise(x, y) {
@@ -107,7 +149,7 @@ for (let py = 0; py < SIZE; py += 1) {
         const u = (px + (sx + 0.5) / SS) / SIZE;
         // Canvas rows run downward; uv.y = 1 is the tip, so flip.
         const v = 1 - (py + (sy + 0.5) / SS) / SIZE;
-        if (Math.abs(u - 0.5) <= margin(v)) covered += 1;
+        if (Math.abs(u - 0.5) <= marginAt(v)) covered += 1;
       }
     }
     const alpha = covered / (SS * SS);
@@ -117,22 +159,45 @@ for (let py = 0; py < SIZE; py += 1) {
     const u = (px + 0.5) / SIZE;
     const v = 1 - (py + 0.5) / SIZE;
 
+    if (v < PETIOLE_SPAN) {
+      // The stalk: yellow-green, a shade paler than the blade it carries and
+      // darkening into the node, with a faint highlight down its middle.
+      const t = Math.max(0, v) / PETIOLE_SPAN;
+      const lit = 1 - 0.34 * Math.min(1, Math.abs(u - 0.5) / marginAt(v));
+      const shade = (0.72 + 0.28 * t) * (0.82 + 0.18 * lit);
+      const enc = (x) => {
+        const c = Math.max(0, Math.min(1, x * shade));
+        const e =
+          c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+        return Math.round(e * 255);
+      };
+      rgba[i] = enc(0.196);
+      rgba[i + 1] = enc(0.268);
+      rgba[i + 2] = enc(0.084);
+      rgba[i + 3] = Math.round(alpha * 255);
+      continue;
+    }
+
+    // Blade-local height, so the shading and venation below are unchanged by
+    // the stalk sitting underneath them.
+    const blade = bladeAt(v);
+
     // Deep, faintly blue green; paler and warmer toward the base.
     const base = [0.105, 0.215, 0.055];
     const tip = [0.082, 0.178, 0.044];
-    const mix = Math.pow(v, 0.8);
+    const mix = Math.pow(blade, 0.8);
     let r = base[0] + (tip[0] - base[0]) * mix;
     let g = base[1] + (tip[1] - base[1]) * mix;
     let b = base[2] + (tip[2] - base[2]) * mix;
 
     // Mottling so the blade is not a flat wash.
-    const n = smoothNoise(u * 26, v * 34) - 0.5;
+    const n = smoothNoise(u * 26, blade * 34) - 0.5;
     r += n * 0.045;
     g += n * 0.06;
     b += n * 0.03;
 
     // Veins: pale, slightly yellow-green.
-    const vd = veinFactor(u, v);
+    const vd = veinFactor(u, blade);
     if (vd < 1.6) {
       const w = Math.max(0, 1 - vd / 1.6) * 0.55;
       r += (0.3 - r) * w;
@@ -141,7 +206,7 @@ for (let py = 0; py < SIZE; py += 1) {
     }
 
     // Darken very slightly toward the margin for a rounded read.
-    const edge = Math.min(1, Math.abs(u - 0.5) / Math.max(1e-6, margin(v)));
+    const edge = Math.min(1, Math.abs(u - 0.5) / Math.max(1e-6, marginAt(v)));
     const shade = 1 - 0.14 * Math.pow(edge, 3);
 
     const enc = (x) => {

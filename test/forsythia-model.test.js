@@ -58,7 +58,9 @@ test('flowers are four-lobed and borne on one- and two-year-old wood', () => {
   assert.equal(LYNWOOD_PROFILE.flower.corollaLobes, 4);
   assert.equal(LYNWOOD_PROFILE.flower.precedesLeaves, true);
   assert.deepEqual(LYNWOOD_PROFILE.flower.bornOnWoodAgeYears, [1, 2]);
-  assert.deepEqual(LYNWOOD_PROFILE.flower.perNodeRange, [1, 6]);
+  // Per leaf-scar, which is how Bean states it. Opposite leaves mean two scars
+  // to a node, so a node carries up to twelve.
+  assert.deepEqual(LYNWOOD_PROFILE.flower.perScarRange, [1, 6]);
 });
 
 test('pruning follows flowering rather than dormancy', () => {
@@ -395,11 +397,13 @@ test('the demo seed carries a dense full-bloom display without a flower multipli
   );
   const showyOrgans =
     snapshot.stats.visibleFlowers + snapshot.stats.visibleFlowerBuds;
-  assert.ok(showyOrgans >= 4000 && showyOrgans <= 5500, `${showyOrgans}`);
+  // Both leaf-scars of every node flower, so the range is twice what it was
+  // when the sourced per-scar count was being read as a per-node total.
+  assert.ok(showyOrgans >= 9000 && showyOrgans <= 12_500, `${showyOrgans}`);
   assert.equal(snapshot.stats.visibleLeaves, 0);
 });
 
-test('each node has one bloom year with 1-6 flowers on supported wood ages', () => {
+test('each node has one bloom year with 2-12 flowers on supported wood ages', () => {
   const model = createLynwoodModel({ seed: 'cluster-contract', maxYears: 8 });
   const supportAges = new Set();
   let inspectedClusters = 0;
@@ -414,9 +418,12 @@ test('each node has one bloom year with 1-6 flowers on supported wood ages', () 
       for (const cluster of node.clusters) {
         inspectedClusters += 1;
         supportAges.add(cluster.woodAgeYears);
+        // Two opposite leaf-scars, each drawing its own sourced 1-6.
         assert.ok(
-          cluster.flowers.length >= LYNWOOD_PROFILE.flower.perNodeRange[0] &&
-            cluster.flowers.length <= LYNWOOD_PROFILE.flower.perNodeRange[1],
+          cluster.flowers.length >=
+            LYNWOOD_PROFILE.flower.perScarRange[0] * 2 &&
+            cluster.flowers.length <=
+              LYNWOOD_PROFILE.flower.perScarRange[1] * 2,
           `${cluster.id} has ${cluster.flowers.length} flowers`,
         );
       }
