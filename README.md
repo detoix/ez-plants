@@ -67,24 +67,25 @@ but the fix is always bundler-side.
 
 # The plants
 
-Four cultivars so far, each a digital twin rather than a generic species: a
+Five cultivars so far, each a digital twin rather than a generic species: a
 persistent structure driven by an **age** and a **day of year**, with a phenology
 calendar built from cited real-world sources.
 
-| Plant                                        | Cultivar     | Habit                                                                  | Defining behaviour                                                                                           |
-| -------------------------------------------- | ------------ | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Blackcurrant (_Ribes nigrum_)                | 'Tisel'      | Upright multi-cane stool, ~1.3 m                                       | Fruits on young wood; renewal pruning in dormancy                                                            |
-| Forsythia (_Forsythia × intermedia_)         | 'Lynwood'    | Upright-arching multi-cane, ~2.2 m                                     | **Flowers on bare 1–2 year old wood before any leaf**; prune immediately after flowering                     |
-| Panicle hydrangea (_Hydrangea paniculata_)   | 'Limelight'  | Broad framework; 1.85 × 2.25 m renderer target within the RHS envelope | **Terminal panicles on current-season shoots**; lime → cream → dusty pink → dry winter heads                 |
-| Chinese silver grass (_Miscanthus sinensis_) | 'Malepartus' | Caespitose warm-season grass clump, ~2.0 × 1.5 m                       | **No woody tissue at all**; the whole plant is rebuilt from the crown each year and cut to 10 cm each spring |
+| Plant                                                | Cultivar     | Habit                                                                  | Defining behaviour                                                                                               |
+| ---------------------------------------------------- | ------------ | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Blackcurrant (_Ribes nigrum_)                        | 'Tisel'      | Upright multi-cane stool, ~1.3 m                                       | Fruits on young wood; renewal pruning in dormancy                                                                |
+| Forsythia (_Forsythia × intermedia_)                 | 'Lynwood'    | Upright-arching multi-cane, ~2.2 m                                     | **Flowers on bare 1–2 year old wood before any leaf**; prune immediately after flowering                         |
+| Panicle hydrangea (_Hydrangea paniculata_)           | 'Limelight'  | Broad framework; 1.85 × 2.25 m renderer target within the RHS envelope | **Terminal panicles on current-season shoots**; lime → cream → dusty pink → dry winter heads                     |
+| Chinese silver grass (_Miscanthus sinensis_)         | 'Malepartus' | Caespitose warm-season grass clump, ~2.0 × 1.5 m                       | **No woody tissue at all**; the whole plant is rebuilt from the crown each year and cut to 10 cm each spring     |
+| Japanese fountain grass (_Pennisetum alopecuroides_) | 'Hameln'     | Compact hemispherical fountain, ~0.85 × 0.85 m                         | **Dense cylindrical bottlebrush heads**, greenish-cream to pink-beige and grey-brown, over narrow arching blades |
 
 All plants are modelled in **metres**, share the same wind shader, instance pools,
 LOD controller and validated state cycle, and extend a common `PlantRenderer` base.
 The three shrubs additionally share EZ-Tree's woody geometry, bark material and leaf
-cards. Miscanthus is the exception that proves the base is not shrub-shaped: a grass
-has no wood, so its culms, arching blades and silky plumes are instanced geometry with
-baked vertex colours. It ships no texture _files_ — the one map it uses, a 64x1 strip
-that lights the blades' white midribs, is generated in code at construction.
+cards. The two grasses prove the base is not shrub-shaped: they have no wood,
+so their culms, arching blades and inflorescences are instanced geometry with
+baked vertex colours. Hameln's bottlebrush alpha plate is generated in code;
+neither grass requires a caller-supplied texture.
 
 ## Library rules
 

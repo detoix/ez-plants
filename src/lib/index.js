@@ -80,3 +80,19 @@ export {
   createMalepartusModel,
   evaluateMalepartusModel,
 } from './plants/miscanthus/model.js';
+
+export { Pennisetum } from './plants/pennisetum/pennisetum.js';
+export { HAMELN_PROFILE, HAMELN_SOURCES } from './plants/pennisetum/hameln.js';
+export {
+  getHamelnPhenology,
+  getHamelnCareHints,
+  getHamelnCalendar,
+  HAMELN_CALENDAR,
+  HAMELN_CALENDAR_PROVENANCE,
+  HAMELN_PHASE_ASSUMPTIONS,
+  HAMELN_SEASON_PROFILES,
+} from './plants/pennisetum/phenology.js';
+export {
+  createHamelnModel,
+  evaluateHamelnModel,
+} from './plants/pennisetum/model.js';

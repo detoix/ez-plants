@@ -11,6 +11,7 @@ import {
   Forsythia,
   Hydrangea,
   Miscanthus,
+  Pennisetum,
   type BlackcurrantOptions,
   type BlackcurrantStats,
   type ForsythiaOptions,
@@ -22,6 +23,9 @@ import {
   type MalepartusSeasonProfile,
   type MiscanthusOptions,
   type MiscanthusStats,
+  type HamelnSeasonProfile,
+  type PennisetumOptions,
+  type PennisetumStats,
   type TiselTrialYear,
 } from '@detoix/ez-plants';
 
@@ -318,6 +322,66 @@ export function MiscanthusPlant({
 }
 
 /* ==================================================================== *
+ * Pennisetum alopecuroides 'Hameln'
+ * ==================================================================== */
+
+export interface PennisetumProps
+  extends BasePlantProps,
+    Pick<PennisetumOptions, ConstructionKeys>,
+    Omit<GroupProps, 'children' | 'args'> {
+  /** Weather-timing bracket around the central-Poland calendar. */
+  seasonProfile?: HamelnSeasonProfile;
+  onStats?: (stats: PennisetumStats) => void;
+}
+
+/**
+ * Pennisetum alopecuroides 'Hameln' as a React Three Fiber component.
+ *
+ * The stable crown graph is built once; age, day and season timing mutate the
+ * live renderer without rebuilding its instance pools.
+ */
+export function PennisetumPlant({
+  seed,
+  maxYears,
+  plantId,
+  cultivar,
+  assets,
+  level = 0,
+  ageYears = 5,
+  dayOfYear = 230,
+  seasonProfile = 'typical',
+  offsetDays = 0,
+  onStats,
+  ...groupProps
+}: PennisetumProps) {
+  const plant = useDisposable(
+    () =>
+      new Pennisetum({
+        seed,
+        maxYears,
+        plantId,
+        cultivar,
+        assets,
+        ageYears,
+        dayOfYear,
+        seasonProfile,
+        offsetDays,
+      }),
+    [seed, maxYears, plantId, cultivar, assets],
+  );
+
+  useAppliedState(
+    plant,
+    { ageYears, dayOfYear, seasonProfile, offsetDays },
+    onStats as (stats: never) => void,
+  );
+  usePlantLevel(plant, level);
+  usePlantFrame(plant);
+
+  return <primitive object={plant} {...groupProps} />;
+}
+
+/* ==================================================================== *
  * Blackcurrant
  * ==================================================================== */
 
@@ -385,6 +449,7 @@ export {
   ForsythiaPlant as Forsythia,
   BlackcurrantPlant as Blackcurrant,
   MiscanthusPlant as Miscanthus,
+  PennisetumPlant as Pennisetum,
 };
 export type {
   BlackcurrantStats,
@@ -394,5 +459,7 @@ export type {
   LynwoodRegion,
   MalepartusSeasonProfile,
   MiscanthusStats,
+  HamelnSeasonProfile,
+  PennisetumStats,
   TiselTrialYear,
 };

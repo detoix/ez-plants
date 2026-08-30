@@ -741,6 +741,125 @@ export declare class Miscanthus extends PlantRenderer {
 }
 
 /* ==================================================================== *
+ * Dwarf fountain grass — Pennisetum alopecuroides 'Hameln'
+ * ==================================================================== */
+
+export type HamelnSeasonProfile = 'typical' | 'early' | 'late';
+
+export interface HamelnPhenology {
+  dayOfYear: number;
+  season: 'spring' | 'summer' | 'autumn' | 'winter';
+  phase:
+    | 'standing-dry'
+    | 'cut-back'
+    | 'dormant'
+    | 'emergence'
+    | 'tillering'
+    | 'culm-elongation'
+    | 'booting'
+    | 'heading'
+    | 'flowering'
+    | 'maturing'
+    | 'senescence';
+  stage: string;
+  label: string;
+  bbch: string;
+  bbchCode: string;
+  bbchScale: 'cereal';
+  seasonProfile: HamelnSeasonProfile;
+  seasonProfileLabel: string;
+  offsetDays: number;
+  calendar: Readonly<Record<string, number>>;
+  cutProgress: number;
+  stubbleVisibility: number;
+  standingDryVisibility: number;
+  emergenceProgress: number;
+  culmExtensionProgress: number;
+  bladeProgress: number;
+  autumnProgress: number;
+  strawProgress: number;
+  weatheringProgress: number;
+  previousWeatheringProgress: number;
+  paniclePush: number;
+  panicleVisibility: number;
+  headExpansionProgress: number;
+  plumeFluffProgress: number;
+  plumeVisibility: number;
+  headMaturityProgress: number;
+  plumeColourStage:
+    | 'absent'
+    | 'greenish-cream'
+    | 'pinkish-cream'
+    | 'warm-beige'
+    | 'grey-brown'
+    | 'weathered-straw';
+  flowersOnCurrentSeasonCulms: true;
+  foliageIsDeciduousButPersistent: true;
+}
+
+export interface HamelnClump {
+  radiusM: number;
+  tillerSites: number;
+}
+
+export interface PennisetumOptions {
+  cultivar?: 'Hameln';
+  seed?: string | number;
+  plantId?: string;
+  maxYears?: number;
+  ageYears?: number;
+  dayOfYear?: number;
+  seasonProfile?: HamelnSeasonProfile;
+  offsetDays?: number;
+  assets?: PlantAssets;
+  events?: readonly [];
+  lodLevels?: PlantLODLevel[];
+}
+
+export interface PennisetumStats extends PlantRenderStats {
+  species: string;
+  cultivar: string;
+  ageYears: number;
+  dayOfYear: number;
+  seasonProfile: HamelnSeasonProfile;
+  visibleTillers: number;
+  visibleCulms: number;
+  livingCulms: number;
+  standingDeadCulms: number;
+  stubs: number;
+  culmSegments: number;
+  visibleBlades: number;
+  visiblePanicles: number;
+  visiblePlumes: number;
+  floweringCulms: number;
+  maturePanicles: number;
+  flowersOnCurrentSeasonCulms: true;
+  clump: HamelnClump;
+  dimensions: PlantDimensions;
+  phenology: HamelnPhenology;
+  careHints: readonly CareHint[];
+}
+
+export declare class Pennisetum extends PlantRenderer {
+  constructor(options?: PennisetumOptions);
+  seasonProfile: HamelnSeasonProfile;
+  offsetDays: number;
+
+  setState(patch: {
+    ageYears?: number;
+    dayOfYear?: number;
+    seasonProfile?: HamelnSeasonProfile;
+    offsetDays?: number;
+  }): this;
+  setPhenologyProfile(profile: {
+    seasonProfile?: HamelnSeasonProfile;
+    offsetDays?: number;
+  }): this;
+  stats(): PennisetumStats;
+  serialize(): PennisetumOptions & { schemaVersion: 1; type: 'Pennisetum' };
+}
+
+/* ==================================================================== *
  * Free functions
  * ==================================================================== */
 
@@ -870,6 +989,51 @@ export declare function evaluateMalepartusModel(
   [key: string]: unknown;
 };
 
+export declare function getHamelnCalendar(options?: {
+  seasonProfile?: HamelnSeasonProfile;
+  offsetDays?: number;
+}): Readonly<Record<string, number>>;
+
+export declare function getHamelnPhenology(
+  value?: DayOfYearInput,
+  options?: {
+    seasonProfile?: HamelnSeasonProfile;
+    offsetDays?: number;
+  },
+): Readonly<HamelnPhenology>;
+
+export declare function getHamelnCareHints(
+  value?: DayOfYearInput,
+  options?: {
+    plantAgeYears?: number;
+    seasonProfile?: HamelnSeasonProfile;
+    offsetDays?: number;
+  },
+): readonly CareHint[];
+
+export declare function createHamelnModel(options?: {
+  seed?: string | number;
+  maxYears?: number;
+}): { kind: 'pennisetum-hameln-growth-model'; [key: string]: unknown };
+
+export declare function evaluateHamelnModel(
+  model: { kind: string; [key: string]: unknown },
+  options?: {
+    ageYears?: number;
+    dayOfYear?: number;
+    events?: readonly [];
+    seasonProfile?: HamelnSeasonProfile;
+    offsetDays?: number;
+  },
+): {
+  clump: HamelnClump;
+  dimensions: PlantDimensions;
+  phenology: HamelnPhenology;
+  careHints: readonly CareHint[];
+  stats: Record<string, number | boolean>;
+  [key: string]: unknown;
+};
+
 export declare function evaluateLimelightModel(
   model: { kind: string; [key: string]: unknown },
   options?: {
@@ -943,4 +1107,17 @@ export declare const MALEPARTUS_PHASE_ASSUMPTIONS: Readonly<
 >;
 export declare const MALEPARTUS_SEASON_PROFILES: Readonly<
   Record<MalepartusSeasonProfile, Readonly<Record<string, unknown>>>
+>;
+
+export declare const HAMELN_PROFILE: Readonly<Record<string, unknown>>;
+export declare const HAMELN_SOURCES: Readonly<Record<string, CultivarSource>>;
+export declare const HAMELN_CALENDAR: Readonly<Record<string, number>>;
+export declare const HAMELN_CALENDAR_PROVENANCE: Readonly<
+  Record<string, unknown>
+>;
+export declare const HAMELN_PHASE_ASSUMPTIONS: Readonly<
+  Record<string, unknown>
+>;
+export declare const HAMELN_SEASON_PROFILES: Readonly<
+  Record<HamelnSeasonProfile, Readonly<Record<string, unknown>>>
 >;

@@ -2,6 +2,8 @@ import {
   Blackcurrant,
   Forsythia,
   Hydrangea,
+  HAMELN_PROFILE,
+  HAMELN_SOURCES,
   LIMELIGHT_PROFILE,
   LIMELIGHT_SOURCES,
   LYNWOOD_PROFILE,
@@ -9,6 +11,7 @@ import {
   MALEPARTUS_PROFILE,
   MALEPARTUS_SOURCES,
   Miscanthus,
+  Pennisetum,
   TISEL_PROFILE,
   TISEL_SOURCES,
   TreePreset,
@@ -374,6 +377,75 @@ export const PLANTS = Object.freeze({
         // all geometry with baked vertex colours, so this plant ships with no
         // texture files. It generates one small map itself — the strip that
         // lights the white midribs — and owns its disposal.
+      });
+    },
+  }),
+
+  pennisetum: Object.freeze({
+    id: 'pennisetum',
+    label: 'Fountain grass',
+    labelPl: 'Rozplenica japońska',
+    cultivar: 'Hameln',
+    species: HAMELN_PROFILE.species,
+    kicker: 'Garden digital twin · proof 05',
+    profile: HAMELN_PROFILE,
+    sources: HAMELN_SOURCES,
+    // Mid-August: the compact fountain is deep green and its cream brushes
+    // are fully expanded, before autumn colour begins.
+    defaults: Object.freeze({ age: 5, day: 230 }),
+    maxYears: 20,
+    size: Object.freeze({
+      heightM: HAMELN_PROFILE.architecture.matureHeightM,
+      radiusM: HAMELN_PROFILE.architecture.matureRadiusM,
+    }),
+    bedRadiusM: 0.56,
+    profileControl: Object.freeze({
+      key: 'seasonProfile',
+      label: 'Season timing',
+      options: Object.freeze([
+        ['typical', 'Typical'],
+        ['early', 'Early'],
+        ['late', 'Late'],
+      ]),
+    }),
+    seasons: Object.freeze([
+      { label: 'Winter stand', day: 25 },
+      { label: 'Cut back', day: 88 },
+      { label: 'Bare crown', day: 105 },
+      { label: 'Emerging', day: 125 },
+      { label: 'Green fountain', day: 185 },
+      { label: 'Heading', day: 210 },
+      { label: 'Cream brushes', day: 230 },
+      { label: 'Autumn', day: 285 },
+    ]),
+    stats: Object.freeze([
+      { key: 'visibleCulms', label: 'Culms' },
+      { key: 'visibleBlades', label: 'Blades' },
+      { key: 'visiblePanicles', label: 'Bottlebrush heads' },
+      { key: 'standingDeadCulms', label: 'Last year' },
+    ]),
+    yieldLine: Object.freeze({
+      label: 'Modelled height × spread',
+      key: 'dimensions',
+      unit: 'm',
+      format: (value) =>
+        value
+          ? `${value.heightM.toFixed(2)} × ${value.spreadM.toFixed(2)} m`
+          : '—',
+      note: 'The renderer samples a biologically denser crown with 140 stable tiller sites; bristles are carried by a procedural alpha plate.',
+    }),
+    actions: Object.freeze([]),
+    modelNote:
+      '<strong>A compact, non-woody warm-season fountain.</strong> Narrow blades build a dense dome from the crown; short cream bottlebrush heads appear from late July, then mature pink-beige to grey-brown. The dry clump stands through winter and is cut to about 8&nbsp;cm in early spring.',
+    create(state) {
+      return new Pennisetum({
+        cultivar: 'Hameln',
+        seed: state.seed ?? 1964,
+        leafWind: state.leafWind,
+        maxYears: 20,
+        ageYears: state.age,
+        dayOfYear: state.day,
+        seasonProfile: state.phenologyProfile,
       });
     },
   }),
