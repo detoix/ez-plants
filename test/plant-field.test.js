@@ -310,50 +310,156 @@ test('a placement can be hidden, and stays hidden across a level change', async 
   // sphere tests a frame at 400 plants, against 400 if you know which leaves
   // belong to which plant. This is the API that makes the cheap version
   // possible, so it has to be exact about what disappears.
-  await withField('hydrangea', { count: 20 }, (field) => {
-    const drawn = () => {
-      let organs = 0;
+  await withField(
+    'hydrangea',
+    { count: 20, perInstanceCulling: false },
+    (field) => {
+      for (const mesh of field._woodMeshes.filter(Boolean)) {
+        assert.equal(mesh.frustumCulled, false);
+        assert.equal(mesh.perObjectFrustumCulled, false);
+      }
       for (const { mesh } of field._organMeshes.values()) {
-        for (let id = 0; id < mesh._instancesArrayCount; id += 1) {
-          if (mesh.getActiveAndVisibilityAt(id)) organs += 1;
-        }
+        assert.equal(mesh.frustumCulled, false);
+        assert.equal(mesh.perObjectFrustumCulled, false);
       }
-      let wood = 0;
-      for (const mesh of field._woodMeshes) {
-        if (!mesh) continue;
-        for (let id = 0; id < mesh._instancesArrayCount; id += 1) {
-          if (mesh.getActiveAndVisibilityAt(id)) wood += 1;
+
+      const drawn = () => {
+        let organs = 0;
+        for (const { mesh } of field._organMeshes.values()) {
+          for (let id = 0; id < mesh._instancesArrayCount; id += 1) {
+            if (mesh.getActiveAndVisibilityAt(id)) organs += 1;
+          }
         }
+        let wood = 0;
+        for (const mesh of field._woodMeshes) {
+          if (!mesh) continue;
+          for (let id = 0; id < mesh._instancesArrayCount; id += 1) {
+            if (mesh.getActiveAndVisibilityAt(id)) wood += 1;
+          }
+        }
+        return { organs, wood };
+      };
+
+      const all = drawn();
+      assert.ok(all.organs > 0 && all.wood > 0);
+      assert.equal(field.stats().visiblePlants, 20);
+
+      field.setVisibility(Array.from({ length: 20 }, (_, i) => i % 2 === 0));
+      const half = drawn();
+      assert.ok(half.organs < all.organs, 'hiding drew the same organs');
+      assert.equal(half.wood, all.wood / 2, 'a hidden plant kept its trunk');
+      assert.equal(field.stats().visiblePlants, 10);
+
+      // A hidden plant changing band allocates fresh instances, and instances are
+      // born visible -- so without care it would walk back on screen.
+      field.setLevelAt(1, 0);
+      assert.equal(
+        drawn().organs,
+        half.organs,
+        'a hidden plant reappeared when its level changed',
+      );
+
+      field.setVisibility(new Array(20).fill(false));
+      assert.deepEqual(drawn(), { organs: 0, wood: 0 });
+      assert.equal(field.stats().visiblePlants, 0);
+
+      field.setVisibility(new Array(20).fill(true));
+      assert.ok(
+        drawn().organs > half.organs,
+        'showing again drew nothing back',
+      );
+    },
+  );
+});
+
+test('wood never re-enables its tighter per-object frustum bound', async () => {
+  await withField(
+    'blackcurrant',
+    { count: 12, perInstanceCulling: true },
+    (field) => {
+      for (const mesh of field._woodMeshes.filter(Boolean)) {
+        assert.equal(mesh.frustumCulled, false);
+        assert.equal(mesh.perObjectFrustumCulled, false);
       }
-      return { organs, wood };
-    };
+      for (const { mesh } of field._organMeshes.values()) {
+        assert.equal(mesh.perObjectFrustumCulled, true);
+      }
+    },
+  );
+});
 
-    const all = drawn();
-    assert.ok(all.organs > 0 && all.wood > 0);
-    assert.equal(field.stats().visiblePlants, 20);
+test('wood consumes the same applied band as the placement organs', async () => {
+  await withField(
+    'blackcurrant',
+    { seeds: [1], count: 3, perInstanceCulling: false },
+    (field, prototypes) => {
+      const placement = field._placements[0];
+      const mesh = placement.woodMesh;
+      const mainCamera = {};
+      const shadowCamera = {};
+      const coarsest = prototypes[0].bands.length - 1;
 
-    field.setVisibility(Array.from({ length: 20 }, (_, i) => i % 2 === 0));
-    const half = drawn();
-    assert.ok(half.organs < all.organs, 'hiding drew the same organs');
-    assert.equal(half.wood, all.wood / 2, 'a hidden plant kept its trunk');
-    assert.equal(field.stats().visiblePlants, 10);
+      assert.equal(typeof mesh.resolveLODIndex, 'function');
+      assert.equal(
+        mesh.resolveLODIndex(
+          placement.woodSlot,
+          mainCamera,
+          mainCamera,
+          coarsest,
+          false,
+        ),
+        0,
+        'the initial fine organs did not keep fine wood',
+      );
 
-    // A hidden plant changing band allocates fresh instances, and instances are
-    // born visible -- so without care it would walk back on screen.
-    field.setLevelAt(1, 0);
-    assert.equal(
-      drawn().organs,
-      half.organs,
-      'a hidden plant reappeared when its level changed',
-    );
+      field.setLevelAt(0, coarsest);
+      assert.equal(
+        mesh.resolveLODIndex(
+          placement.woodSlot,
+          mainCamera,
+          mainCamera,
+          0,
+          false,
+        ),
+        coarsest,
+        'coarse organs did not select coarse wood',
+      );
+      assert.equal(
+        mesh.resolveLODIndex(
+          placement.woodSlot,
+          shadowCamera,
+          mainCamera,
+          0,
+          true,
+        ),
+        1,
+        'the coarsest band did not select the coarsest shadow wood',
+      );
 
-    field.setVisibility(new Array(20).fill(false));
-    assert.deepEqual(drawn(), { organs: 0, wood: 0 });
-    assert.equal(field.stats().visiblePlants, 0);
-
-    field.setVisibility(new Array(20).fill(true));
-    assert.ok(drawn().organs > half.organs, 'showing again drew nothing back');
-  });
+      field.setLevelAt(0, 1);
+      assert.equal(
+        mesh.resolveLODIndex(
+          placement.woodSlot,
+          mainCamera,
+          mainCamera,
+          0,
+          false,
+        ),
+        1,
+      );
+      assert.equal(
+        mesh.resolveLODIndex(
+          placement.woodSlot,
+          shadowCamera,
+          mainCamera,
+          1,
+          true,
+        ),
+        0,
+        'an intermediate band should retain the detailed shadow silhouette',
+      );
+    },
+  );
 });
 
 test('a placement publishes bounds a caller can cull with', async () => {

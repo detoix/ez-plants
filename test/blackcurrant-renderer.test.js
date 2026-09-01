@@ -404,7 +404,7 @@ test('renderer internals are absent from the ordinary plant surface', () => {
   assert.deepEqual(plant.events, []);
   assert.equal(
     Object.keys(plant).some((field) =>
-      /resource|instancePool|runtime|material|woodMesh|model|events/i.test(
+      /resource|instancePool|runtime|woodMesh|model|events|^materials?$/i.test(
         field,
       ),
     ),

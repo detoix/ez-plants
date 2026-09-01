@@ -18,7 +18,7 @@ const projection = new THREE.Matrix4();
  * so the renderer has nothing coarser than one leaf to reason about, and tests
  * every one of them every frame. Measured at 400 plants: 434,000 sphere tests
  * costing ~36 ms, to reject about three quarters of them. One sphere per plant
- * reaches the same answer -- 73% rejected -- in 0.007 ms, because a plant behind
+ * rejected 73% in 0.007 ms in the original measurement, because a plant behind
  * you takes all of its leaves with it.
  *
  * So the field is built with `perInstanceCulling: false` and told what to hide.
@@ -31,7 +31,8 @@ const projection = new THREE.Matrix4();
  */
 export class FieldViewDriver {
   /**
-   * @param {object[]} fields Entries from `createFieldScene`.
+   * @param {object[]} fields Mixed-field entries with `field`, `levels` and
+   *   `chosen` members.
    * @param {object} [options]
    * @param {number} [options.budgetPerFrame] Level changes applied per frame.
    *   Walking produces a trickle of them; turning on the spot can re-band a
@@ -76,7 +77,15 @@ export class FieldViewDriver {
       camera.projectionMatrix,
       camera.matrixWorldInverse,
     );
-    this.frustum.setFromProjectionMatrix(projection);
+    // WebGPU's clip-space near plane differs from WebGL's. Passing the
+    // camera's coordinate system is not optional here: using Three's default
+    // WebGL extraction accepts objects between the eye and WebGPU near plane,
+    // which then disagree with the renderer's own culling.
+    this.frustum.setFromProjectionMatrix(
+      projection,
+      camera.coordinateSystem,
+      camera.reversedDepth,
+    );
 
     let visibleCount = 0;
     let total = 0;
@@ -114,7 +123,9 @@ export class FieldViewDriver {
         }
       }
 
-      if (changedVisibility) entry.field.setVisibility(visible);
+      if (changedVisibility) {
+        entry.field.setVisibility(visible);
+      }
     }
 
     // Drain round-robin across species, so one crowded field cannot starve the

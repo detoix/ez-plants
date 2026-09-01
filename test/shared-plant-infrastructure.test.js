@@ -220,7 +220,7 @@ test('surface and animated shadow passes share the corrected leaf wind', () => {
   const shaders = [
     compile(surface, THREE.ShaderLib.standard),
     compile(shadows.depth, THREE.ShaderLib.depth),
-    compile(shadows.distance, THREE.ShaderLib.distanceRGBA),
+    compile(shadows.distance, THREE.ShaderLib.distance),
   ];
 
   for (const shader of shaders) {

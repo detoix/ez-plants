@@ -1,5 +1,53 @@
 import * as THREE from 'three';
 
+import { leafWindForMaterial } from '../leaf-wind.js';
+
+const windMatrix = new THREE.Matrix4();
+
+function windFor(material) {
+  if (Array.isArray(material)) {
+    for (const entry of material) {
+      const wind = leafWindForMaterial(entry);
+      if (wind) return wind;
+    }
+    return null;
+  }
+  return leafWindForMaterial(material);
+}
+
+/** Maximum possible plant-local displacement from the configured leaf wind. */
+function windPaddingForBake(bake) {
+  let padding = 0;
+  for (const organ of bake.organs) {
+    const wind = windFor(organ.material);
+    if (!wind || organ.count === 0) continue;
+
+    const strength = wind.uniforms.uWindStrength.value.length();
+    const uvAttribute = organ.geometry.getAttribute('uv');
+    let maximumWeight = 1;
+    if (uvAttribute) {
+      maximumWeight = 0;
+      for (let index = 0; index < uvAttribute.count; index += 1) {
+        maximumWeight = Math.max(
+          maximumWeight,
+          Math.abs(uvAttribute.getY(index)),
+        );
+      }
+    }
+
+    // The GLSL and TSL paths counter-rotate, but deliberately do not
+    // counter-scale, the world wind vector. The largest singular scale is a
+    // cheap conservative bound for every possible signal direction.
+    let maximumScale = 0;
+    for (let index = 0; index < organ.count; index += 1) {
+      windMatrix.fromArray(organ.matrices, index * 16);
+      maximumScale = Math.max(maximumScale, windMatrix.getMaxScaleOnAxis());
+    }
+    padding = Math.max(padding, strength * maximumWeight * maximumScale);
+  }
+  return padding;
+}
+
 /**
  * One plant, frozen at every band it will ever be drawn at.
  *
@@ -67,7 +115,12 @@ export function createPlantPrototype(plant, { levels = null, id = null } = {}) {
   }
 
   const bounds = new THREE.Box3();
-  for (const bake of baked) bounds.union(bake.bounds);
+  let cullingPadding = 0;
+  for (const bake of baked) {
+    bounds.union(bake.bounds);
+    cullingPadding = Math.max(cullingPadding, windPaddingForBake(bake));
+  }
+  bounds.expandByScalar(cullingPadding);
 
   return {
     id: id ?? plant.name,

@@ -1,0 +1,203 @@
+import * as THREE from 'three';
+import {
+  Fn,
+  abs,
+  dot,
+  floor,
+  max,
+  min,
+  mod,
+  normalViewGeometry,
+  normalize,
+  sin,
+  step,
+  uniform,
+  uv,
+  vec2,
+  vec3,
+  vec4,
+} from 'three/tsl';
+import { setWebGPUInstancePositionNode } from '@detoix/instanced-mesh/webgpu';
+
+import {
+  keepsAuthoredNormalsOnBackFaces,
+  leafBackfaceNormalPolicyForMaterial,
+} from '../leaf-material.js';
+import {
+  leafWindForMaterial,
+  leafWindMetadataForMaterial,
+} from '../leaf-wind.js';
+
+// This is the same Ashima 3D simplex function used by leaf-wind.js, expressed
+// as nodes rather than a second, approximate wind model. Keeping the signal
+// identical matters when the same plant is shown in a WebGL editor and in a
+// WebGPU field: only the backend should change, not its motion.
+const permute = Fn(([value]) => mod(value.mul(value).mul(34).add(value), 289), {
+  value: 'vec4',
+  return: 'vec4',
+});
+
+const simplex3 = Fn(
+  ([value]) => {
+    const c = vec2(1 / 6, 1 / 3);
+    const d = vec4(0, 0.5, 1, 2);
+    const i = floor(value.add(dot(value, c.yyy))).toVar();
+    const x0 = value.sub(i).add(dot(i, c.xxx));
+    const g = step(x0.yzx, x0.xyz);
+    const l = vec3(1).sub(g);
+    const i1 = min(g.xyz, l.zxy);
+    const i2 = max(g.xyz, l.zxy);
+    const x1 = x0.sub(i1).add(c.xxx);
+    const x2 = x0.sub(i2).add(c.yyy);
+    const x3 = x0.sub(d.yyy);
+
+    i.assign(mod(i, 289));
+    const p = permute(
+      permute(
+        permute(i.z.add(vec4(0, i1.z, i2.z, 1)))
+          .add(i.y)
+          .add(vec4(0, i1.y, i2.y, 1)),
+      )
+        .add(i.x)
+        .add(vec4(0, i1.x, i2.x, 1)),
+    );
+
+    const ns = d.wyz.mul(0.142857142857).sub(d.xzx);
+    const j = p.sub(floor(p.mul(ns.z).mul(ns.z)).mul(49));
+    const xIndex = floor(j.mul(ns.z));
+    const yIndex = floor(j.sub(xIndex.mul(7)));
+    const x = xIndex.mul(ns.x).add(ns.yyyy);
+    const y = yIndex.mul(ns.x).add(ns.yyyy);
+    const h = vec4(1).sub(abs(x)).sub(abs(y));
+    const b0 = vec4(x.xy, y.xy);
+    const b1 = vec4(x.zw, y.zw);
+    const s0 = floor(b0).mul(2).add(1);
+    const s1 = floor(b1).mul(2).add(1);
+    const sh = step(h, vec4(0)).negate();
+    const a0 = b0.xzyw.add(s0.xzyw.mul(sh.xxyy));
+    const a1 = b1.xzyw.add(s1.xzyw.mul(sh.zzww));
+
+    const g0 = vec3(a0.xy, h.x).toVar();
+    const g1 = vec3(a0.zw, h.y).toVar();
+    const g2 = vec3(a1.xy, h.z).toVar();
+    const g3 = vec3(a1.zw, h.w).toVar();
+    const squaredLengths = vec4(
+      dot(g0, g0),
+      dot(g1, g1),
+      dot(g2, g2),
+      dot(g3, g3),
+    );
+    const norm = vec4(1.79284291400159).sub(
+      squaredLengths.mul(0.85373472095314),
+    );
+    g0.mulAssign(norm.x);
+    g1.mulAssign(norm.y);
+    g2.mulAssign(norm.z);
+    g3.mulAssign(norm.w);
+
+    const m = max(
+      vec4(0.6).sub(vec4(dot(x0, x0), dot(x1, x1), dot(x2, x2), dot(x3, x3))),
+      0,
+    ).toVar();
+    m.mulAssign(m);
+    return dot(
+      m.mul(m),
+      vec4(dot(g0, x0), dot(g1, x1), dot(g2, x2), dot(g3, x3)),
+    ).mul(42);
+  },
+  { value: 'vec3', return: 'float' },
+);
+
+function liveUniform(initialValue, read) {
+  return uniform(initialValue).onRenderUpdate(read);
+}
+
+function createLeafWindPositionFactory(wind) {
+  const time = liveUniform(wind.time, () => wind.time);
+  const strength = liveUniform(
+    wind.uniforms.uWindStrength.value,
+    () => wind.uniforms.uWindStrength.value,
+  );
+  const frequency = liveUniform(
+    wind.uniforms.uWindFrequency.value,
+    () => wind.uniforms.uWindFrequency.value,
+  );
+  const scale = liveUniform(
+    wind.uniforms.uWindScale.value,
+    () => wind.uniforms.uWindScale.value,
+  );
+
+  return ({ positionNode, instanceMatrix }) => {
+    const phasePosition = instanceMatrix.mul(vec4(positionNode, 1)).xyz;
+    const offset = simplex3(phasePosition.div(scale)).mul(2 * 3.14);
+    const clock = time.mul(frequency);
+    const signal = sin(clock.add(offset))
+      .mul(0.5)
+      .add(sin(clock.mul(2).add(offset.mul(1.3))).mul(0.3))
+      .add(sin(clock.mul(5).add(offset.mul(1.5))).mul(0.2));
+
+    // Counter-rotate the world-coherent wind through the normalized columns of
+    // the full per-organ matrix. This exactly mirrors leafWindCounterRotate in
+    // the GLSL path: instance scale does not inflate the local sway vector.
+    const axisX = normalize(instanceMatrix.element(0).xyz);
+    const axisY = normalize(instanceMatrix.element(1).xyz);
+    const axisZ = normalize(instanceMatrix.element(2).xyz);
+    const localStrength = vec3(
+      dot(axisX, strength),
+      dot(axisY, strength),
+      dot(axisZ, strength),
+    );
+
+    return positionNode.add(localStrength.mul(signal).mul(uv().y));
+  };
+}
+
+/**
+ * Clone one plant material into a clean WebGPU/TSL source material.
+ *
+ * Source plants remain ordinary Three.js/WebGL renderers. Their known shader
+ * semantics are carried across explicitly: leaf wind becomes an
+ * instance-aware TSL position stage, and rounded card/floret normals retain
+ * their authored direction on back faces. Unknown GLSL hooks are rejected so
+ * the WebGPU field can never appear to work while silently dropping an effect.
+ */
+export function prepareWebGPUPlantMaterial(material) {
+  if (!material?.isMaterial) {
+    throw new TypeError('prepareWebGPUPlantMaterial requires a material.');
+  }
+
+  const wind = leafWindForMaterial(material);
+  const windMetadata = leafWindMetadataForMaterial(material);
+  const authoredNormals = keepsAuthoredNormalsOnBackFaces(material);
+  const normalPolicy = leafBackfaceNormalPolicyForMaterial(material);
+  const hasGLSLHook =
+    material.onBeforeCompile !== THREE.Material.prototype.onBeforeCompile;
+  if (hasGLSLHook && !wind && !authoredNormals) {
+    throw new Error(
+      `Material "${material.name || material.type}" has an unsupported GLSL ` +
+        'onBeforeCompile customization. Port it to TSL before using WebGPU.',
+    );
+  }
+  if (windMetadata?.hasAfterCompile && normalPolicy === null) {
+    throw new Error(
+      `Material "${material.name || material.type}" combines leaf wind with ` +
+        'an unsupported GLSL customization. Port that customization to TSL.',
+    );
+  }
+
+  const prepared = material.clone();
+  // Material.clone currently omits callbacks, but make the compatibility
+  // boundary explicit rather than relying on that undocumented detail.
+  prepared.onBeforeCompile = THREE.Material.prototype.onBeforeCompile;
+  prepared.customProgramCacheKey =
+    THREE.Material.prototype.customProgramCacheKey;
+
+  if (authoredNormals) prepared.normalNode = normalViewGeometry;
+  if (wind) {
+    setWebGPUInstancePositionNode(
+      prepared,
+      createLeafWindPositionFactory(wind),
+    );
+  }
+  return prepared;
+}

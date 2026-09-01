@@ -228,7 +228,7 @@ test('generateLODs shares v2 PBR surfaces and synchronized wind shadows', () => 
   );
   const distanceShader = compile(
     leafMeshes[0].customDistanceMaterial,
-    THREE.ShaderLib.distanceRGBA,
+    THREE.ShaderLib.distance,
   );
   tree.update(7.5);
   for (const shader of [surfaceShader, depthShader, distanceShader]) {

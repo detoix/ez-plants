@@ -2,6 +2,18 @@ import * as THREE from 'three';
 
 import { LeafWind, createLeafWindShadowMaterials } from './leaf-wind.js';
 
+const BACKFACE_NORMAL_POLICY = new WeakMap();
+
+/** Whether a material deliberately keeps its authored normal on back faces. */
+export function keepsAuthoredNormalsOnBackFaces(material) {
+  return BACKFACE_NORMAL_POLICY.get(material) === 'authored';
+}
+
+/** The known leaf-card back-face policy, or null for an unrelated material. */
+export function leafBackfaceNormalPolicyForMaterial(material) {
+  return BACKFACE_NORMAL_POLICY.get(material) ?? null;
+}
+
 /**
  * Keep a double-sided card's authored normals when it is seen from behind.
  *
@@ -27,6 +39,7 @@ export function keepAuthoredNormalsOnBackFaces(material) {
     );
   };
   material.customProgramCacheKey = () => 'authored-normals';
+  BACKFACE_NORMAL_POLICY.set(material, 'authored');
   return material;
 }
 
@@ -82,6 +95,20 @@ export function createLeafMaterialSet({
         );
     },
   });
+  if (wind.enabled) {
+    BACKFACE_NORMAL_POLICY.set(
+      surface,
+      roundedNormals ? 'authored' : 'face-direction',
+    );
+  } else if (roundedNormals) {
+    // Wind is an optional vertex effect; it must not also control the leaf's
+    // fragment-space shading contract. Install the authored-normal hook on its
+    // own so `leafWind: { enabled: false }` removes motion without turning the
+    // backs of rounded leaf cards dark in either WebGL or the WebGPU adapter.
+    keepAuthoredNormalsOnBackFaces(surface);
+  } else {
+    BACKFACE_NORMAL_POLICY.set(surface, 'face-direction');
+  }
 
   const { depth, distance } = createLeafWindShadowMaterials(wind, {
     map,

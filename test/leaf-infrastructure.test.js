@@ -10,8 +10,11 @@ import {
   createLeafCardGeometry,
   createLeafGeometryData,
 } from '../src/lib/leaf-geometry.js';
-import { createLeafMaterialSet } from '../src/lib/leaf-material.js';
-import { LeafWind } from '../src/lib/leaf-wind.js';
+import {
+  createLeafMaterialSet,
+  keepsAuthoredNormalsOnBackFaces,
+} from '../src/lib/leaf-material.js';
+import { LeafWind, leafWindForMaterial } from '../src/lib/leaf-wind.js';
 
 function compile(material, template) {
   const shader = {
@@ -195,7 +198,7 @@ test('leaf surfaces use the EZ-Tree v2 PBR contract', () => {
 
   const surface = compile(materials.surface, THREE.ShaderLib.standard);
   const depth = compile(materials.depth, THREE.ShaderLib.depth);
-  const distance = compile(materials.distance, THREE.ShaderLib.distanceRGBA);
+  const distance = compile(materials.distance, THREE.ShaderLib.distance);
   for (const shader of [surface, depth, distance]) {
     assert.match(shader.vertexShader, /leafWindSimplex3/);
     assert.match(shader.vertexShader, /#ifdef USE_INSTANCING/);
@@ -212,10 +215,34 @@ test('leaf surfaces use the EZ-Tree v2 PBR contract', () => {
   assert.equal(surface.uniforms.uCustomNormals.value, true);
   assert.match(surface.fragmentShader, /if \(!uCustomNormals\)/);
   assert.equal(wind.time, 4.25);
+  assert.strictEqual(leafWindForMaterial(materials.surface), wind);
+  assert.strictEqual(leafWindForMaterial(materials.depth), wind);
+  assert.strictEqual(leafWindForMaterial(materials.distance), wind);
+  assert.equal(keepsAuthoredNormalsOnBackFaces(materials.surface), true);
 
   materials.surface.dispose();
   materials.depth.dispose();
   materials.distance.dispose();
   original.dispose();
   map.dispose();
+});
+
+test('disabling wind preserves rounded leaf-card normals independently', () => {
+  const wind = new LeafWind({ enabled: false });
+  const materials = createLeafMaterialSet({
+    wind,
+    roundedNormals: true,
+  });
+
+  try {
+    const surface = compile(materials.surface, THREE.ShaderLib.standard);
+    assert.equal(leafWindForMaterial(materials.surface), null);
+    assert.equal(keepsAuthoredNormalsOnBackFaces(materials.surface), true);
+    assert.doesNotMatch(surface.vertexShader, /leafWindSimplex3/);
+    assert.doesNotMatch(surface.fragmentShader, /normal \*= faceDirection/);
+  } finally {
+    materials.surface.dispose();
+    materials.depth.dispose();
+    materials.distance.dispose();
+  }
 });

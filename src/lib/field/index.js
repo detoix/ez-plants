@@ -2,7 +2,7 @@
  * Field rendering — opt-in, and deliberately behind its own entry point.
  *
  * This is the only part of the library that depends on
- * `@three.ez/instanced-mesh`, which is an **optional peer dependency**: import
+ * `@detoix/instanced-mesh`, which is an **optional peer dependency**: import
  * the root package and you never pull it in. That is the same arrangement React
  * and `@react-three/fiber` already have, for the same reason (library rule 8).
  *

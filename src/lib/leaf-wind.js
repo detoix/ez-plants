@@ -2,6 +2,7 @@ import * as THREE from 'three';
 
 const WIND_SHADER_VERSION = 'ez-tree-leaf-wind-v1';
 const WIND_INSTALLATION = Symbol('ezTreeLeafWind');
+const WIND_METADATA = new WeakMap();
 
 const SIMPLEX_NOISE_3D = /* glsl */ `
 // GLSL Simplex Noise 3D
@@ -162,6 +163,23 @@ function windVector(value) {
   );
 }
 
+/**
+ * Return the live wind controller installed on a material, if any.
+ *
+ * The WebGL implementation keeps its installation marker private so callers
+ * cannot forge one. WebGPU adapters use this read-only lookup to reproduce the
+ * same deformation in TSL instead of trying to translate an opaque
+ * `onBeforeCompile` callback.
+ */
+export function leafWindForMaterial(material) {
+  return material?.[WIND_INSTALLATION] ?? null;
+}
+
+/** Details needed by a backend that translates the known wind installation. */
+export function leafWindMetadataForMaterial(material) {
+  return WIND_METADATA.get(material) ?? null;
+}
+
 function injectLeafWind(vertexShader) {
   if (
     !vertexShader.includes('void main() {') ||
@@ -256,6 +274,11 @@ export class LeafWind {
     material.customProgramCacheKey = () =>
       `${previousCacheKey()}|${WIND_SHADER_VERSION}|${variant}`;
     material[WIND_INSTALLATION] = this;
+    WIND_METADATA.set(material, {
+      wind: this,
+      variant,
+      hasAfterCompile: typeof afterCompile === 'function',
+    });
     material.needsUpdate = true;
     return material;
   }

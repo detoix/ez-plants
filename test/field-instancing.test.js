@@ -7,7 +7,7 @@ import test from 'node:test';
 // Import order matters and is the point of the first test: instanced-mesh
 // applies its ShaderChunk patches as an import side effect, and the guard
 // observes the result on whichever `three` this module graph resolved.
-import '@three.ez/instanced-mesh';
+import '@detoix/instanced-mesh';
 import * as THREE from 'three';
 
 import {

@@ -7,7 +7,7 @@ let _dirtTexture = null;
 let _dirtNormal = null;
 
 /**
- * 
+ *
  * @returns {Promise<THREE.Geometry>}
  */
 async function fetchAssets() {
@@ -20,12 +20,16 @@ async function fetchAssets() {
   _grassTexture.wrapT = THREE.RepeatWrapping;
   _grassTexture.colorSpace = THREE.SRGBColorSpace;
 
-  _dirtTexture = await textureLoader.loadAsync('/textures/ground/dirt_color.jpg');
+  _dirtTexture = await textureLoader.loadAsync(
+    '/textures/ground/dirt_color.jpg',
+  );
   _dirtTexture.wrapS = THREE.RepeatWrapping;
   _dirtTexture.wrapT = THREE.RepeatWrapping;
   _dirtTexture.colorSpace = THREE.SRGBColorSpace;
 
-  _dirtNormal = await textureLoader.loadAsync('/textures/ground/dirt_normal.jpg');
+  _dirtNormal = await textureLoader.loadAsync(
+    '/textures/ground/dirt_normal.jpg',
+  );
   _dirtNormal.wrapS = THREE.RepeatWrapping;
   _dirtNormal.wrapT = THREE.RepeatWrapping;
 
@@ -48,7 +52,7 @@ export class Ground extends THREE.Mesh {
         emissiveIntensity: 0.01,
         normalMap: _dirtNormal,
         metalness: 0.0,
-        roughness: 1.0
+        roughness: 1.0,
       });
 
       this.material.onBeforeCompile = (shader) => {
@@ -58,11 +62,13 @@ export class Ground extends THREE.Mesh {
         shader.uniforms.uDirtTexture = { value: _dirtTexture };
 
         // Add varyings and uniforms to vertex/fragment shaders
-        shader.vertexShader = `
+        shader.vertexShader =
+          `
           varying vec3 vWorldPosition;
           ` + shader.vertexShader;
 
-        shader.fragmentShader = `
+        shader.fragmentShader =
+          `
           varying vec3 vWorldPosition;
           uniform float uNoiseScale;
           uniform float uPatchiness;
@@ -73,8 +79,12 @@ export class Ground extends THREE.Mesh {
         shader.vertexShader = shader.vertexShader.replace(
           '#include <worldpos_vertex>',
           `#include <worldpos_vertex>
-            vWorldPosition = worldPosition.xyz;
-            `
+            // Since Three r185, <worldpos_vertex> only declares
+            // worldPosition for passes that explicitly need it. The ground
+            // samples world-space textures even when shadows are disabled, so
+            // derive its varying independently of that conditional chunk.
+            vWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;
+            `,
         );
 
         // Add custom shader code for the ground
@@ -139,7 +149,7 @@ export class Ground extends THREE.Mesh {
           // Blend between grass and dirt based on the noise value
           vec4 sampledDiffuseColor = vec4(mix(grassColor, dirtColor, s), 1.0);
           diffuseColor *= sampledDiffuseColor;
-          `
+          `,
         );
 
         shader.fragmentShader = shader.fragmentShader.replace(
@@ -149,7 +159,7 @@ export class Ground extends THREE.Mesh {
           mapN.xy *= normalScale;
 
           normal = normalize( tbn * mapN );
-          `
+          `,
         );
 
         this.material.userData.shader = shader;

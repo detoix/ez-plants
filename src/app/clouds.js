@@ -13,12 +13,14 @@ export class Clouds extends THREE.Mesh {
     this.material.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = { value: 0.0 };
 
-      shader.vertexShader = `
+      shader.vertexShader =
+        `
         varying vec2 vUv;
         varying vec3 vWorldPosition;
         ` + shader.vertexShader;
 
-      shader.fragmentShader = `
+      shader.fragmentShader =
+        `
         uniform float uTime;
         varying vec2 vUv;
         varying vec3 vWorldPosition;
@@ -28,8 +30,10 @@ export class Clouds extends THREE.Mesh {
         '#include <worldpos_vertex>',
         `#include <worldpos_vertex>
          vUv = uv;
-         vWorldPosition = worldPosition.xyz;
-        `
+         // <worldpos_vertex> is conditional in current Three.js. Clouds need
+         // the distance varying in every pass, including unshadowed WebGL.
+         vWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;
+        `,
       );
 
       shader.fragmentShader = shader.fragmentShader.replace(
@@ -73,7 +77,7 @@ export class Clouds extends THREE.Mesh {
         float cloud = smoothstep(0.2, 0.8, 0.5 * n + 0.4);
         vec4 cloudColor = vec4(1.0, 1.0, 1.0, 1.0); 
         diffuseColor = vec4(1.0, 1.0, 1.0, cloud * opacity / (0.01 * length(vWorldPosition)));
-        `
+        `,
       );
 
       this.material.userData.shader = shader;

@@ -43,15 +43,15 @@ wants it.
 | Peer                          | Needed for                         |
 | ----------------------------- | ---------------------------------- |
 | `react`, `@react-three/fiber` | the R3F components (rule 8)        |
-| `@three.ez/instanced-mesh`    | the field layer (`src/lib/field/`) |
+| `@detoix/instanced-mesh`    | the field layer (`src/lib/field/`) |
 
-**If you install `@three.ez/instanced-mesh`, deduplicate `three`.** It patches
-`THREE.ShaderChunk` at import time, and those patches are what carry a
-per-instance transform into the shader. If your bundler hands the library a
-different `three` module instance than the one instanced-mesh imported, the
-patches land where nothing reads them — and nothing throws. Materials compile,
-instances draw, and per-instance effects such as the leaf-wind counter-rotation
-are quietly wrong.
+**If you install `@detoix/instanced-mesh`, deduplicate `three`.** Its WebGL
+entry patches `THREE.ShaderChunk` at import time, while its WebGPU entry shares
+Three.js TSL/storage-buffer objects. In either backend, handing the field and
+instanced-mesh different `three` module instances breaks the shared rendering
+contract. In WebGL the especially deceptive symptom is that materials compile
+and instances draw while per-instance effects such as leaf-wind
+counter-rotation are quietly wrong.
 
 ```js
 // vite.config.js
@@ -61,9 +61,9 @@ export default {
 ```
 
 Do not use an alias instead. Pointing `three` at a directory breaks the
-`three/addons/*` subpath exports. The field layer asserts this at construction
-(`src/lib/field/three-copy-guard.js`) so the failure is loud rather than silent,
-but the fix is always bundler-side.
+`three/addons/*` subpath exports. The WebGL field entry asserts its ShaderChunk
+contract at construction (`src/lib/field/three-copy-guard.js`); the fix for a
+duplicate module is always bundler-side.
 
 # The plants
 
@@ -250,7 +250,7 @@ two accept the same options under the same names. Swapping one plant for another
 is a one-word change in either. React and `@react-three/fiber` stay optional peer
 dependencies — importing the root package must never pull React into a bundle.
 
-The field layer is arranged the same way: `@three.ez/instanced-mesh` is an
+The field layer is arranged the same way: `@detoix/instanced-mesh` is an
 optional peer, reachable only through `src/lib/field/`, and the dependency arrow
 points **field → plant, never plant → field**. That is what keeps `three` the
 only dependency an extracted plant needs.
@@ -489,10 +489,12 @@ that costs.
 ## Fields
 
 For hundreds of plants rather than one, there is an opt-in field renderer. It is
-the only part of the library that depends on `@three.ez/instanced-mesh`, which is
+the only part of the library that depends on `@detoix/instanced-mesh`, which is
 an optional peer — **install it, and deduplicate `three`, or per-instance
 transforms silently stop reaching the shader.** See
 [Installation](#installation).
+
+For WebGL:
 
 ```js
 import { Forsythia } from '@detoix/ez-plants';
@@ -522,6 +524,23 @@ field.setLevels(levels); // one index per placement, whenever you decide
 field.update(delta, elapsed); // wind only — no camera here either
 ```
 
+For WebGPU, keep the same prototype and field API and switch only the field
+entry and renderer:
+
+```js
+import {
+  createPrototypePool,
+  PlantField,
+} from '@detoix/ez-plants/field/webgpu';
+
+const field = new PlantField({ prototypes, placements, renderer });
+```
+
+The WebGPU entry translates EZ-Plants' supported leaf wind and authored
+back-face normals to TSL, including instanced shadow deformation. It rejects an
+unknown GLSL `ShaderMaterial` or `onBeforeCompile` hook instead of silently
+discarding the effect.
+
 **Keep the prototype plants alive.** A field draws their materials, and the wind
 lives on those materials' compiled shaders. Dispose in order — field,
 prototypes, then plants.
@@ -532,7 +551,9 @@ Two families, two strategies, because they want opposite answers:
   Organ LOD here does not simplify geometry, it draws fewer organs, so a fine
   plant and a coarse one share a buffer and a draw call.
 - **Wood** is one mesh per prototype with real geometry LODs, because the
-  buffers genuinely differ between levels.
+  buffers genuinely differ between levels. Its per-instance LOD resolver reads
+  the same applied level as that placement's organs, so branches and foliage
+  cross a boundary together rather than classifying two different bounds.
 
 Draw calls do not grow with the number of plants:
 

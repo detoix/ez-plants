@@ -26,7 +26,6 @@ export default {
         '@detoix/ez-plants',
       ],
     },
-    sourcemap: true,
   },
   resolve: {
     alias: {

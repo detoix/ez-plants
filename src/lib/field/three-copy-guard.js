@@ -4,7 +4,7 @@ import { ShaderChunk } from 'three';
  * Guards against the one failure mode that makes field instancing wrong
  * *without* raising an error: two copies of `three` in the module graph.
  *
- * `@three.ez/instanced-mesh` works by patching `THREE.ShaderChunk` at import
+ * `@detoix/instanced-mesh` works by patching `THREE.ShaderChunk` at import
  * time. Those patches are what teach three's built-in vertex chunks about
  * `USE_INSTANCING_INDIRECT`, which is how a per-instance matrix reaches the
  * shader from the instance data texture. If the bundler hands the library a
@@ -49,7 +49,7 @@ const PATCHED_CHUNKS = [
  * instanced-mesh's shader patches.
  *
  * Pure and synchronous, so it is testable without a WebGL context. Callers are
- * responsible for importing `@three.ez/instanced-mesh` first — the patches are
+ * responsible for importing `@detoix/instanced-mesh` first — the patches are
  * applied as an import side effect, and this only observes the result.
  *
  * @param {Record<string, string>} [chunks] Shader chunk table to inspect.
@@ -75,10 +75,10 @@ export function inspectInstancingPatch(chunks = ShaderChunk) {
 
 const ADVICE =
   'This almost always means two copies of `three` are loaded: ' +
-  '`@three.ez/instanced-mesh` patched one of them and the renderer is using ' +
+  '`@detoix/instanced-mesh` patched one of them and the renderer is using ' +
   "the other. Add `resolve: { dedupe: ['three'] }` to your bundler config " +
   '(Vite/Rollup) or the equivalent alias-free deduplication for your tool, ' +
-  'and make sure `@three.ez/instanced-mesh` resolves the same `three` as your ' +
+  'and make sure `@detoix/instanced-mesh` resolves the same `three` as your ' +
   'app. Do not alias `three` to a directory — that breaks `three/addons/*`.';
 
 /**

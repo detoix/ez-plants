@@ -27,6 +27,10 @@
     "./field": {
       "types": "./types/field.d.ts",
       "import": "./build/field/index.js"
+    },
+    "./field/webgpu": {
+      "types": "./types/field.webgpu.d.ts",
+      "import": "./build/field/webgpu.js"
     }
   },
   "files": [
@@ -54,24 +58,24 @@
   },
   "devDependencies": {
     "@react-three/fiber": "^9.7.0",
-    "@three.ez/instanced-mesh": "^0.3.16",
+    "@detoix/instanced-mesh": "file:vendor/detoix-instanced-mesh-0.3.16-webgpu.0.tgz",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
-    "@types/three": "^0.169.0",
+    "@types/three": "0.185.0",
     "playwright": "^1.62.1",
     "prettier": "3.3.3",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "three": "^0.167.x",
+    "three": "0.185.0",
     "typescript": "5.6.2",
     "vite": "^5.0.0",
     "vite-plugin-static-copy": "^1.0.5"
   },
   "peerDependencies": {
     "@react-three/fiber": ">=8",
-    "@three.ez/instanced-mesh": ">=0.3",
+    "@detoix/instanced-mesh": "0.3.16-webgpu.0",
     "react": ">=18",
-    "three": ">=0.167"
+    "three": ">=0.185.0 <0.186.0"
   },
   "keywords": [
     "threejs",
@@ -97,7 +101,7 @@
     "@react-three/fiber": {
       "optional": true
     },
-    "@three.ez/instanced-mesh": {
+    "@detoix/instanced-mesh": {
       "optional": true
     }
   }

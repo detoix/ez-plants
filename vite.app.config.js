@@ -6,7 +6,7 @@ import fs from 'fs';
 import path from 'path';
 
 /**
- * Serve `/field` the way a static host serves it.
+ * Serve directory pages the way a static host serves them.
  *
  * Directory routes give extensionless URLs for free in production: GitHub Pages
  * sees `/field` is a directory and redirects to `/field/`, which resolves to its
@@ -45,11 +45,10 @@ export default ({ command }) => ({
   build: {
     emptyOutDir: true,
     outDir: '../../dist',
-    sourcemap: true,
     rollupOptions: {
-      // Two pages: the single-plant review page, and the field walkaround.
-      // Without naming them both here the field page works under `vite` and
-      // then quietly vanishes from the built site.
+      // Two pages: the single-plant review page and the WebGPU field
+      // walkaround. Without naming them here a
+      // directory page works under `vite` and quietly vanishes from the build.
       //
       // The field lives in its own directory rather than as `field.html` so it
       // is served at `/field`, with no extension in the URL. That is a property
@@ -65,11 +64,23 @@ export default ({ command }) => ({
   root: './src/app',
   plugins: [directoryRoutes(path.resolve(__dirname, 'src/app'))],
   resolve: {
+    // `build/` is intentionally shared with the primary checkout by symlink.
+    // Keep the logical worktree path while resolving imports from those built
+    // entries, otherwise Vite walks into the primary checkout's node_modules
+    // instead of this worktree's versioned instanced-mesh artifact.
+    preserveSymlinks: true,
     // An array, and in this order, on purpose. Alias matching is by prefix, so
     // a bare `@detoix/ez-plants` entry placed first would rewrite
     // `@detoix/ez-plants/field` into `.../src/lib/index.js/field`. The more
     // specific subpath has to be offered the import first.
     alias: [
+      {
+        find: '@detoix/ez-plants/field/webgpu',
+        replacement:
+          command === 'serve'
+            ? path.resolve(__dirname, 'src/lib/field/index.webgpu.js')
+            : path.resolve(__dirname, 'build/field/webgpu.js'),
+      },
       {
         find: '@detoix/ez-plants/field',
         replacement:
@@ -85,8 +96,8 @@ export default ({ command }) => ({
             : path.resolve(__dirname, 'build/ez-plants.es.js'),
       },
     ],
-    // Mandatory, not cosmetic. `@three.ez/instanced-mesh` installs its own
-    // nested `three`, and with two copies loaded it patches ShaderChunks the
+    // Mandatory, not cosmetic. If `@detoix/instanced-mesh` resolves another
+    // `three`, its WebGL backend patches ShaderChunks the
     // active renderer never reads: `USE_INSTANCING_INDIRECT` never reaches the
     // shader and the leaf-wind counter-rotation degrades silently, with no
     // error. Dedupe, never an alias — aliasing `three` to a directory breaks

@@ -22,12 +22,11 @@ export default {
         },
       },
     },
-    sourcemap: true,
   },
   resolve: {
     // `three` is external here, so this is belt-and-braces: it keeps any code
     // path that does resolve three (a plugin, a transitively pulled copy under
-    // `@three.ez/instanced-mesh`) collapsed onto one module. Two copies make
+    // `@detoix/instanced-mesh`) collapsed onto one module. Two copies make
     // `USE_INSTANCING_INDIRECT` vanish from the shader silently. See
     // vite.app.config.js for the full explanation.
     dedupe: ['three'],

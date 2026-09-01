@@ -1,12 +1,17 @@
 import * as THREE from 'three';
+import type { WebGPURenderer } from 'three/webgpu';
 
 import type { PlantDetail, PlantLODLevel, PlantRenderer } from './plants';
 
 /* ==================================================================== *
  * Field rendering — opt-in
  *
- * Requires the optional peer `@three.ez/instanced-mesh`, and requires `three`
- * to be deduplicated in the consuming bundler. See the README.
+ * Requires the optional peer `@detoix/instanced-mesh`, and requires `three`
+ * r185 to be deduplicated in the consuming bundler. The same field API is
+ * exposed by `./field` (WebGL) and `./field/webgpu` (WebGPU). The WebGPU entry
+ * translates the library's known leaf-wind and authored-normal hooks to TSL;
+ * unknown GLSL `ShaderMaterial` or `onBeforeCompile` customization is rejected.
+ * See the README.
  * ==================================================================== */
 
 /** One organ kind, frozen at one band. */
@@ -79,7 +84,7 @@ export declare function createPrototypePool(
 export interface PlantPlacement {
   position:
     | THREE.Vector3
-    | [number, number, number]
+    | readonly [number, number, number]
     | { x: number; y: number; z: number };
   rotationY?: number;
   scale?: number;
@@ -89,9 +94,12 @@ export interface PlantPlacement {
   level?: number;
 }
 
+/** Renderer accepted by one of the two field backends. */
+export type PlantFieldRenderer = THREE.WebGLRenderer | WebGPURenderer;
+
 export interface PlantFieldOptions {
-  prototypes: PlantPrototype[];
-  placements: PlantPlacement[];
+  prototypes: readonly PlantPrototype[];
+  placements: readonly PlantPlacement[];
   /**
    * Organ instances you expect to afford, across every organ kind.
    *
@@ -101,13 +109,24 @@ export interface PlantFieldOptions {
    */
   budget?: number;
   /**
-   * Strongly recommended. Without it, instanced-mesh initialises its buffers
-   * during the first render and draws nothing on frame one — invisible in a
-   * render loop, a blank image for a single-shot render.
+   * Renderer for the selected field backend: `WebGLRenderer` for `./field`, or
+   * `WebGPURenderer` for `./field/webgpu`.
+   *
+   * Passing the renderer is strongly recommended for WebGL. Without it,
+   * instanced-mesh initialises its buffers during the first render and draws
+   * nothing on frame one — invisible in a render loop, a blank image for a
+   * single-shot render. WebGPU storage buffers are initialized eagerly.
    */
-  renderer?: THREE.WebGLRenderer | null;
+  renderer?: PlantFieldRenderer | null;
   castShadow?: boolean;
   receiveShadow?: boolean;
+  /**
+   * Let instanced-mesh frustum-test every organ instance. Defaults to `true`.
+   *
+   * Disable this when culling whole plants with `placementSphere()` and
+   * `setVisibility()`; otherwise the renderer repeats that work per organ.
+   */
+  perInstanceCulling?: boolean;
   name?: string;
 }
 
@@ -127,7 +146,21 @@ export interface PlantFieldStats {
   overBudget: boolean;
   /** How many placements sit at each level. */
   levelCounts: number[];
+  /** Placements currently drawn; the rest are hidden by `setVisibility`. */
+  visiblePlants: number;
+  /**
+   * Placements whose organ instances have been written since construction,
+   * including the initial build.
+   */
   repacks: number;
+  /** Organ instances written since construction. */
+  instanceWrites: number;
+  /** Active and inactive slots currently spanned by all organ buffers. */
+  slots: number;
+  /** The current slot span for each organ kind. */
+  slotsByKind: Record<string, number>;
+  /** Inactive slots inside `slots`; `compact()` reclaims them. */
+  unusedSlots: number;
 }
 
 /** Organ instances the whole field may draw at once, across every organ kind. */
@@ -141,6 +174,28 @@ export declare class PlantField extends THREE.Group {
   setLevels(levels: ArrayLike<number>): this;
   /** Set one placement's level. */
   setLevelAt(index: number, level: number): this;
+  /**
+   * The visibility of each placement. A copy; use `setVisibility` or
+   * `setVisibleAt` to change it. This is distinct from `Object3D.visible`,
+   * which controls the entire field group.
+   */
+  readonly visibility: boolean[];
+  /** Show or hide one placement, including its organs and wood. */
+  setVisibleAt(index: number, visible: boolean): this;
+  /** Show or hide every placement at once. One flag per placement. */
+  setVisibility(flags: ArrayLike<boolean | number>): this;
+  /**
+   * Get one placement's bounding sphere in field-local coordinates.
+   *
+   * The optional target is populated and returned. If the field group itself
+   * is transformed, apply its `matrixWorld` before testing in world space.
+   */
+  placementSphere(index: number, target?: THREE.Sphere): THREE.Sphere;
+  /**
+   * Repack every placement to reclaim inactive instance slots. This rewrites
+   * the whole field and should not be called inside a render loop.
+   */
+  compact(): this;
   /**
    * Advance wind. Takes no camera: levels are `setLevels` / `setLevelAt`, and
    * they change only when you say so.
