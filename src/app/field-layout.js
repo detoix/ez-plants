@@ -1,5 +1,5 @@
 export const FIELD_DEFAULT_COUNT = 400;
-export const FIELD_SPECIES_COUNT = 4;
+export const FIELD_SPECIES_COUNT = 5;
 export const FIELD_LAYOUT_SEED = 20260828;
 
 function mulberry32(seed) {

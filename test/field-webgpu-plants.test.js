@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
@@ -10,19 +11,38 @@ import {
 import { aggregateFieldStats } from '../src/app/field-stats.js';
 import { terrainHeightAt } from '../src/app/field-terrain-height.js';
 
-test('the original 400-plant mixed scatter remains deterministic and terrain-conforming', () => {
+test('the field registry includes every shipped plant renderer', () => {
+  const source = readFileSync(
+    new URL('../src/app/field-plants.js', import.meta.url),
+    'utf8',
+  );
+  const species = [...source.matchAll(/id: '([^']+)', age:/g)].map(
+    ([, id]) => id,
+  );
+
+  assert.deepEqual(species, [
+    'blackcurrant',
+    'forsythia',
+    'hydrangea',
+    'miscanthus',
+    'pennisetum',
+  ]);
+  assert.equal(species.length, FIELD_SPECIES_COUNT);
+});
+
+test('the 400-plant five-species scatter remains deterministic and terrain-conforming', () => {
   const groundAt = (x, z) => terrainHeightAt(x, z, { amplitude: 1.7 });
   const first = createFieldLayout({ groundAt });
   const second = createFieldLayout({ groundAt });
 
   assert.deepEqual(first, second);
   assert.equal(FIELD_DEFAULT_COUNT, 400);
-  assert.equal(FIELD_SPECIES_COUNT, 4);
+  assert.equal(FIELD_SPECIES_COUNT, 5);
   assert.equal(FIELD_LAYOUT_SEED, 20260828);
   assert.equal(first.extent, 25.2);
   assert.deepEqual(
     first.perSpecies.map((placements) => placements.length),
-    [100, 100, 100, 100],
+    [80, 80, 80, 80, 80],
   );
 
   for (const placements of first.perSpecies) {
