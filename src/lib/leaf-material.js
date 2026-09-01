@@ -2,16 +2,27 @@ import * as THREE from 'three';
 
 import { LeafWind, createLeafWindShadowMaterials } from './leaf-wind.js';
 
-const BACKFACE_NORMAL_POLICY = new WeakMap();
+// See leaf-wind.js: this policy must cross the separately bundled public
+// library and WebGPU field entry without depending on shared module identity.
+const BACKFACE_NORMAL_POLICY = Symbol.for(
+  '@detoix/ez-plants/leaf-backface-normal-policy/v1',
+);
+
+function setBackfaceNormalPolicy(material, policy) {
+  Object.defineProperty(material, BACKFACE_NORMAL_POLICY, {
+    configurable: true,
+    value: policy,
+  });
+}
 
 /** Whether a material deliberately keeps its authored normal on back faces. */
 export function keepsAuthoredNormalsOnBackFaces(material) {
-  return BACKFACE_NORMAL_POLICY.get(material) === 'authored';
+  return material?.[BACKFACE_NORMAL_POLICY] === 'authored';
 }
 
 /** The known leaf-card back-face policy, or null for an unrelated material. */
 export function leafBackfaceNormalPolicyForMaterial(material) {
-  return BACKFACE_NORMAL_POLICY.get(material) ?? null;
+  return material?.[BACKFACE_NORMAL_POLICY] ?? null;
 }
 
 /**
@@ -39,7 +50,7 @@ export function keepAuthoredNormalsOnBackFaces(material) {
     );
   };
   material.customProgramCacheKey = () => 'authored-normals';
-  BACKFACE_NORMAL_POLICY.set(material, 'authored');
+  setBackfaceNormalPolicy(material, 'authored');
   return material;
 }
 
@@ -96,7 +107,7 @@ export function createLeafMaterialSet({
     },
   });
   if (wind.enabled) {
-    BACKFACE_NORMAL_POLICY.set(
+    setBackfaceNormalPolicy(
       surface,
       roundedNormals ? 'authored' : 'face-direction',
     );
@@ -107,7 +118,7 @@ export function createLeafMaterialSet({
     // backs of rounded leaf cards dark in either WebGL or the WebGPU adapter.
     keepAuthoredNormalsOnBackFaces(surface);
   } else {
-    BACKFACE_NORMAL_POLICY.set(surface, 'face-direction');
+    setBackfaceNormalPolicy(surface, 'face-direction');
   }
 
   const { depth, distance } = createLeafWindShadowMaterials(wind, {

@@ -1,8 +1,21 @@
 import * as THREE from 'three';
 
 const WIND_SHADER_VERSION = 'ez-tree-leaf-wind-v1';
-const WIND_INSTALLATION = Symbol('ezTreeLeafWind');
-const WIND_METADATA = new WeakMap();
+// The main library and the optional field backend ship as separate bundles.
+// Versioned registry symbols let either bundle recognize the other's known
+// material contract without exposing mutable public API or relying on shared
+// module identity.
+const WIND_INSTALLATION = Symbol.for(
+  '@detoix/ez-plants/leaf-wind/installation/v1',
+);
+const WIND_METADATA = Symbol.for('@detoix/ez-plants/leaf-wind/metadata/v1');
+
+function defineMaterialContract(material, key, value) {
+  Object.defineProperty(material, key, {
+    configurable: true,
+    value,
+  });
+}
 
 const SIMPLEX_NOISE_3D = /* glsl */ `
 // GLSL Simplex Noise 3D
@@ -166,10 +179,10 @@ function windVector(value) {
 /**
  * Return the live wind controller installed on a material, if any.
  *
- * The WebGL implementation keeps its installation marker private so callers
- * cannot forge one. WebGPU adapters use this read-only lookup to reproduce the
- * same deformation in TSL instead of trying to translate an opaque
- * `onBeforeCompile` callback.
+ * The marker is deliberately not exported, but its versioned symbol identity
+ * survives the separate main-library and field-backend production bundles.
+ * WebGPU adapters use this read-only lookup to reproduce the same deformation
+ * in TSL instead of trying to translate an opaque `onBeforeCompile` callback.
  */
 export function leafWindForMaterial(material) {
   return material?.[WIND_INSTALLATION] ?? null;
@@ -177,7 +190,7 @@ export function leafWindForMaterial(material) {
 
 /** Details needed by a backend that translates the known wind installation. */
 export function leafWindMetadataForMaterial(material) {
-  return WIND_METADATA.get(material) ?? null;
+  return material?.[WIND_METADATA] ?? null;
 }
 
 function injectLeafWind(vertexShader) {
@@ -273,12 +286,16 @@ export class LeafWind {
     };
     material.customProgramCacheKey = () =>
       `${previousCacheKey()}|${WIND_SHADER_VERSION}|${variant}`;
-    material[WIND_INSTALLATION] = this;
-    WIND_METADATA.set(material, {
-      wind: this,
-      variant,
-      hasAfterCompile: typeof afterCompile === 'function',
-    });
+    defineMaterialContract(material, WIND_INSTALLATION, this);
+    defineMaterialContract(
+      material,
+      WIND_METADATA,
+      Object.freeze({
+        wind: this,
+        variant,
+        hasAfterCompile: typeof afterCompile === 'function',
+      }),
+    );
     material.needsUpdate = true;
     return material;
   }

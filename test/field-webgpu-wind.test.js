@@ -14,6 +14,47 @@ import {
   PlantField,
 } from '../src/lib/field/index.webgpu.js';
 
+test('material contracts survive separately bundled library entries', async () => {
+  const windProducer = await import('../src/lib/leaf-wind.js?wind-producer');
+  const windConsumer = await import('../src/lib/leaf-wind.js?wind-consumer');
+  const normalsProducer = await import(
+    '../src/lib/leaf-material.js?normals-producer'
+  );
+  const normalsConsumer = await import(
+    '../src/lib/leaf-material.js?normals-consumer'
+  );
+  const windMaterial = new THREE.MeshStandardMaterial({
+    name: 'Cross-bundle wind',
+  });
+  const normalMaterial = new THREE.MeshStandardMaterial({
+    name: 'Cross-bundle authored normals',
+  });
+  const wind = new windProducer.LeafWind();
+
+  try {
+    wind.apply(windMaterial, { variant: 'cross-bundle-test' });
+    normalsProducer.keepAuthoredNormalsOnBackFaces(normalMaterial);
+
+    assert.strictEqual(windConsumer.leafWindForMaterial(windMaterial), wind);
+    assert.deepEqual(windConsumer.leafWindMetadataForMaterial(windMaterial), {
+      wind,
+      variant: 'cross-bundle-test',
+      hasAfterCompile: false,
+    });
+    assert.equal(
+      normalsConsumer.keepsAuthoredNormalsOnBackFaces(normalMaterial),
+      true,
+    );
+    assert.equal(
+      normalsConsumer.leafBackfaceNormalPolicyForMaterial(normalMaterial),
+      'authored',
+    );
+  } finally {
+    windMaterial.dispose();
+    normalMaterial.dispose();
+  }
+});
+
 test('the WebGPU material boundary ports wind and authored card normals to TSL', () => {
   const wind = new LeafWind({ time: 2.5 });
   const materials = createLeafMaterialSet({ wind, roundedNormals: true });
