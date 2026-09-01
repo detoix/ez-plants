@@ -9,7 +9,9 @@ import {
   createLeafMaterialSet,
 } from '../src/lib/leaf-material.js';
 import { LeafWind } from '../src/lib/leaf-wind.js';
+import { Echinacea } from '../src/lib/plants/echinacea/echinacea.js';
 import {
+  createPlantPrototype,
   prepareWebGPUPlantMaterial,
   PlantField,
 } from '../src/lib/field/index.webgpu.js';
@@ -198,5 +200,50 @@ test('WebGPU PlantField adapts source wind without mutating plant materials', ()
     materials.surface.dispose();
     materials.depth.dispose();
     materials.distance.dispose();
+  }
+});
+
+test('WebGPU PlantField translates Magnus head morphs without another draw', () => {
+  const plant = new Echinacea({
+    seed: 'magnus-webgpu-field',
+    ageYears: 5,
+    dayOfYear: 215,
+  });
+  const prototype = createPlantPrototype(plant);
+  const field = new PlantField({
+    prototypes: [prototype],
+    placements: [{ position: [0, 0, 0] }],
+    perInstanceCulling: false,
+  });
+
+  try {
+    const entry = field._organMeshes.get('heads');
+    const slot = field._slots[0].get('heads');
+    const mesh = slot.variant.mesh;
+    const id = slot.ids[0];
+    const source = prototype.bands[0].baked.organs.find(
+      (organ) => organ.kind === 'heads',
+    );
+    const sourceRed = source.colors[0];
+    const sourceBlue = source.colors[2];
+    const matrix = new THREE.Matrix4();
+    const color = new THREE.Color();
+    mesh.getMatrixAt(id, matrix);
+    mesh.getColorAt(id, color);
+
+    assert.equal(entry.variants.length, 3, 'the geometry ladder was flattened');
+    assert.ok(mesh.material.positionNode?.isNode);
+    assert.ok(mesh.material.castShadowPositionNode?.isNode);
+    assert.equal(matrix.elements[3], Math.floor(sourceRed * 0.5));
+    assert.ok(
+      Math.abs(matrix.elements[7] - Math.floor(sourceBlue * 0.5) / 255) < 1e-6,
+    );
+    assert.ok(Math.abs(color.r - (sourceRed % 2)) < 1e-6);
+    assert.ok(Math.abs(color.b - (sourceBlue % 2)) < 1e-6);
+    assert.equal(field.stats().organDrawCalls, 3);
+  } finally {
+    field.dispose();
+    prototype.dispose();
+    plant.dispose();
   }
 });

@@ -67,7 +67,7 @@ duplicate module is always bundler-side.
 
 # The plants
 
-Six cultivars so far, each a digital twin rather than a generic species: a
+Seven cultivars so far, each a digital twin rather than a generic species: a
 persistent structure driven by an **age** and a **day of year**, with a phenology
 calendar built from cited real-world sources.
 
@@ -79,20 +79,19 @@ calendar built from cited real-world sources.
 | English lavender (_Lavandula angustifolia_)          | 'Hidcote'    | Evergreen mounded subshrub, ~0.5 × 0.75 m                              | **A permanent frame that will not break from old wood**; leafless flower stems for eight weeks, then one shear   |
 | Chinese silver grass (_Miscanthus sinensis_)         | 'Malepartus' | Caespitose warm-season grass clump, ~2.0 × 1.5 m                       | **No woody tissue at all**; the whole plant is rebuilt from the crown each year and cut to 10 cm each spring     |
 | Japanese fountain grass (_Pennisetum alopecuroides_) | 'Hameln'     | Compact hemispherical fountain, ~0.85 × 0.85 m                         | **Dense cylindrical bottlebrush heads**, greenish-cream to pink-beige and grey-brown, over narrow arching blades |
+| Purple coneflower (_Echinacea purpurea_)             | 'Magnus'     | Upright herbaceous clump, ~0.95 × 0.56 m                               | **Large broad rose-purple rays held nearly horizontal** around copper-orange cones; dry seed heads persist       |
 
 All plants are modelled in **metres**, share the same wind shader, instance pools,
 LOD controller and validated state cycle, and extend a common `PlantRenderer` base.
 The four woody plants additionally share EZ-Tree's woody geometry, bark material and
 leaf cards.
 
-The ends of that range are what show the base is not shrub-shaped. The two grasses
-have no wood at all, so their culms, arching blades and inflorescences are instanced
-geometry with baked vertex colours; Hameln's bottlebrush alpha plate is generated in
-code, and neither grass requires a caller-supplied texture. Lavender is the opposite
-problem: it is a **subshrub**, so it has wood, but only a low permanent frame that
-never renews and cannot be cut into — no renewal pruning, and no bare-wood winter,
-because it is evergreen. Its flower stems are wood too, and that decision is what
-leaves band 0 a draw for the spikes themselves.
+The two grasses and Echinacea prove the base is not shrub-shaped: they have no wood.
+Grass culms, arching blades and inflorescences are instanced geometry with baked
+vertex colours, while Echinacea returns to EZ-Tree's original leaf-card path with
+its own photographed alpha plate. It also uses the original seeded axis grower for
+its annual stem centrelines. Lavender is the opposite problem: it is a **subshrub**,
+with a low permanent evergreen frame that never renews and cannot be cut into.
 
 ## Library rules
 
@@ -148,8 +147,9 @@ The two are never mixed silently. Phase _durations_ shape the animation and are
 not claimed as observed station intervals; real weather moves a real plant by
 weeks. The defining behaviour of the species is non-negotiable: forsythia flowers
 on bare two-year-old wood before any leaf opens; hydrangea panicles are terminal
-on current-season shoots; blackcurrant fruits on young wood; Miscanthus has no
-woody tissue at all and is rebuilt from the crown every year.
+on current-season shoots; blackcurrant fruits on young wood; Miscanthus and
+Echinacea have no woody top growth and are rebuilt from the crown every year;
+'Magnus' holds its broad rays much more horizontally than generic seed strains.
 
 ### 4. Look at real photographs before calling a plant done
 
@@ -204,13 +204,12 @@ of draw calls too, and the number does not grow with the number of plants.**
   as the day changes, and two plants sharing one would drag each other through
   the seasons.
 - Shadows are their own budget. The shadow pass is a second traversal, so it
-  coarsens on its own ladder: the near band casts everything, the middle bands
-  keep only the woody silhouette, the far band casts nothing. That holds for a
-  single plant. **The field does not carry it** — `PlantField` pools each organ
-  kind into one mesh across every band, so the ladder has nowhere to live and
-  only the wood gets an `addShadowLOD`.
-- The optional field layer draws hundreds of plants in one instanced mesh per
-  organ kind. See [Fields](#fields).
+  coarsens on its own ladder. `PlantField` carries each organ rung's matching
+  depth/distance material and shadow contract; wind and seasonal organ morphs
+  therefore shape field shadows too. Wood still uses `addShadowLOD`.
+- The optional field layer draws hundreds of plants in one pooled instanced
+  mesh per compatible organ-geometry rung. Bands that share geometry still
+  share the same draw. See [Fields](#fields).
 
 ### 6. Stay on EZ-Tree; diverge only where morphology forces it
 
@@ -239,7 +238,7 @@ plant itself needs, and nothing reaches sideways:
 | `geometry.js`   | The species' organ geometry                       |
 | `<plant>.js`    | The renderer, a `PlantRenderer` subclass          |
 
-Assets sit beside them: each shrub carries its `leaf.webp` and a `LICENSE.md`
+Assets sit beside them: each textured plant carries its `leaf.webp` and a `LICENSE.md`
 recording where the plate came from. Miscanthus carries neither — a grass has no
 leaf cards, and it generates the one map it needs in code.
 
@@ -368,17 +367,17 @@ message prints the numbers to paste.
 
 Measured against the rules above (`npm test`):
 
-| Rule                      | State                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1 — two parameters        | Held. Age and day are the only plant parameters; `scenario` is gone and every plant is unconditionally maintained. The calendar selector and `offsetDays` compose the calendar that `dayOfYear` is read against — they place the calendar, not the plant.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| 2 — curated               | Held, and now structural: a looked-after plant is the only plant the model can produce.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| 3 — botany as spec        | Held. All five are cultivar-level with cited sources and separately labelled assumptions.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| 4 — photo comparison      | A standing working practice, not a repo artifact: it asks whoever builds a plant to go and look at photographs first. `scripts/shoot.mjs` renders the comparison shot. Nothing to audit here by design — the rule is satisfied while the plant is being built, or not at all.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| 5 — fast                  | Draw calls held and enforced: `test/draw-call-budget.test.js` holds every plant to one draw per organ kind plus one for the wood, and `test/plant-field.test.js` pins that field draws do not move between 10, 100 and 400 plants. The shadow clause holds for a single plant (`test/plant-shadow-lod.test.js`) but is **not** carried into the field, where organ kinds are pooled across bands and only the wood gets a shadow LOD.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| 6 — stay on EZ-Tree       | Held. All five plants extend `PlantRenderer` and add only their own morphology; nothing in `src/lib/` imports from `src/app/`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| 7 — self-contained folder | Held. No plant imports another — the shared calendar lives in `src/lib/calendar.js`. Each woody plant carries its own `leaf.webp` and loads it itself; bark is generated in `src/lib/bark-plate.js` and shared, since no plant owns it. All five models are Three.js-free and their snapshots survive a JSON round-trip. `npm run plant:add` copies a plant that renders textured standing alone, with `three` as its only dependency.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| 8 — two front doors       | Held. All five plants ship a three.js class and an R3F component with matching props.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| 9 — band budgets          | Held in full on blackcurrant, forsythia and lavender, and for triangles on hydrangea and miscanthus. `test/geometry-budget.test.js` holds the current cost of every plant at every band and forbids it growing; read that file for where each plant actually stands, and lower its entry in the commit that earns it. Forsythia went through the pass last and is inside triangles and draws at every band, on every day of its year — worst case 24,774 / 8,752 / 4,804 at the flowering peak, against 154,508 / 86,334 / 58,780 in four draws before. Lavender landed inside the whole budget on the day it arrived, worst case 23,589 / 8,600 / 3,410 across every age and every day, and it is the plant that shows the leaf-card clause actually working: past band 0 its spikes and their stems are drawn as cards from the leaf pool rather than dropped. The draw gaps on hydrangea and miscanthus are both structural rather than costly — a head that rule 9 says should ride in the leaf card but has no atlas to ride in, and a grass's culms, which cannot be dropped without leaving its plumes floating. |
+| Rule                      | State                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 — two parameters        | Held. Age and day are the only plant parameters; `scenario` is gone and every plant is unconditionally maintained. The calendar selector and `offsetDays` compose the calendar that `dayOfYear` is read against — they place the calendar, not the plant.                                                                                                                                                                                                                                                                                                               |
+| 2 — curated               | Held, and now structural: a looked-after plant is the only plant the model can produce.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| 3 — botany as spec        | Held. All seven are cultivar-level with cited sources and separately labelled assumptions.                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| 4 — photo comparison      | A standing working practice, not a repo artifact: it asks whoever builds a plant to go and look at photographs first. `scripts/shoot.mjs` renders the comparison shot. Nothing to audit here by design — the rule is satisfied while the plant is being built, or not at all.                                                                                                                                                                                                                                                                                           |
+| 5 — fast                  | Draw calls held and enforced: `test/draw-call-budget.test.js` holds every plant to one draw per organ kind plus one for the wood, and `test/plant-field.test.js` pins that field draws do not move between 10, 100 and 400 plants. Field organs are pooled by compatible geometry rung; WebGPU translates known wind and seasonal morph effects to TSL for both surface and shadow positions.                                                                                                                                                                           |
+| 6 — stay on EZ-Tree       | Held. All seven plants extend `PlantRenderer` and add only their own morphology; nothing in `src/lib/` imports from `src/app/`. Echinacea reuses the original seeded axis grower for annual green stem centrelines.                                                                                                                                                                                                                                                                                                                                                     |
+| 7 — self-contained folder | Held. No plant imports another — the shared calendar lives in `src/lib/calendar.js`. Textured plants carry their own assets; bark is generated in `src/lib/bark-plate.js` and shared. All seven models are Three.js-free and their snapshots survive a JSON round-trip. `npm run plant:add` copies a plant that renders standing alone, with `three` as its only dependency.                                                                                                                                                                                            |
+| 8 — two front doors       | Held. All seven plants ship a three.js class and an R3F component with matching props.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| 9 — band budgets          | Held in full on blackcurrant, forsythia, lavender and Echinacea, and for triangles on hydrangea and miscanthus. `test/geometry-budget.test.js` holds the current cost of every plant at every band and forbids it growing; read that file for where each plant actually stands, and lower its entry in the commit that earns it. Echinacea's mature peak is 8,172 / 4,262 / 2,106 triangles at exactly 3 / 2 / 2 draws. Lavender landed inside the whole budget at 23,589 / 8,600 / 3,410. The draw gaps on hydrangea and miscanthus are structural rather than costly. |
 
 ### Extracting a plant
 
@@ -403,6 +402,7 @@ still resolves at the destination without rewriting.
 | lavender     | 7         | 20          | 27    |
 | forsythia    | 7         | 21          | 28    |
 | hydrangea    | 7         | 21          | 28    |
+| echinacea    | 5         | 20          | 25    |
 
 `three` is the only dependency an extracted plant needs, and that includes the
 field layer: it is opt-in, lives outside every plant's import graph, and
@@ -585,9 +585,10 @@ prototypes, then plants.
 
 Two families, two strategies, because they want opposite answers:
 
-- **Organs** are one instanced mesh for the whole field, spanning every level.
-  Organ LOD here does not simplify geometry, it draws fewer organs, so a fine
-  plant and a coarse one share a buffer and a draw call.
+- **Organs** are one instanced mesh per compatible geometry rung for the whole
+  field. Levels that only draw fewer organs share a buffer and a draw call.
+  An `organLevel` ladder with genuinely different geometry gets one pooled mesh
+  per active rung, so its coarse triangles and coordinate frame remain real.
 - **Wood** is one mesh per prototype with real geometry LODs, because the
   buffers genuinely differ between levels. Its per-instance LOD resolver reads
   the same applied level as that placement's organs, so branches and foliage
@@ -600,6 +601,10 @@ Draw calls do not grow with the number of plants:
 | 10     | 7          |
 | 100    | 7          |
 | 400    | 7          |
+
+Those measurements put every placement on the same band. A field deliberately
+mixing bands can activate more than one geometry rung for a kind, adding one
+draw per active rung — still independent of how many plants use that rung.
 
 ### Changing a level costs one plant
 
@@ -683,6 +688,20 @@ import { Miscanthus } from '@detoix/ez-plants/react';
 <Miscanthus ageYears={8} dayOfYear={250} seasonProfile="typical" />;
 ```
 
+The same contract includes Echinacea's photographed leaf cards and their GPU wind
+deformation:
+
+```tsx
+import { Echinacea } from '@detoix/ez-plants/react';
+
+<Echinacea
+  ageYears={5}
+  dayOfYear={205}
+  seasonProfile="typical"
+  leafWind={{ strength: { x: 0.045, y: 0, z: 0.045 } }}
+/>;
+```
+
 `react` and `@react-three/fiber` are optional peer dependencies; importing the root
 package never pulls React into your bundle.
 
@@ -712,6 +731,7 @@ profiles, care events and review cameras. State is reflected in the URL:
 http://localhost:5173/?plant=hydrangea&year=6&day=230&profile=typical&view=three-quarter
 http://localhost:5173/?plant=miscanthus&year=8&day=250&profile=typical&view=three-quarter
 http://localhost:5173/?plant=lavender&year=4&day=190&profile=central&view=three-quarter
+http://localhost:5173/?plant=echinacea&year=5&day=205&profile=typical&view=three-quarter
 ```
 
 # Running Standalone App Locally

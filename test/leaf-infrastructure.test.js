@@ -201,7 +201,7 @@ test('leaf surfaces use the EZ-Tree v2 PBR contract', () => {
   const distance = compile(materials.distance, THREE.ShaderLib.distance);
   for (const shader of [surface, depth, distance]) {
     assert.match(shader.vertexShader, /leafWindSimplex3/);
-    assert.match(shader.vertexShader, /#ifdef USE_INSTANCING/);
+    assert.match(shader.vertexShader, /defined\(USE_INSTANCING_INDIRECT\)/);
     assert.match(
       shader.vertexShader,
       /leafWindPhasePosition = instanceMatrix \* leafWindPhasePosition/,

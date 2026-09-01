@@ -41,6 +41,7 @@ function loadPlantRegistry() {
   );
   const buildRegistry = Function(
     'Blackcurrant',
+    'Echinacea',
     'Forsythia',
     'HIDCOTE_PROFILE',
     'HIDCOTE_SOURCES',
@@ -54,6 +55,8 @@ function loadPlantRegistry() {
     'LYNWOOD_SOURCES',
     'MALEPARTUS_PROFILE',
     'MALEPARTUS_SOURCES',
+    'MAGNUS_PROFILE',
+    'MAGNUS_SOURCES',
     'Miscanthus',
     'Pennisetum',
     'TISEL_PROFILE',
@@ -78,6 +81,7 @@ function loadPlantRegistry() {
 
   return buildRegistry(
     capturePlant('Blackcurrant'),
+    capturePlant('Echinacea'),
     capturePlant('Forsythia'),
     publicApi.HIDCOTE_PROFILE,
     publicApi.HIDCOTE_SOURCES,
@@ -91,6 +95,8 @@ function loadPlantRegistry() {
     publicApi.LYNWOOD_SOURCES,
     publicApi.MALEPARTUS_PROFILE,
     publicApi.MALEPARTUS_SOURCES,
+    publicApi.MAGNUS_PROFILE,
+    publicApi.MAGNUS_SOURCES,
     capturePlant('Miscanthus'),
     capturePlant('Pennisetum'),
     publicApi.TISEL_PROFILE,
@@ -253,6 +259,32 @@ test('app create functions preserve deep-linked phenology profiles at constructi
     phenologyProfile: 'northeast',
   });
   assert.equal(forsythia.options.region, 'northeast');
+
+  const leafWind = {
+    enabled: true,
+    strength: { x: 0.02, y: 0, z: 0.04 },
+    frequency: 0.61,
+  };
+  const echinacea = PLANTS.echinacea.create({
+    ...baseState,
+    phenologyProfile: 'early',
+    leafWind,
+  });
+  assert.equal(echinacea.kind, 'Echinacea');
+  assert.deepEqual(
+    {
+      ageYears: echinacea.options.ageYears,
+      dayOfYear: echinacea.options.dayOfYear,
+      seasonProfile: echinacea.options.seasonProfile,
+      leafWind: echinacea.options.leafWind,
+    },
+    {
+      ageYears: 9.25,
+      dayOfYear: 263,
+      seasonProfile: 'early',
+      leafWind,
+    },
+  );
 });
 
 test('declarations and React source expose Hydrangea options, stats and aliases', () => {

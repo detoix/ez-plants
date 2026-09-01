@@ -256,36 +256,33 @@ test('levels can be walked up and down without losing or leaking instances', asy
 });
 
 test('slack from demotions is reported, and compact() reclaims it', async () => {
-  // Freed slots are only reclaimed from the tail, so demoting a whole field
-  // leaves the buffers spanning the finest arrangement it was ever asked for.
-  // That is the trade for a level change costing one plant, and the deal is
-  // only honest if the leftover is visible and recoverable.
+  // Freeing an interior subset leaves holes in the active geometry rung. A
+  // whole-field demotion may instead empty that rung completely and reclaim
+  // its tail, so exercise the actual fragmented case here.
   await withField('hydrangea', { count: 40 }, (field) => {
     const built = field.stats();
     assert.equal(built.unusedSlots, 0, 'a fresh field should have no slack');
 
-    field.setLevels(new Array(40).fill(2));
+    field.setLevels(
+      Array.from({ length: 40 }, (_, index) => (index < 20 ? 2 : 0)),
+    );
     const demoted = field.stats();
     assert.ok(
       demoted.unusedSlots > 0,
-      'demoting every plant freed slots but reported none',
+      'demoting an interior subset freed slots but reported none',
     );
-    // Per kind, because hydrangea's coarse bands drop `stems` and `buds`
-    // entirely: every slot in those buffers becomes tail at once, so they are
-    // wholly reclaimed. That is the tail rule, not an exception to it. The
-    // kinds the band still draws are the ones that must hold at the mark.
-    for (const [kind, span] of Object.entries(demoted.slotsByKind)) {
-      if (span === 0) continue;
-      assert.equal(
-        span,
-        built.slotsByKind[kind],
-        `${kind}: the span should hold at the mark`,
+    for (const [kind, { variants }] of field._organMeshes) {
+      const span = variants.reduce(
+        (total, { mesh }) => total + mesh._instancesArrayCount,
+        0,
       );
+      const active = variants.reduce(
+        (total, { mesh }) => total + mesh.instancesCount,
+        0,
+      );
+      assert.equal(span, demoted.slotsByKind[kind]);
+      assert.ok(span >= active, `${kind}: active instances exceed its slots`);
     }
-    assert.ok(
-      demoted.slots <= built.slots,
-      'the span should never grow on a demotion',
-    );
     assert.equal(demoted.slots - demoted.organInstances, demoted.unusedSlots);
 
     field.compact();
@@ -318,16 +315,20 @@ test('a placement can be hidden, and stays hidden across a level change', async 
         assert.equal(mesh.frustumCulled, false);
         assert.equal(mesh.perObjectFrustumCulled, false);
       }
-      for (const { mesh } of field._organMeshes.values()) {
-        assert.equal(mesh.frustumCulled, false);
-        assert.equal(mesh.perObjectFrustumCulled, false);
+      for (const { variants } of field._organMeshes.values()) {
+        for (const { mesh } of variants) {
+          assert.equal(mesh.frustumCulled, false);
+          assert.equal(mesh.perObjectFrustumCulled, false);
+        }
       }
 
       const drawn = () => {
         let organs = 0;
-        for (const { mesh } of field._organMeshes.values()) {
-          for (let id = 0; id < mesh._instancesArrayCount; id += 1) {
-            if (mesh.getActiveAndVisibilityAt(id)) organs += 1;
+        for (const { variants } of field._organMeshes.values()) {
+          for (const { mesh } of variants) {
+            for (let id = 0; id < mesh._instancesArrayCount; id += 1) {
+              if (mesh.getActiveAndVisibilityAt(id)) organs += 1;
+            }
           }
         }
         let wood = 0;
@@ -523,6 +524,146 @@ test('a field is built from what a plant declares, never from its name', async (
         );
       }
     });
+  }
+});
+
+test('field LOD keeps Echinacea leaf-card topology and routes heads through their geometry rung', async () => {
+  const plant = await createPlant('echinacea', {
+    seed: 'magnus-field-rungs',
+    ageYears: 5,
+    dayOfYear: 230,
+  });
+  const prototype = createPlantPrototype(plant);
+  const field = new PlantField({
+    prototypes: [prototype],
+    placements: [{ position: [0, 0, 0] }],
+  });
+  const triangleLimits = [25_000, 10_000, 5_000];
+  const drawLimits = [3, 2, 2];
+  let leafCardTopology = null;
+  const matrix = new THREE.Matrix4();
+  const box = new THREE.Box3();
+
+  try {
+    for (let level = 0; level < 3; level += 1) {
+      field.setLevelAt(0, level);
+      let triangles = 0;
+      let draws = 0;
+      for (const { variants } of field._organMeshes.values()) {
+        for (const { mesh } of variants) {
+          if (mesh.instancesCount === 0) continue;
+          draws += 1;
+          triangles +=
+            ((mesh.geometry.index?.count ??
+              mesh.geometry.getAttribute('position').count) /
+              3) *
+            mesh.instancesCount;
+        }
+      }
+
+      assert.equal(draws, drawLimits[level]);
+      assert.equal(field.stats().drawCalls, drawLimits[level]);
+      assert.ok(
+        triangles <= triangleLimits[level],
+        `field LOD${level} uses ${triangles} triangles`,
+      );
+
+      const leafSlot = field._slots[0].get('leaves');
+      const headSlot = field._slots[0].get('heads');
+      assert.equal(leafSlot.variant.mesh.geometry.index.count / 3, 2);
+      const topology = {
+        positions: Array.from(
+          leafSlot.variant.mesh.geometry.getAttribute('position').array,
+        ),
+        uvs: Array.from(
+          leafSlot.variant.mesh.geometry.getAttribute('uv').array,
+        ),
+      };
+      leafCardTopology ??= topology;
+      assert.deepEqual(topology, leafCardTopology);
+      assert.equal(
+        headSlot.variant.mesh.geometry.userData.coarsePeduncle,
+        level > 0,
+      );
+
+      const bakedHead = prototype.bands[level].baked.organs.find(
+        (organ) => organ.kind === 'heads',
+      );
+      assert.strictEqual(
+        headSlot.variant.mesh.customDepthMaterial,
+        bakedHead.customDepthMaterial,
+      );
+      assert.strictEqual(
+        headSlot.variant.mesh.customDistanceMaterial,
+        bakedHead.customDistanceMaterial,
+      );
+
+      if (level === 0) {
+        const stemSlot = field._slots[0].get('stems');
+        const bakedStem = prototype.bands[level].baked.organs.find(
+          (organ) => organ.kind === 'stems',
+        );
+        assert.equal(Object.hasOwn(bakedStem, 'customDepthMaterial'), false);
+        assert.equal(stemSlot.variant.mesh.customDepthMaterial, undefined);
+        assert.equal(stemSlot.variant.mesh.customDistanceMaterial, undefined);
+      }
+
+      if (level > 0) {
+        const mesh = headSlot.variant.mesh;
+        mesh.geometry.computeBoundingBox();
+        mesh.getMatrixAt(headSlot.ids[0], matrix);
+        box.copy(mesh.geometry.boundingBox).applyMatrix4(matrix);
+        assert.ok(box.min.y > -0.02, 'coarse peduncle starts at the crown');
+        assert.ok(box.max.y > 0.65, 'coarse head remains at stem height');
+
+        if (level === 2) {
+          for (const [material, shaderLib] of [
+            [mesh.material, THREE.ShaderLib.standard],
+            [mesh.customDepthMaterial, THREE.ShaderLib.depth],
+            [mesh.customDistanceMaterial, THREE.ShaderLib.distance],
+          ]) {
+            const shader = {
+              defines: {},
+              uniforms: {},
+              vertexShader: shaderLib.vertexShader,
+              fragmentShader: shaderLib.fragmentShader,
+            };
+            const priorMaterial = mesh._currentMaterial;
+            const priorCompile = mesh._onBeforeCompileBase;
+            mesh._currentMaterial = material;
+            mesh._onBeforeCompileBase = material.onBeforeCompile;
+            try {
+              mesh._onBeforeCompile(shader, null);
+            } finally {
+              mesh._currentMaterial = priorMaterial;
+              mesh._onBeforeCompileBase = priorCompile;
+            }
+            assert.ok(
+              Object.hasOwn(shader.defines, 'USE_INSTANCING_COLOR_INDIRECT'),
+            );
+            assert.strictEqual(
+              shader.uniforms.colorsTexture.value,
+              mesh.colorsTexture,
+            );
+            assert.match(shader.vertexShader, /getColorTexture/);
+            assert.match(shader.vertexShader, /attribute float magnusHead/);
+            assert.match(shader.vertexShader, /magnusRayVisibility/);
+            assert.match(shader.vertexShader, /magnusHeadVisibility/);
+            if (material !== mesh.material) {
+              assert.ok(
+                shader.vertexShader.indexOf('#include <batching_pars_vertex>') <
+                  shader.vertexShader.indexOf('#include <color_pars_vertex>'),
+                'shadow colour lookup must follow instanceIndex declaration',
+              );
+            }
+          }
+        }
+      }
+    }
+  } finally {
+    field.dispose();
+    prototype.dispose();
+    plant.dispose();
   }
 });
 

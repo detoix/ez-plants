@@ -8,6 +8,7 @@ import type { ThreeElements } from '@react-three/fiber';
 type GroupProps = ThreeElements['group'];
 import {
   Blackcurrant,
+  Echinacea,
   Forsythia,
   Hydrangea,
   Lavender,
@@ -15,6 +16,8 @@ import {
   Pennisetum,
   type BlackcurrantOptions,
   type BlackcurrantStats,
+  type EchinaceaOptions,
+  type EchinaceaStats,
   type ForsythiaOptions,
   type ForsythiaStats,
   type HidcoteRegion,
@@ -24,6 +27,7 @@ import {
   type LavenderStats,
   type LimelightSeasonProfile,
   type LynwoodRegion,
+  type MagnusSeasonProfile,
   type MalepartusSeasonProfile,
   type MiscanthusOptions,
   type MiscanthusStats,
@@ -37,7 +41,14 @@ import {
  * Options that select which plant is built. Changing any of these rebuilds
  * the plant from scratch, because they define its immutable growth graph.
  */
-type ConstructionKeys = 'seed' | 'maxYears' | 'plantId' | 'cultivar' | 'assets';
+type ConstructionKeys =
+  | 'seed'
+  | 'maxYears'
+  | 'plantId'
+  | 'cultivar'
+  | 'assets'
+  | 'leafWind'
+  | 'lodLevels';
 
 /** State that is applied to a live plant without rebuilding it. */
 export interface PlantTimeProps {
@@ -154,6 +165,8 @@ export function ForsythiaPlant({
   plantId,
   cultivar,
   assets,
+  leafWind,
+  lodLevels,
   level = 0,
   ageYears = 6,
   dayOfYear = 96,
@@ -170,13 +183,15 @@ export function ForsythiaPlant({
         plantId,
         cultivar,
         assets,
+        leafWind,
+        lodLevels,
         ageYears,
         dayOfYear,
         region,
         offsetDays,
       }),
     // Construction options only. Time and season are applied below.
-    [seed, maxYears, plantId, cultivar, assets],
+    [seed, maxYears, plantId, cultivar, assets, leafWind, lodLevels],
   );
 
   useAppliedState(
@@ -222,6 +237,8 @@ export function HydrangeaPlant({
   plantId,
   cultivar,
   assets,
+  leafWind,
+  lodLevels,
   level = 0,
   ageYears = 6,
   dayOfYear = 230,
@@ -238,12 +255,87 @@ export function HydrangeaPlant({
         plantId,
         cultivar,
         assets,
+        leafWind,
+        lodLevels,
         ageYears,
         dayOfYear,
         seasonProfile,
         offsetDays,
       }),
-    [seed, maxYears, plantId, cultivar, assets],
+    [seed, maxYears, plantId, cultivar, assets, leafWind, lodLevels],
+  );
+
+  useAppliedState(
+    plant,
+    { ageYears, dayOfYear, seasonProfile, offsetDays },
+    onStats as (stats: never) => void,
+  );
+  usePlantLevel(plant, level);
+  usePlantFrame(plant);
+
+  return <primitive object={plant} {...groupProps} />;
+}
+
+/* ==================================================================== *
+ * Echinacea purpurea 'Magnus'
+ * ==================================================================== */
+
+export interface EchinaceaProps
+  extends BasePlantProps,
+    Pick<EchinaceaOptions, ConstructionKeys | 'events'>,
+    Omit<GroupProps, 'children' | 'args'> {
+  /** Weather-timing bracket around the central-Poland calendar. */
+  seasonProfile?: MagnusSeasonProfile;
+  onStats?: (stats: EchinaceaStats) => void;
+}
+
+/**
+ * Echinacea purpurea 'Magnus' as a React Three Fiber component.
+ *
+ * The stable crown is constructed once. Age, day and season timing are
+ * applied to the live renderer, including spring leaf emergence and autumn
+ * leaf drop, while wind advances on the shared frame clock.
+ *
+ * ```tsx
+ * <Canvas>
+ *   <EchinaceaPlant ageYears={5} dayOfYear={205} />
+ * </Canvas>
+ * ```
+ */
+export function EchinaceaPlant({
+  seed,
+  maxYears,
+  plantId,
+  cultivar,
+  assets,
+  leafWind,
+  lodLevels,
+  events,
+  level = 0,
+  ageYears = 5,
+  dayOfYear = 205,
+  seasonProfile = 'typical',
+  offsetDays = 0,
+  onStats,
+  ...groupProps
+}: EchinaceaProps) {
+  const plant = useDisposable(
+    () =>
+      new Echinacea({
+        seed,
+        maxYears,
+        plantId,
+        cultivar,
+        assets,
+        leafWind,
+        lodLevels,
+        events,
+        ageYears,
+        dayOfYear,
+        seasonProfile,
+        offsetDays,
+      }),
+    [seed, maxYears, plantId, cultivar, assets, leafWind, lodLevels, events],
   );
 
   useAppliedState(
@@ -290,6 +382,8 @@ export function MiscanthusPlant({
   plantId,
   cultivar,
   assets,
+  leafWind,
+  lodLevels,
   level = 0,
   ageYears = 6,
   dayOfYear = 250,
@@ -306,12 +400,14 @@ export function MiscanthusPlant({
         plantId,
         cultivar,
         assets,
+        leafWind,
+        lodLevels,
         ageYears,
         dayOfYear,
         seasonProfile,
         offsetDays,
       }),
-    [seed, maxYears, plantId, cultivar, assets],
+    [seed, maxYears, plantId, cultivar, assets, leafWind, lodLevels],
   );
 
   useAppliedState(
@@ -350,6 +446,8 @@ export function PennisetumPlant({
   plantId,
   cultivar,
   assets,
+  leafWind,
+  lodLevels,
   level = 0,
   ageYears = 5,
   dayOfYear = 230,
@@ -366,12 +464,14 @@ export function PennisetumPlant({
         plantId,
         cultivar,
         assets,
+        leafWind,
+        lodLevels,
         ageYears,
         dayOfYear,
         seasonProfile,
         offsetDays,
       }),
-    [seed, maxYears, plantId, cultivar, assets],
+    [seed, maxYears, plantId, cultivar, assets, leafWind, lodLevels],
   );
 
   useAppliedState(
@@ -413,6 +513,8 @@ export function BlackcurrantPlant({
   plantId,
   cultivar,
   assets,
+  leafWind,
+  lodLevels,
   level = 0,
   ageYears = 4,
   dayOfYear = 175,
@@ -429,12 +531,14 @@ export function BlackcurrantPlant({
         plantId,
         cultivar,
         assets,
+        leafWind,
+        lodLevels,
         ageYears,
         dayOfYear,
         trialYear,
         offsetDays,
       }),
-    [seed, maxYears, plantId, cultivar, assets],
+    [seed, maxYears, plantId, cultivar, assets, leafWind, lodLevels],
   );
 
   useAppliedState(
@@ -482,6 +586,8 @@ export function LavenderPlant({
   plantId,
   cultivar,
   assets,
+  leafWind,
+  lodLevels,
   level = 0,
   ageYears = 4,
   dayOfYear = 190,
@@ -498,13 +604,15 @@ export function LavenderPlant({
         plantId,
         cultivar,
         assets,
+        leafWind,
+        lodLevels,
         ageYears,
         dayOfYear,
         region,
         offsetDays,
       }),
     // Construction options only. Time and season are applied below.
-    [seed, maxYears, plantId, cultivar, assets],
+    [seed, maxYears, plantId, cultivar, assets, leafWind, lodLevels],
   );
 
   useAppliedState(
@@ -520,6 +628,7 @@ export function LavenderPlant({
 
 export {
   HydrangeaPlant as Hydrangea,
+  EchinaceaPlant as Echinacea,
   ForsythiaPlant as Forsythia,
   BlackcurrantPlant as Blackcurrant,
   LavenderPlant as Lavender,
@@ -528,12 +637,14 @@ export {
 };
 export type {
   BlackcurrantStats,
+  EchinaceaStats,
   ForsythiaStats,
   HidcoteRegion,
   HydrangeaStats,
   LavenderStats,
   LimelightSeasonProfile,
   LynwoodRegion,
+  MagnusSeasonProfile,
   MalepartusSeasonProfile,
   MiscanthusStats,
   HamelnSeasonProfile,

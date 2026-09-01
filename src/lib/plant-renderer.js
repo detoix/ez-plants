@@ -916,7 +916,7 @@ export class PlantRenderer extends THREE.Group {
           bounds.union(box);
         }
 
-        organs.push({
+        const organ = {
           kind: this._instancePool.kindOf(mesh),
           name: mesh.name,
           geometry: mesh.geometry,
@@ -926,7 +926,17 @@ export class PlantRenderer extends THREE.Group {
           colors,
           castShadow: mesh.castShadow,
           receiveShadow: mesh.receiveShadow,
-        });
+        };
+        // In three.js, an absent custom shadow material must remain
+        // `undefined`. Assigning `null` opts into the custom-material branch
+        // and then crashes WebGLShadowMap when it tries to configure it.
+        if (mesh.customDepthMaterial) {
+          organ.customDepthMaterial = mesh.customDepthMaterial;
+        }
+        if (mesh.customDistanceMaterial) {
+          organ.customDistanceMaterial = mesh.customDistanceMaterial;
+        }
+        organs.push(organ);
       }
 
       return {

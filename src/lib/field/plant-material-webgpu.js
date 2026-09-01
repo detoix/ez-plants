@@ -2,10 +2,12 @@ import * as THREE from 'three';
 import {
   Fn,
   abs,
+  attribute,
   dot,
   floor,
   max,
   min,
+  mix,
   mod,
   normalViewGeometry,
   normalize,
@@ -27,6 +29,10 @@ import {
   leafWindForMaterial,
   leafWindMetadataForMaterial,
 } from '../leaf-wind.js';
+import {
+  instanceDeformationForMaterial,
+  MAGNUS_HEAD_DEFORMATION,
+} from '../instance-deformation.js';
 
 // This is the same Ashima 3D simplex function used by leaf-wind.js, expressed
 // as nodes rather than a second, approximate wind model. Keeping the signal
@@ -152,6 +158,57 @@ function createLeafWindPositionFactory(wind) {
   };
 }
 
+function deformMagnusHead({ positionNode, instanceMatrix }) {
+  const headWeight = attribute('magnusHead', 'float');
+  const rayWeight = attribute('magnusRay', 'float');
+  // PlantField's WebGPU instance adapter stores the two values in the unused
+  // bottom row of an otherwise affine matrix. The indexed-instancing backend
+  // consumes only the transformed xyz, so these channels do not alter the
+  // placement transform itself.
+  const headVisibility = instanceMatrix.element(0).w;
+  const rayVisibility = instanceMatrix.element(1).w;
+  const headScale = mix(1, headVisibility, headWeight);
+  const rayScale = mix(1, mix(0.34, 1, rayVisibility), rayWeight);
+  return vec3(
+    positionNode.x.mul(headScale).mul(rayScale),
+    mix(positionNode.y, 1, headWeight.mul(headVisibility.oneMinus())),
+    positionNode.z.mul(headScale).mul(rayScale),
+  );
+}
+
+function createPositionFactory(wind, deformation) {
+  const windFactory = wind ? createLeafWindPositionFactory(wind) : null;
+  return (context) => {
+    let positionNode = context.positionNode;
+    if (deformation?.kind === MAGNUS_HEAD_DEFORMATION) {
+      positionNode = deformMagnusHead({ ...context, positionNode });
+    }
+    return windFactory
+      ? windFactory({ ...context, positionNode })
+      : positionNode;
+  };
+}
+
+/**
+ * Move Magnus's packed visibility values into matrix metadata for WebGPU.
+ * Surface tint is restored before the color enters Three's material graph.
+ */
+export function prepareWebGPUPlantInstance(material, matrix, color) {
+  const deformation = instanceDeformationForMaterial(material);
+  if (!deformation) return;
+  if (deformation.kind !== MAGNUS_HEAD_DEFORMATION) {
+    throw new Error(`Unsupported instance deformation: ${deformation.kind}.`);
+  }
+  if (!color) {
+    throw new Error('Magnus head deformation requires an instance color.');
+  }
+
+  matrix.elements[3] = Math.floor(color.r * 0.5);
+  matrix.elements[7] = Math.floor(color.b * 0.5) / 255;
+  color.r %= 2;
+  color.b %= 2;
+}
+
 /**
  * Clone one plant material into a clean WebGPU/TSL source material.
  *
@@ -170,9 +227,10 @@ export function prepareWebGPUPlantMaterial(material) {
   const windMetadata = leafWindMetadataForMaterial(material);
   const authoredNormals = keepsAuthoredNormalsOnBackFaces(material);
   const normalPolicy = leafBackfaceNormalPolicyForMaterial(material);
+  const deformation = instanceDeformationForMaterial(material);
   const hasGLSLHook =
     material.onBeforeCompile !== THREE.Material.prototype.onBeforeCompile;
-  if (hasGLSLHook && !wind && !authoredNormals) {
+  if (hasGLSLHook && !wind && !authoredNormals && !deformation) {
     throw new Error(
       `Material "${material.name || material.type}" has an unsupported GLSL ` +
         'onBeforeCompile customization. Port it to TSL before using WebGPU.',
@@ -184,6 +242,12 @@ export function prepareWebGPUPlantMaterial(material) {
         'an unsupported GLSL customization. Port that customization to TSL.',
     );
   }
+  if (deformation && deformation.kind !== MAGNUS_HEAD_DEFORMATION) {
+    throw new Error(
+      `Material "${material.name || material.type}" has an unsupported ` +
+        `instance deformation: ${deformation.kind}.`,
+    );
+  }
 
   const prepared = material.clone();
   // Material.clone currently omits callbacks, but make the compatibility
@@ -193,10 +257,10 @@ export function prepareWebGPUPlantMaterial(material) {
     THREE.Material.prototype.customProgramCacheKey;
 
   if (authoredNormals) prepared.normalNode = normalViewGeometry;
-  if (wind) {
+  if (wind || deformation) {
     setWebGPUInstancePositionNode(
       prepared,
-      createLeafWindPositionFactory(wind),
+      createPositionFactory(wind, deformation),
     );
   }
   return prepared;

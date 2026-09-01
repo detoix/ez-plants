@@ -7,7 +7,14 @@ import * as THREE from 'three';
 /** A calendar position: a 1-365 day number, a Date, or an ISO/MM-DD string. */
 export type DayOfYearInput = number | Date | string;
 
-/** How the plant has been looked after over its modelled life. */
+/** Construction-time controls for EZ-Tree's shared leaf-wind shader. */
+export interface LeafWindOptions {
+  time?: number;
+  enabled?: boolean;
+  strength?: THREE.Vector3 | { x: number; y: number; z: number };
+  frequency?: number;
+  scale?: number;
+}
 
 export interface PlantAssets {
   /**
@@ -218,6 +225,9 @@ export interface BakedOrgan {
   geometry: THREE.BufferGeometry;
   /** The plant's live material, not a copy. */
   material: THREE.Material;
+  /** Matching live shadow materials, when the organ declares them. */
+  customDepthMaterial?: THREE.Material;
+  customDistanceMaterial?: THREE.Material;
   count: number;
   /** `count * 16` floats, row-major, as `InstancedMesh.instanceMatrix`. */
   matrices: Float32Array;
@@ -286,6 +296,7 @@ export interface BlackcurrantOptions {
   trialYear?: TiselTrialYear;
   offsetDays?: number;
   assets?: PlantAssets;
+  leafWind?: LeafWindOptions;
   events?: Partial<CareEvent>[];
   /**
    * The levels this plant can be drawn at. Defaults to the cultivar's own.
@@ -414,6 +425,7 @@ export interface ForsythiaOptions {
   region?: LynwoodRegion;
   offsetDays?: number;
   assets?: PlantAssets;
+  leafWind?: LeafWindOptions;
   events?: Partial<CareEvent>[];
   /**
    * The levels this plant can be drawn at. Defaults to the cultivar's own.
@@ -550,6 +562,7 @@ export interface HydrangeaOptions {
   seasonProfile?: LimelightSeasonProfile;
   offsetDays?: number;
   assets?: PlantAssets;
+  leafWind?: LeafWindOptions;
   events?: readonly [];
   /**
    * The levels this plant can be drawn at. Defaults to the cultivar's own.
@@ -679,6 +692,7 @@ export interface MiscanthusOptions {
   seasonProfile?: MalepartusSeasonProfile;
   offsetDays?: number;
   assets?: PlantAssets;
+  leafWind?: LeafWindOptions;
   /**
    * Malepartus exposes no destructive care events: its single annual cut is
    * modelled by the calendar's cutback window.
@@ -812,6 +826,7 @@ export interface PennisetumOptions {
   seasonProfile?: HamelnSeasonProfile;
   offsetDays?: number;
   assets?: PlantAssets;
+  leafWind?: LeafWindOptions;
   events?: readonly [];
   lodLevels?: PlantLODLevel[];
 }
@@ -857,6 +872,128 @@ export declare class Pennisetum extends PlantRenderer {
   }): this;
   stats(): PennisetumStats;
   serialize(): PennisetumOptions & { schemaVersion: 1; type: 'Pennisetum' };
+}
+
+/* ==================================================================== *
+ * Purple coneflower — Echinacea purpurea 'Magnus'
+ * ==================================================================== */
+
+/** Weather-timing brackets around the central-Poland phenology calendar. */
+export type MagnusSeasonProfile = 'typical' | 'early' | 'late';
+
+export interface MagnusPhenology {
+  dayOfYear: number;
+  season: 'spring' | 'summer' | 'autumn' | 'winter';
+  phase:
+    | 'standing-dry'
+    | 'cut-back'
+    | 'dormant'
+    | 'emergence'
+    | 'stem-elongation'
+    | 'flower-bud'
+    | 'early-flowering'
+    | 'peak-flowering'
+    | 'late-flowering'
+    | 'seed-ripening'
+    | 'senescence';
+  stage: string;
+  label: string;
+  bbch: string;
+  bbchCode: string;
+  bbchScale: 'general';
+  seasonProfile: MagnusSeasonProfile;
+  seasonProfileLabel: string;
+  offsetDays: number;
+  calendar: Readonly<Record<string, number>>;
+  cutProgress: number;
+  standingDryVisibility: number;
+  currentGrowthVisibility: number;
+  emergenceProgress: number;
+  leafProgress: number;
+  stemGrowthProgress: number;
+  budProgress: number;
+  budVisibility: number;
+  flowerProgress: number;
+  flowerOpenProgress: number;
+  flowerFadeProgress: number;
+  flowerVisibility: number;
+  seedHeadProgress: number;
+  autumnProgress: number;
+  leafDropProgress: number;
+  dryProgress: number;
+  flowersOnCurrentSeasonStems: true;
+  foliageDeciduous: true;
+  winterSeedHeadsRetained: true;
+}
+
+export interface MagnusCrown {
+  radiusM: number;
+  shootSites: number;
+}
+
+export interface EchinaceaOptions {
+  cultivar?: 'Magnus';
+  seed?: string | number;
+  plantId?: string;
+  maxYears?: number;
+  ageYears?: number;
+  dayOfYear?: number;
+  seasonProfile?: MagnusSeasonProfile;
+  offsetDays?: number;
+  assets?: PlantAssets;
+  leafWind?: LeafWindOptions;
+  /**
+   * Magnus exposes no destructive care events. Winter head retention and the
+   * annual cutback are part of its phenology calendar.
+   */
+  events?: readonly [];
+  lodLevels?: PlantLODLevel[];
+}
+
+export interface EchinaceaStats extends PlantRenderStats {
+  species: string;
+  cultivar: string;
+  ageYears: number;
+  dayOfYear: number;
+  seasonProfile: MagnusSeasonProfile;
+  visibleShoots: number;
+  visibleStems: number;
+  stemSegments: number;
+  /** Leaves currently retained by the selected seasonal state and LOD. */
+  visibleLeaves: number;
+  visibleHeads: number;
+  visibleFlowers: number;
+  visibleFlowerBuds: number;
+  visibleSeedHeads: number;
+  flowersOnCurrentSeasonStems: true;
+  crown: MagnusCrown;
+  dimensions: PlantDimensions;
+  phenology: MagnusPhenology;
+  careHints: readonly CareHint[];
+}
+
+export declare class Echinacea extends PlantRenderer {
+  constructor(options?: EchinaceaOptions);
+  seasonProfile: MagnusSeasonProfile;
+  offsetDays: number;
+
+  setState(patch: {
+    ageYears?: number;
+    dayOfYear?: number;
+    seasonProfile?: MagnusSeasonProfile;
+    offsetDays?: number;
+  }): this;
+  setPhenologyProfile(profile?: {
+    seasonProfile?: MagnusSeasonProfile;
+    offsetDays?: number;
+  }): this;
+  stats(): EchinaceaStats;
+  serialize(): EchinaceaOptions & {
+    schemaVersion: 1;
+    type: 'Echinacea';
+    species: string;
+    events: [];
+  };
 }
 
 /* ==================================================================== *
@@ -1051,6 +1188,51 @@ export declare function evaluateLimelightModel(
   [key: string]: unknown;
 };
 
+export declare function getMagnusCalendar(options?: {
+  seasonProfile?: MagnusSeasonProfile;
+  offsetDays?: number;
+}): Readonly<Record<string, number>>;
+
+export declare function getMagnusPhenology(
+  value?: DayOfYearInput,
+  options?: {
+    seasonProfile?: MagnusSeasonProfile;
+    offsetDays?: number;
+  },
+): Readonly<MagnusPhenology>;
+
+export declare function getMagnusCareHints(
+  value?: DayOfYearInput,
+  options?: {
+    plantAgeYears?: number;
+    seasonProfile?: MagnusSeasonProfile;
+    offsetDays?: number;
+  },
+): readonly CareHint[];
+
+export declare function createMagnusModel(options?: {
+  seed?: string | number;
+  maxYears?: number;
+}): { kind: 'echinacea-magnus-growth-model'; [key: string]: unknown };
+
+export declare function evaluateMagnusModel(
+  model: { kind: string; [key: string]: unknown },
+  options?: {
+    ageYears?: number;
+    dayOfYear?: number;
+    events?: readonly [];
+    seasonProfile?: MagnusSeasonProfile;
+    offsetDays?: number;
+  },
+): {
+  crown: MagnusCrown;
+  dimensions: PlantDimensions;
+  phenology: MagnusPhenology;
+  careHints: readonly CareHint[];
+  stats: Record<string, number | boolean>;
+  [key: string]: unknown;
+};
+
 /* ==================================================================== *
  * Sourced cultivar profiles
  * ==================================================================== */
@@ -1144,6 +1326,7 @@ export interface LavenderOptions {
   /** Overrides the olive-grey the stems default to. */
   barkTint?: number;
   assets?: PlantAssets;
+  leafWind?: LeafWindOptions;
   events?: Partial<CareEvent>[];
   /**
    * The levels this plant can be drawn at. Defaults to the cultivar's own.
@@ -1292,4 +1475,24 @@ export declare const HIDCOTE_PHASE_ASSUMPTIONS: Readonly<
 >;
 export declare const HIDCOTE_REGION_OBSERVATIONS: Readonly<
   Record<HidcoteRegion, Readonly<Record<string, unknown>>>
+>;
+
+export declare const MAGNUS_PROFILE: Readonly<Record<string, unknown>>;
+export declare const MAGNUS_SOURCES: Readonly<{
+  rhsCultivar: Readonly<CultivarSource>;
+  polishNurseryAssociation: Readonly<CultivarSource>;
+  jelittoCultivar: Readonly<CultivarSource>;
+  floraNorthAmerica: Readonly<CultivarSource>;
+  ncStateExtension: Readonly<CultivarSource>;
+  cultivarPhotographs: Readonly<Omit<CultivarSource, 'url'>>;
+}>;
+export declare const MAGNUS_CALENDAR: Readonly<Record<string, number>>;
+export declare const MAGNUS_CALENDAR_PROVENANCE: Readonly<
+  Record<string, unknown>
+>;
+export declare const MAGNUS_PHASE_ASSUMPTIONS: Readonly<
+  Record<string, unknown>
+>;
+export declare const MAGNUS_SEASON_PROFILES: Readonly<
+  Record<MagnusSeasonProfile, Readonly<Record<string, unknown>>>
 >;

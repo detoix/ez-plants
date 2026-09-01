@@ -120,7 +120,7 @@ vec4 leafWindPhasePosition = vec4(transformed, 1.0);
   leafWindPhasePosition = batchingMatrix * leafWindPhasePosition;
 #endif
 
-#ifdef USE_INSTANCING
+#if defined(USE_INSTANCING) || defined(USE_INSTANCING_INDIRECT)
   leafWindPhasePosition = instanceMatrix * leafWindPhasePosition;
 #endif
 
@@ -137,10 +137,10 @@ float leafWindSignal =
 // reapplies its scale and rotation without turning that shared wind direction.
 // Keeping scale out of this inverse also preserves the original card-relative
 // sway magnitude used by uniformly scaled instanced and batched leaves.
-#if defined(USE_INSTANCING) || defined(USE_BATCHING)
+#if defined(USE_INSTANCING) || defined(USE_INSTANCING_INDIRECT) || defined(USE_BATCHING)
   vec3 leafWindLocalStrength = uWindStrength;
 
-  #ifdef USE_INSTANCING
+  #if defined(USE_INSTANCING) || defined(USE_INSTANCING_INDIRECT)
     leafWindLocalStrength = leafWindCounterRotate(
       instanceMatrix,
       leafWindLocalStrength

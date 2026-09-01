@@ -73,6 +73,28 @@ that would bring it back.
   every band and on every day of every year: worst case 23,589 / 8,600 / 3,410
   in 3 / 2 / 2 draws, against a target of 25,000 / 10,000 / 5,000.
 
+### Echinacea purpurea 'Magnus' — age and season digital twin
+
+- New `Echinacea` renderer, Three-free deterministic growth model, imperative
+  API, React component, TypeScript declarations, demo descriptor and field
+  extraction support for the documented upright, broad-rayed cultivar.
+- Age anchors build a maintained annual crown from 3 to 12 primary shoots and
+  up to 15 terminal heads. The calendar covers spring emergence, a staggered
+  July-September display, autumn senescence, retained seed heads and gradual
+  late-winter cutback.
+- Rough toothed leaves use a compact photographed alpha plate on EZ-Tree's
+  original two-triangle leaf cards; nearly horizontal rose-purple rays and
+  prickly copper-brown cones remain procedural. Leaf movement uses the shared
+  GPU wind path.
+- Stable organ pools hold the mature display to 8,172 / 4,262 / 2,106
+  triangles at 3 / 2 / 2 draws. Coarse head geometry rungs
+  integrate a ground-connected peduncle; support-only instances collapse the
+  not-yet-visible capitulum so partly headed plants never leave foliage
+  floating above missing stems.
+- Field batching preserves compatible geometry rungs. The WebGPU backend
+  translates Magnus's seasonal head morph to TSL and carries its two visibility
+  values without increasing the 3 / 2 / 2 draw budget.
+
 ### The demo pages work on a phone
 
 Both pages were built for a mouse and a wide window, and on a phone that showed.

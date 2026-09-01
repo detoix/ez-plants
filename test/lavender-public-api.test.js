@@ -154,6 +154,7 @@ test('the app registry carries a complete Lavender descriptor', () => {
   const bark = { type: 'Bark001', textureScale: { x: 1, y: 1 }, maps: {} };
   const registry = Function(
     'Blackcurrant',
+    'Echinacea',
     'Forsythia',
     'HAMELN_PROFILE',
     'HAMELN_SOURCES',
@@ -167,6 +168,8 @@ test('the app registry carries a complete Lavender descriptor', () => {
     'LYNWOOD_SOURCES',
     'MALEPARTUS_PROFILE',
     'MALEPARTUS_SOURCES',
+    'MAGNUS_PROFILE',
+    'MAGNUS_SOURCES',
     'Miscanthus',
     'Pennisetum',
     'TISEL_PROFILE',
@@ -178,6 +181,7 @@ test('the app registry carries a complete Lavender descriptor', () => {
     `${executable}\nreturn { PLANTS, PLANT_IDS };`,
   )(
     capture('Blackcurrant'),
+    capture('Echinacea'),
     capture('Forsythia'),
     publicApi.HAMELN_PROFILE,
     publicApi.HAMELN_SOURCES,
@@ -191,6 +195,8 @@ test('the app registry carries a complete Lavender descriptor', () => {
     publicApi.LYNWOOD_SOURCES,
     publicApi.MALEPARTUS_PROFILE,
     publicApi.MALEPARTUS_SOURCES,
+    publicApi.MAGNUS_PROFILE,
+    publicApi.MAGNUS_SOURCES,
     capture('Miscanthus'),
     capture('Pennisetum'),
     publicApi.TISEL_PROFILE,

@@ -15,6 +15,7 @@ export const FIELD_SPECIES = Object.freeze([
   Object.freeze({ id: 'forsythia', age: 5 }),
   Object.freeze({ id: 'hydrangea', age: 5 }),
   Object.freeze({ id: 'lavender', age: 4 }),
+  Object.freeze({ id: 'echinacea', age: 5 }),
   Object.freeze({ id: 'miscanthus', age: 5 }),
   Object.freeze({ id: 'pennisetum', age: 5 }),
 ]);
@@ -32,7 +33,7 @@ function scaledLevels(levels, scale) {
   }));
 }
 
-/** Build the five-species field on the WebGPU PlantField backend. */
+/** Build the seven-species field on the WebGPU PlantField backend. */
 export async function createMixedPlantField({
   renderer = null,
   camera,

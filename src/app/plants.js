@@ -1,5 +1,6 @@
 import {
   Blackcurrant,
+  Echinacea,
   Forsythia,
   HAMELN_PROFILE,
   HAMELN_SOURCES,
@@ -14,6 +15,8 @@ import {
   MALEPARTUS_PROFILE,
   MALEPARTUS_SOURCES,
   Miscanthus,
+  MAGNUS_PROFILE,
+  MAGNUS_SOURCES,
   Pennisetum,
   TISEL_PROFILE,
   TISEL_SOURCES,
@@ -532,6 +535,73 @@ export const PLANTS = Object.freeze({
             roundedNormals: true,
           },
         },
+      });
+    },
+  }),
+
+  echinacea: Object.freeze({
+    id: 'echinacea',
+    label: 'Purple coneflower',
+    labelPl: 'Jeżówka purpurowa',
+    cultivar: 'Magnus',
+    species: MAGNUS_PROFILE.species,
+    kicker: 'Garden digital twin · proof 07',
+    profile: MAGNUS_PROFILE,
+    sources: MAGNUS_SOURCES,
+    defaults: Object.freeze({ age: 5, day: 205 }),
+    maxYears: 20,
+    size: Object.freeze({
+      heightM: MAGNUS_PROFILE.architecture.matureHeightM,
+      radiusM: MAGNUS_PROFILE.architecture.matureRadiusM,
+    }),
+    bedRadiusM: 0.38,
+    profileControl: Object.freeze({
+      key: 'seasonProfile',
+      label: 'Season timing',
+      options: Object.freeze([
+        ['typical', 'Typical'],
+        ['early', 'Early'],
+        ['late', 'Late'],
+      ]),
+    }),
+    seasons: Object.freeze([
+      { label: 'Winter heads', day: 25 },
+      { label: 'Cut back', day: 62 },
+      { label: 'Emerging', day: 105 },
+      { label: 'Buds', day: 170 },
+      { label: 'Peak bloom', day: 205 },
+      { label: 'Late flowers', day: 250 },
+      { label: 'Dry heads', day: 330 },
+    ]),
+    stats: Object.freeze([
+      { key: 'visibleStems', label: 'Flowering stems' },
+      { key: 'visibleLeaves', label: 'Leaves' },
+      { key: 'visibleFlowers', label: 'Open flowers' },
+      { key: 'visibleFlowerBuds', label: 'Buds' },
+      { key: 'visibleSeedHeads', label: 'Seed heads' },
+    ]),
+    yieldLine: Object.freeze({
+      label: 'Modelled height × spread',
+      key: 'dimensions',
+      unit: 'm',
+      format: (value) =>
+        value
+          ? `${value.heightM.toFixed(2)} × ${value.spreadM.toFixed(2)} m`
+          : '—',
+      note: 'Each capitulum is one complete instanced head with broad Magnus rays, an orange-brown cone and a small involucral bract ring.',
+    }),
+    actions: Object.freeze([]),
+    modelNote:
+      '<strong>A persistent crown, but entirely annual top growth.</strong> Rough alternate leaves build a low clump, sturdy current-season stems carry large upward-facing heads, and the dark cones remain after the leaves and rays have gone. The stand is cleared in late winter before spring emergence.',
+    create(state) {
+      return new Echinacea({
+        cultivar: 'Magnus',
+        seed: state.seed ?? 1985,
+        leafWind: state.leafWind,
+        maxYears: 20,
+        ageYears: state.age,
+        dayOfYear: state.day,
+        seasonProfile: state.phenologyProfile,
       });
     },
   }),

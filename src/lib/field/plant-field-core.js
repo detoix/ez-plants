@@ -108,12 +108,28 @@ function toVector(value) {
   return new THREE.Vector3(value.x ?? 0, value.y ?? 0, value.z ?? 0);
 }
 
+function organAt(prototype, level, kind) {
+  return prototype.bands[level].baked.organs.find(
+    (organ) => organ.kind === kind,
+  );
+}
+
+function sameOrganVariant(a, b) {
+  return (
+    a.geometry === b.geometry &&
+    a.castShadow === b.castShadow &&
+    a.receiveShadow === b.receiveShadow
+  );
+}
+
 export class PlantFieldCore extends THREE.Group {
   static InstancedMesh2 = null;
   static validateBackend() {}
   static prepareMaterial(material) {
     return material;
   }
+  static prepareInstance() {}
+  static useCustomShadowMaterials = true;
 
   /**
    * @param {object} options
@@ -387,8 +403,7 @@ export class PlantFieldCore extends THREE.Group {
   }
 
   /**
-   * One mesh per organ kind for the entire field, sized to the budget rather
-   * than to the field's theoretical peak.
+   * One mesh per compatible geometry rung of an organ kind for the field.
    */
   _createOrganMeshes({ castShadow, receiveShadow }) {
     const kinds = [];
@@ -399,71 +414,65 @@ export class PlantFieldCore extends THREE.Group {
     }
 
     for (const kind of kinds) {
-      const source = this._prototypes
-        .flatMap((prototype) => prototype.bands[0].baked.organs)
-        .find((organ) => organ.kind === kind);
-      if (!source) continue;
+      const sources = [];
+      for (const prototype of this._prototypes) {
+        for (const band of prototype.bands) {
+          const source = band.baked.organs.find((organ) => organ.kind === kind);
+          if (
+            source &&
+            !sources.some((candidate) => sameOrganVariant(candidate, source))
+          ) {
+            sources.push(source);
+          }
+        }
+      }
+      if (sources.length === 0) continue;
 
-      // Sized to the levels the caller actually chose, not to the field's
-      // theoretical peak and not to the budget. instanced-mesh grows its
-      // buffers when asked for more, so this is a starting size rather than a
-      // wall -- which is what lets `setLevels` raise detail later without the
-      // field having to refuse.
-      const capacity = Math.max(
-        1,
-        this._placements.reduce(
-          (total, placement) =>
-            total + placement.prototype.organCount(kind, placement.level),
+      const variants = [];
+      for (const [variantIndex, source] of sources.entries()) {
+        const capacity = Math.max(
+          1,
+          this._placements.reduce((total, placement) => {
+            const organ = organAt(placement.prototype, placement.level, kind);
+            return organ && sameOrganVariant(source, organ)
+              ? total + organ.count
+              : total;
+          }, 0),
+        );
+        const organGeometry = source.geometry.clone();
+        organGeometry.deleteAttribute('instanceIndex');
+        const mesh = new this.constructor.InstancedMesh2(
+          organGeometry,
+          this._prepareBackendMaterial(source.material),
+          { capacity, renderer: this._renderer },
+        );
+        mesh.name = `${this.name}_${source.name}_Rung${variantIndex}`;
+        mesh.count = 0;
+        mesh.frustumCulled = false;
+        mesh.castShadow = castShadow && source.castShadow;
+        mesh.receiveShadow = receiveShadow && source.receiveShadow;
+        if (this.constructor.useCustomShadowMaterials) {
+          if (source.customDepthMaterial) {
+            mesh.customDepthMaterial = source.customDepthMaterial;
+          }
+          if (source.customDistanceMaterial) {
+            mesh.customDistanceMaterial = source.customDistanceMaterial;
+          }
+        }
+        mesh.perObjectFrustumCulled = this._perInstanceCulling;
+
+        variants.push({ mesh, capacity, source });
+        this.add(mesh);
+      }
+
+      this._organMeshes.set(kind, {
+        mesh: variants[0].mesh,
+        capacity: variants.reduce(
+          (total, variant) => total + variant.capacity,
           0,
         ),
-      );
-
-      // InstancedMesh2 stores its per-mesh `instanceIndex` attribute on the
-      // geometry. Organ templates come from the library-wide geometry cache,
-      // so passing the shared object directly lets the last field mesh replace
-      // every earlier mesh's index buffer. The symptom is camera-dependent:
-      // culling one species then changes which leaves another species draws.
-      //
-      // Own the geometry at this boundary. Removing a pre-existing attribute
-      // also makes this safe if a caller hands us geometry previously touched
-      // by another InstancedMesh2.
-      const organGeometry = source.geometry.clone();
-      organGeometry.deleteAttribute('instanceIndex');
-      const mesh = new this.constructor.InstancedMesh2(
-        organGeometry,
-        this._prepareBackendMaterial(source.material),
-        {
-          capacity,
-          renderer: this._renderer,
-        },
-      );
-      mesh.name = `${this.name}_${source.name}`;
-      // A kind can exist in the prototype and still have no instances at the
-      // levels in play -- a band that retires it under library rule 9, or a
-      // season with no fruit. instanced-mesh only assigns `count` during its
-      // own per-object cull, which this field does not use, so without this the
-      // mesh keeps an undefined count and `renderer.info.render.triangles`
-      // becomes NaN for the whole scene, not just for this mesh.
-      mesh.count = 0;
-      // The app owns culling here, exactly as `PlantInstancePool` does for a
-      // single plant: `FieldViewDriver` hides every off-screen plant's
-      // instances, so three.js testing the pooled mesh as a whole is a second
-      // culling system running on a bound this class maintains by hand -- and
-      // that bound is `prototype.bounds`, which knows nothing of the `leafScale`
-      // applied at coarse bands or of the wind's vertex displacement. When all
-      // the plants are hidden the count is already zero, so nothing is drawn
-      // either way and this costs nothing.
-      mesh.frustumCulled = false;
-      mesh.castShadow = castShadow && source.castShadow;
-      mesh.receiveShadow = receiveShadow && source.receiveShadow;
-      // See the constructor's `perInstanceCulling` note. When it is off, the
-      // renderer keeps an index of the instances that are active and visible and
-      // rebuilds it only when something changes, so hiding a plant costs a scan
-      // rather than a frustum test per organ per frame.
-      mesh.perObjectFrustumCulled = this._perInstanceCulling;
-
-      this._organMeshes.set(kind, { mesh, capacity });
-      this.add(mesh);
+        variants,
+      });
     }
   }
 
@@ -595,11 +604,9 @@ export class PlantFieldCore extends THREE.Group {
 
   _applyVisibility(index) {
     const visible = this._visible[index] === 1;
-    for (const [kind, ids] of this._slots[index]) {
-      const entry = this._organMeshes.get(kind);
-      if (!entry) continue;
+    for (const { variant, ids } of this._slots[index].values()) {
       for (let slot = 0; slot < ids.length; slot += 1) {
-        entry.mesh.setVisibilityAt(ids[slot], visible);
+        variant.mesh.setVisibilityAt(ids[slot], visible);
       }
     }
     const placement = this._placements[index];
@@ -654,20 +661,23 @@ export class PlantFieldCore extends THREE.Group {
     let written = 0;
 
     for (const [kind, entry] of this._organMeshes) {
-      const { mesh } = entry;
-
       const previous = slots.get(kind);
-      if (previous?.length) {
-        freeInstances(mesh, previous);
-        this._stats.organInstances -= previous.length;
+      if (previous?.ids.length) {
+        freeInstances(previous.variant.mesh, previous.ids);
+        this._stats.organInstances -= previous.ids.length;
         slots.delete(kind);
       }
 
-      const organ = placement.prototype.bands[level].baked.organs.find(
-        (candidate) => candidate.kind === kind,
-      );
+      const organ = organAt(placement.prototype, level, kind);
       const count = organ?.count ?? 0;
       if (count === 0) continue;
+      const variant = entry.variants.find((candidate) =>
+        sameOrganVariant(candidate.source, organ),
+      );
+      if (!variant) {
+        throw new Error(`No field geometry rung for organ kind ${kind}.`);
+      }
+      const { mesh } = variant;
 
       // `addInstances` chooses the ids -- reused ones first -- so they are
       // captured here in the order it hands them out, and the organ at local
@@ -682,14 +692,19 @@ export class PlantFieldCore extends THREE.Group {
         const id = ids[local];
         organMatrix.fromArray(organ.matrices, local * 16);
         matrix.multiplyMatrices(placement.transform, organMatrix);
+        const instanceColour = organ.colors
+          ? colour.fromArray(organ.colors, local * 3)
+          : null;
+        this.constructor.prepareInstance(
+          organ.material,
+          matrix,
+          instanceColour,
+        );
         mesh.setMatrixAt(id, matrix);
-        if (organ.colors) {
-          colour.fromArray(organ.colors, local * 3);
-          mesh.setColorAt(id, colour);
-        }
+        if (instanceColour) mesh.setColorAt(id, instanceColour);
       }
 
-      slots.set(kind, ids);
+      slots.set(kind, { variant, ids });
       this._stats.organInstances += count;
       written += count;
     }
@@ -731,9 +746,11 @@ export class PlantFieldCore extends THREE.Group {
       bounds.union(placementBounds);
     }
 
-    for (const { mesh } of this._organMeshes.values()) {
-      mesh.boundingBox = bounds.clone();
-      mesh.boundingSphere = bounds.getBoundingSphere(new THREE.Sphere());
+    for (const { variants } of this._organMeshes.values()) {
+      for (const { mesh } of variants) {
+        mesh.boundingBox = bounds.clone();
+        mesh.boundingSphere = bounds.getBoundingSphere(new THREE.Sphere());
+      }
     }
     return this;
   }
@@ -760,7 +777,9 @@ export class PlantFieldCore extends THREE.Group {
    * acceptable rather than inside a render loop.
    */
   compact() {
-    for (const { mesh } of this._organMeshes.values()) mesh.clearInstances();
+    for (const { variants } of this._organMeshes.values()) {
+      for (const { mesh } of variants) mesh.clearInstances();
+    }
     for (const slots of this._slots) slots.clear();
     this._stats.organInstances = 0;
 
@@ -804,20 +823,26 @@ export class PlantFieldCore extends THREE.Group {
   /**
    * What the field costs right now.
    *
-   * `drawCalls` is the field's whole contribution to the frame: one per organ
-   * kind carrying instances, plus one per prototype's wood. It does not grow
-   * with the number of plants, which is the entire claim this class makes.
+   * `drawCalls` is the field's whole contribution to the frame: one per active
+   * compatible organ rung, plus one per prototype's wood. It does not grow with
+   * the number of plants, which is the entire claim this class makes.
    */
   stats() {
-    const organDraws = [...this._organMeshes.values()].filter(
-      (entry) => entry.mesh.instancesCount > 0,
-    ).length;
+    let organDraws = 0;
+    for (const { variants } of this._organMeshes.values()) {
+      for (const { mesh } of variants) {
+        if (mesh.instancesCount > 0) organDraws += 1;
+      }
+    }
 
     let slots = 0;
     const slotsByKind = {};
-    for (const [kind, { mesh }] of this._organMeshes) {
-      slotsByKind[kind] = mesh._instancesArrayCount;
-      slots += mesh._instancesArrayCount;
+    for (const [kind, { variants }] of this._organMeshes) {
+      slotsByKind[kind] = variants.reduce(
+        (total, { mesh }) => total + mesh._instancesArrayCount,
+        0,
+      );
+      slots += slotsByKind[kind];
     }
 
     let visiblePlants = 0;
@@ -891,11 +916,13 @@ export class PlantFieldCore extends THREE.Group {
    */
   dispose() {
     for (const mesh of this._woodMeshes) mesh?.dispose?.();
-    for (const { mesh } of this._organMeshes.values()) {
-      // Organ geometry is cloned specifically for this field mesh; materials
-      // still belong to the source plants and must remain alive.
-      mesh.geometry.dispose();
-      mesh.dispose?.();
+    for (const { variants } of this._organMeshes.values()) {
+      for (const { mesh } of variants) {
+        // Organ geometry is cloned specifically for this field mesh; materials
+        // still belong to the source plants and must remain alive.
+        mesh.geometry.dispose();
+        mesh.dispose?.();
+      }
     }
     this._woodMeshes.length = 0;
     this._organMeshes.clear();

@@ -115,3 +115,19 @@ export {
   createHidcoteModel,
   evaluateHidcoteModel,
 } from './plants/lavender/model.js';
+
+export { Echinacea } from './plants/echinacea/echinacea.js';
+export { MAGNUS_PROFILE, MAGNUS_SOURCES } from './plants/echinacea/magnus.js';
+export {
+  getMagnusPhenology,
+  getMagnusCareHints,
+  getMagnusCalendar,
+  MAGNUS_CALENDAR,
+  MAGNUS_CALENDAR_PROVENANCE,
+  MAGNUS_PHASE_ASSUMPTIONS,
+  MAGNUS_SEASON_PROFILES,
+} from './plants/echinacea/phenology.js';
+export {
+  createMagnusModel,
+  evaluateMagnusModel,
+} from './plants/echinacea/model.js';

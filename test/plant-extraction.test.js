@@ -83,25 +83,46 @@ test('a plant extracted into a bare directory constructs and renders', async () 
   // Inside the repo so Node resolves `three` by walking up to node_modules;
   // a truly bare directory would fail on that peer dependency, which is what
   // the command's own "install peer dependencies" line tells the user.
-  const target = mkdtempSync(join(REPO, '.extract-test-'));
-  try {
-    execFileSync(process.execPath, [SCRIPT, 'hydrangea', target], {
-      cwd: REPO,
-      encoding: 'utf8',
-    });
+  const cases = [
+    {
+      folder: 'hydrangea',
+      exportName: 'Hydrangea',
+      cultivar: 'Limelight',
+      options: { ageYears: 6, dayOfYear: 230 },
+      stage: /panicle/i,
+    },
+    {
+      folder: 'echinacea',
+      exportName: 'Echinacea',
+      cultivar: 'Magnus',
+      options: { ageYears: 5, dayOfYear: 205 },
+      stage: /rose-purple|flower/i,
+    },
+  ];
 
-    // Nothing from the demo app, and no sibling plant, may have come along.
-    assert.deepEqual(readdirSync(join(target, 'plants')), ['hydrangea']);
+  for (const sample of cases) {
+    const target = mkdtempSync(join(REPO, '.extract-test-'));
+    try {
+      execFileSync(process.execPath, [SCRIPT, sample.folder, target], {
+        cwd: REPO,
+        encoding: 'utf8',
+      });
 
-    const { Hydrangea } = await import(
-      pathToFileURL(join(target, 'plants/hydrangea/hydrangea.js')).href
-    );
-    const plant = new Hydrangea({ ageYears: 6, dayOfYear: 230 });
-    assert.equal(plant.cultivar, 'Limelight');
-    assert.ok(plant.stats().drawCalls > 0);
-    assert.match(plant.stats().phenology.stage, /panicle/i);
-    plant.dispose();
-  } finally {
-    rmSync(target, { recursive: true, force: true });
+      // Nothing from the demo app, and no sibling plant, may have come along.
+      assert.deepEqual(readdirSync(join(target, 'plants')), [sample.folder]);
+
+      const module = await import(
+        pathToFileURL(
+          join(target, `plants/${sample.folder}/${sample.folder}.js`),
+        ).href
+      );
+      const plant = new module[sample.exportName](sample.options);
+      assert.equal(plant.cultivar, sample.cultivar);
+      assert.ok(plant.stats().drawCalls > 0);
+      assert.match(plant.stats().phenology.stage, sample.stage);
+      plant.dispose();
+    } finally {
+      rmSync(target, { recursive: true, force: true });
+    }
   }
 });

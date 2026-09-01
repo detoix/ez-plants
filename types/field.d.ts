@@ -20,6 +20,8 @@ export interface BakedOrgan {
   name: string;
   geometry: THREE.BufferGeometry;
   material: THREE.Material;
+  customDepthMaterial?: THREE.Material;
+  customDistanceMaterial?: THREE.Material;
   count: number;
   matrices: Float32Array;
   colors: Float32Array | null;
@@ -133,7 +135,7 @@ export interface PlantFieldOptions {
 export interface PlantFieldStats {
   plants: number;
   prototypes: number;
-  /** One per organ kind carrying instances, plus one per prototype's wood. */
+  /** One per active organ-geometry rung, plus one per prototype's wood. */
   drawCalls: number;
   organDrawCalls: number;
   woodDrawCalls: number;
