@@ -12,13 +12,19 @@ const LEAF_FILES = ['ash.webp', 'aspen.webp', 'oak.webp', 'pine.webp'];
 // Library rule 7: a plant carries its own plate, so these are asserted where
 // they live rather than in the demo app's texture folder.
 const PLANT_ROOT = new URL('../src/lib/plants/', import.meta.url);
-const PLANT_LEAF_PLATES = ['blackcurrant', 'forsythia', 'hydrangea'];
+const PLANT_LEAF_PLATES = [
+  'blackcurrant',
+  'forsythia',
+  'hydrangea',
+  'lavender',
+];
 
 // Plates that are not leaves. A hydrangea's flower head is clothed in cards
 // cut from this one, so it is held to the same contract as a foliage plate.
 const PLANT_ORGAN_PLATES = [
   ['forsythia', 'flower.webp'],
   ['hydrangea', 'floret.webp'],
+  ['lavender', 'spike.webp'],
   ['miscanthus', 'raceme.webp'],
 ];
 
@@ -182,14 +188,14 @@ test('every plant folder carries the plate its renderer defaults to', () => {
 });
 
 test('a leaf card without a plate is never alpha-tested into an opaque rectangle', async () => {
-  const { Blackcurrant, Forsythia, Hydrangea } = await import(
+  const { Blackcurrant, Forsythia, Hydrangea, Lavender } = await import(
     '../src/lib/index.js'
   );
 
   // Node has no image decoder, so the plate resolves to null here. The cards
   // must then render untextured rather than alpha-testing against alpha 1.0,
   // which discards nothing and leaves every leaf a solid quad.
-  for (const Plant of [Blackcurrant, Forsythia, Hydrangea]) {
+  for (const Plant of [Blackcurrant, Forsythia, Hydrangea, Lavender]) {
     const plant = new Plant({ ageYears: 6, dayOfYear: 200 });
     plant.traverse((object) => {
       for (const material of [object.material ?? []].flat()) {

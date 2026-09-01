@@ -96,3 +96,22 @@ export {
   createHamelnModel,
   evaluateHamelnModel,
 } from './plants/pennisetum/model.js';
+export { Lavender } from './plants/lavender/lavender.js';
+export {
+  HIDCOTE_PROFILE,
+  HIDCOTE_RENDER_PRIORS,
+  HIDCOTE_SOURCES,
+} from './plants/lavender/hidcote.js';
+export {
+  getHidcotePhenology,
+  getHidcoteCareHints,
+  getHidcoteCalendar,
+  HIDCOTE_CALENDAR,
+  HIDCOTE_CALENDAR_PROVENANCE,
+  HIDCOTE_PHASE_ASSUMPTIONS,
+  HIDCOTE_REGION_OBSERVATIONS,
+} from './plants/lavender/phenology.js';
+export {
+  createHidcoteModel,
+  evaluateHidcoteModel,
+} from './plants/lavender/model.js';

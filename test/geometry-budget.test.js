@@ -86,6 +86,22 @@ const RECORDED = Object.freeze({
   // into one one-triangle kind, and `woodOrderLimit` stopped meshing the 309
   // short shoots at bands 1 and 2 while keeping everything growing on them.
   forsythia: { triangles: [22680, 8030, 4415], draws: [3, 2, 2] },
+  // Inside the whole budget, triangles and draws, at every band -- and not
+  // only on the peak-season day this file measures, which for this plant
+  // falls a fortnight *after* the shears and so catches it at its cheapest.
+  // Swept across every age and every day of the year, the worst case is
+  // 23,589 / 8,600 / 3,410 in 3 / 2 / 2 draws, at spike emergence in the
+  // fourth year of a replacement cycle.
+  //
+  // What kept it there: the flower stems are wood rather than a third organ
+  // pool, so band 0's third draw goes to the spikes; a spike is eight
+  // triangles of alpha card where the whorls it stands for are several
+  // hundred parts; and `landmarkStride` drops every interior ring from the
+  // green shoots, which a plant with sessile leaves on a 2 mm stem has no use
+  // for. Past band 0 the spikes ride in the leaf pool as cards and
+  // `woodOrderLimit` meshes only the framework, which is the one piece of
+  // wood a lavender ever really shows.
+  lavender: { triangles: [12578, 4184, 1798], draws: [2, 2, 2] },
   // Inside the *triangle* budget at every band as of the card panicle: the
   // head went from five meshes and 6,468 triangles to one mesh and 100, 40 or
   // 14. What is left is a draw debt, and only that. Band 0 spends its third

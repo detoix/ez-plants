@@ -5,6 +5,74 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### A sixth plant: lavender
+
+`Lavandula angustifolia` 'Hidcote', and it is the first **subshrub** in the
+library. Everything that separates it from the three shrubs beside it follows
+from that one word: its wood is a low permanent frame that never renews and
+**cannot be cut into**, so there is no renewal pruning here and no bare-wood
+winter — it is evergreen, and it thins and greys rather than dropping anything.
+Its ornament is not on the plant at all but held on leafless stems above it,
+for about eight weeks, and then sheared off in a single day along with 2.5 cm
+of leaf. An old one is replaced rather than cut back, because there is no cut
+that would bring it back.
+
+- **The calendar is anchored to two dated photographs of identified plants.**
+  The Polish atlas gives the species "(June) July to August (September)", which
+  is a two-month window; 'Hidcote' at full anthesis in Vilnius on 8 July and
+  the same cultivar dark and drying but still uncut at the Wojsławice arboretum
+  on 30 July narrow it to one. The north-east lag is the ten-to-fourteen days
+  this library already observed for forsythia.
+- **A spike is eight triangles.** Rule 9's fuzz clause, applied to the organ
+  the whole plant exists for: five to nine whorls of tiny corollas standing out
+  of a woolly calyx column, several hundred parts on a body four centimetres
+  long, and nearly two hundred and fifty of them on a mature plant. As a crossed
+  alpha card it is eight triangles, and it mipmaps into exactly the haze a real
+  stand reads as. The plate is near-neutral, so the same tile draws the grey-green
+  spike of mid-June, the deep violet of July and the dried head of August.
+- **The display is a fountain, not a layer.** The thing that took longest to
+  get right, and the measurement that settled it: with the stems all lifting
+  toward vertical, 89% of the spikes landed in a 15 cm band at the top of the
+  plant and _none at all_ sat below 24 cm. A photographed lavender has flowers
+  at every height, right down to the soil at its skirt. Three things fixed it
+  — shoots of widely varying length so their tips are not all on one shell,
+  the outermost leaning past horizontal, and a per-stem `lift` that is signed,
+  so a stem near the crown climbs and one out on the skirt carries its spike
+  outward and down. Most shoots flower, too, which is what makes the stems
+  dense enough to hide the foliage the way the photographs do.
+- **The flower stems are wood, and they radiate.** A peduncle is a stiff round
+  stem and belongs in the merged woody mesh with the frame it grows out of,
+  not in an organ pool of its own — which is what leaves band 0 its third draw
+  for the spikes. Each one continues the shoot it stands on, straightening
+  only part of the way toward vertical, so the display is thrown out in every
+  direction at once: up through the middle, sideways at the shoulders, flat
+  over the soil at the edge. Giving them all a common height to reach for
+  instead produces one level violet layer, which is a sheared hedge and not a
+  plant.
+- **No wood is visible, and that took work.** Lavender does have wood — the
+  whole "never cut into old wood" rule exists because of it — but no
+  photograph of a healthy one shows any: the plant meets the soil as a skirt
+  of green shoots. So the framework branch is a 6–16 cm stub that sits inside
+  the foliage envelope, and the mound's whole radius is made by the shoots,
+  which are longer than the branch they stand on and splay nearly as far.
+- **Green foliage with a grey bloom, not silver.** The literature calls this
+  cultivar's leaves "silver-grey" and taking that at face value produced a
+  plant the colour of wormwood. Photographs of it growing are a fresh mid-
+  green; the silver is a coat of white hairs and a pale rolled margin _on_ the
+  green, and it only takes over in winter. The plate is green, the greying is
+  applied lightly on top, and the season tint hands it to the cold.
+- **It keeps its colour at every band.** Rule 9 says a coarse band's feature
+  organ has to be carried by the leaf card; hydrangea and miscanthus both read
+  that as needing a foliage atlas and paid a draw instead. It does not. Once
+  the spike mesh is dropped, lavender seats the whole flower shoot from the
+  leaf pool — the stem as one card stretched thin in the foliage's own
+  grey-green, the head as another at the spike's real width, tinted violet.
+  Four triangles, no new draw, and a field of it does not go grey at four
+  metres.
+- **Inside the whole budget on the day it landed**, triangles and draws, at
+  every band and on every day of every year: worst case 23,589 / 8,600 / 3,410
+  in 3 / 2 / 2 draws, against a target of 25,000 / 10,000 / 5,000.
+
 ### The demo pages work on a phone
 
 Both pages were built for a mouse and a wide window, and on a phone that showed.

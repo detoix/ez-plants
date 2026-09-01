@@ -1069,6 +1069,164 @@ export declare const TISEL_CALENDAR_PROVENANCE: Readonly<
   Record<string, unknown>
 >;
 
+/* ==================================================================== *
+ * Lavender — Lavandula angustifolia 'Hidcote'
+ * ==================================================================== */
+
+/**
+ * Which Polish flowering profile drives the calendar. `central` and
+ * `northeast` are observed regional windows; `early` and `late` bracket the
+ * weather-driven spread between years.
+ */
+export type HidcoteRegion = 'central' | 'northeast' | 'early' | 'late';
+
+export interface HidcotePhenology {
+  dayOfYear: number;
+  season: 'spring' | 'summer' | 'autumn' | 'winter';
+  phase:
+    | 'winter'
+    | 'spring-growth'
+    | 'spike-emergence'
+    | 'flowering'
+    | 'dry-heads'
+    | 'regrowth'
+    | 'late-summer';
+  stage: string;
+  label: string;
+  bbch: string;
+  bbchCode: string;
+  region: HidcoteRegion;
+  offsetDays: number;
+  calendar: Readonly<{
+    springGrowthStart: number;
+    springGrowthEnd: number;
+    spikeEmergenceStart: number;
+    floweringStart: number;
+    floweringPeak: number;
+    floweringEnd: number;
+    dryHeadEnd: number;
+    /** The one cut of the year, after which no spike stands. */
+    trimDay: number;
+    regrowthEnd: number;
+    winterHardeningStart: number;
+    winterHardeningEnd: number;
+  }>;
+  springGrowth: number;
+  /**
+   * Foliage density, not leaf fall. The plant is evergreen: this thins into
+   * winter and refills in spring, and never reaches zero.
+   */
+  leafiness: number;
+  /** How far the mound has gone over to its grey winter colour. */
+  winterProgress: number;
+  /** True from the late-summer shear onward. Nothing fades; it is cut. */
+  trimmed: boolean;
+  regrowth: number;
+  spikeEmergence: number;
+  /** 1 between the stems rising and the shears, 0 either side. */
+  spikeVisibility: number;
+  spikeMaturity: number;
+  flowerProgress: number;
+  dryProgress: number;
+  displayIntensity: number;
+}
+
+export interface LavenderOptions {
+  schemaVersion?: 1;
+  cultivar?: 'Hidcote' | 'Hidcote Blue' | 'Hidcote Purple' | 'Hidcote Variety';
+  seed?: string | number;
+  plantId?: string;
+  maxYears?: number;
+  ageYears?: number;
+  dayOfYear?: number;
+  region?: HidcoteRegion;
+  offsetDays?: number;
+  /** Overrides the olive-grey the stems default to. */
+  barkTint?: number;
+  assets?: PlantAssets;
+  events?: Partial<CareEvent>[];
+  /**
+   * The levels this plant can be drawn at. Defaults to the cultivar's own.
+   *
+   * `distance` on each level is a **suggestion** the library publishes and
+   * never acts on — call `setLevel()` to choose.
+   */
+  lodLevels?: PlantLODLevel[];
+}
+
+export interface LavenderStats extends PlantRenderStats {
+  species: string;
+  cultivar: string;
+  ageYears: number;
+  dayOfYear: number;
+  region: HidcoteRegion;
+  /** Always true: a lavender gets one shear a year and no renewal cut. */
+  shearedAutomatically: boolean;
+  /** Framework branches, the same number `visibleCanes` reports. */
+  visibleBranches: number;
+  /** Green leafy shoots standing on the frame. */
+  visibleShoots: number;
+  visibleSpikes: number;
+  /** True at bands that draw the spikes as leaf cards instead of a mesh. */
+  spikesDrawnAsCards: boolean;
+  /** Unthinned model counts; rendered counts may be lower under LOD. */
+  biologicalVisibleLeaves: number;
+  biologicalVisibleSpikes: number;
+  /** Replacement cycle this age falls in, and how far into it. */
+  cycleIndex: number;
+  cycleAgeYears: number;
+  dimensions: {
+    heightM: number;
+    radiusM: number;
+    spreadM: number;
+    /** The dome of leafy shoots alone, which is what RHS measures. */
+    foliageHeightM: number;
+  };
+  phenology: HidcotePhenology;
+  careHints: readonly CareHint[];
+}
+
+/** The one cut a lavender gets. It carries no target: the whole plant is sheared. */
+export interface TrimEvent extends CareEvent {
+  type: 'trim';
+  method: 'shear-after-flowering';
+}
+
+export declare class Lavender extends PlantRenderer {
+  constructor(options?: LavenderOptions);
+  region: HidcoteRegion;
+  offsetDays: number;
+
+  setState(patch: {
+    ageYears?: number;
+    dayOfYear?: number;
+    region?: HidcoteRegion;
+    offsetDays?: number;
+  }): this;
+  setPhenologyProfile(profile: {
+    region?: HidcoteRegion;
+    offsetDays?: number;
+  }): this;
+
+  /**
+   * Shear the plant early, for the gardener who cuts the spikes for drying
+   * before the display is over.
+   *
+   * There is no `pruneOldestBranch` beside this, and its absence is the
+   * cultivar rather than an omission: lavender does not break from old wood,
+   * so there is no renewal cut to offer. An old plant is replaced.
+   */
+  shear(options?: { ageYears?: number; dayOfYear?: number }): {
+    event: TrimEvent | null;
+    applied: boolean;
+    type?: 'trim';
+    reason?: 'before-flowering' | 'already-sheared';
+  };
+
+  stats(): LavenderStats;
+  serialize(): LavenderOptions & { schemaVersion: 1; type: 'Lavender' };
+}
+
 export declare const LYNWOOD_PROFILE: Readonly<Record<string, unknown>>;
 export declare const LYNWOOD_SOURCES: Readonly<Record<string, CultivarSource>>;
 export declare const LYNWOOD_CALENDAR: Readonly<Record<string, number>>;
@@ -1120,4 +1278,18 @@ export declare const HAMELN_PHASE_ASSUMPTIONS: Readonly<
 >;
 export declare const HAMELN_SEASON_PROFILES: Readonly<
   Record<HamelnSeasonProfile, Readonly<Record<string, unknown>>>
+>;
+
+export declare const HIDCOTE_PROFILE: Readonly<Record<string, unknown>>;
+export declare const HIDCOTE_RENDER_PRIORS: Readonly<Record<string, unknown>>;
+export declare const HIDCOTE_SOURCES: Readonly<Record<string, CultivarSource>>;
+export declare const HIDCOTE_CALENDAR: Readonly<Record<string, number>>;
+export declare const HIDCOTE_CALENDAR_PROVENANCE: Readonly<
+  Record<string, unknown>
+>;
+export declare const HIDCOTE_PHASE_ASSUMPTIONS: Readonly<
+  Record<string, unknown>
+>;
+export declare const HIDCOTE_REGION_OBSERVATIONS: Readonly<
+  Record<HidcoteRegion, Readonly<Record<string, unknown>>>
 >;

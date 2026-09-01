@@ -14,6 +14,7 @@ export const FIELD_SPECIES = Object.freeze([
   Object.freeze({ id: 'blackcurrant', age: 4 }),
   Object.freeze({ id: 'forsythia', age: 5 }),
   Object.freeze({ id: 'hydrangea', age: 5 }),
+  Object.freeze({ id: 'lavender', age: 4 }),
   Object.freeze({ id: 'miscanthus', age: 5 }),
   Object.freeze({ id: 'pennisetum', age: 5 }),
 ]);

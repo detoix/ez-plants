@@ -88,11 +88,13 @@
     "phenology",
     "hydrangea",
     "forsythia",
+    "lavender",
     "blackcurrant",
     "miscanthus",
     "pennisetum",
     "fountain-grass",
-    "ornamental-grass"
+    "ornamental-grass",
+    "subshrub"
   ],
   "peerDependenciesMeta": {
     "react": {

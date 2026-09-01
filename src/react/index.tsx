@@ -10,14 +10,18 @@ import {
   Blackcurrant,
   Forsythia,
   Hydrangea,
+  Lavender,
   Miscanthus,
   Pennisetum,
   type BlackcurrantOptions,
   type BlackcurrantStats,
   type ForsythiaOptions,
   type ForsythiaStats,
+  type HidcoteRegion,
   type HydrangeaOptions,
   type HydrangeaStats,
+  type LavenderOptions,
+  type LavenderStats,
   type LimelightSeasonProfile,
   type LynwoodRegion,
   type MalepartusSeasonProfile,
@@ -444,17 +448,90 @@ export function BlackcurrantPlant({
   return <primitive object={plant} {...groupProps} />;
 }
 
+/* ==================================================================== *
+ * Lavandula angustifolia 'Hidcote'
+ * ==================================================================== */
+
+export interface LavenderProps
+  extends BasePlantProps,
+    Pick<LavenderOptions, ConstructionKeys>,
+    Omit<GroupProps, 'children' | 'args'> {
+  /** Which Polish flowering profile drives the calendar. */
+  region?: HidcoteRegion;
+  onStats?: (stats: LavenderStats) => void;
+}
+
+/**
+ * Lavandula angustifolia 'Hidcote' as a React Three Fiber component.
+ *
+ * A subshrub rather than a shrub, and it behaves like one: the plant is
+ * evergreen, so no day of the year renders it bare, and its display lives on
+ * leafless stems for about eight weeks before being sheared off in a single
+ * day. A `dayOfYear` past the late-summer trim renders a plant with no
+ * flowers at all, which is correct rather than a missing state.
+ *
+ * ```tsx
+ * <Canvas>
+ *   <Lavender ageYears={4} dayOfYear={190} />
+ * </Canvas>
+ * ```
+ */
+export function LavenderPlant({
+  seed,
+  maxYears,
+  plantId,
+  cultivar,
+  assets,
+  level = 0,
+  ageYears = 4,
+  dayOfYear = 190,
+  region = 'central',
+  offsetDays = 0,
+  onStats,
+  ...groupProps
+}: LavenderProps) {
+  const plant = useDisposable(
+    () =>
+      new Lavender({
+        seed,
+        maxYears,
+        plantId,
+        cultivar,
+        assets,
+        ageYears,
+        dayOfYear,
+        region,
+        offsetDays,
+      }),
+    // Construction options only. Time and season are applied below.
+    [seed, maxYears, plantId, cultivar, assets],
+  );
+
+  useAppliedState(
+    plant,
+    { ageYears, dayOfYear, region, offsetDays },
+    onStats as (stats: never) => void,
+  );
+  usePlantLevel(plant, level);
+  usePlantFrame(plant);
+
+  return <primitive object={plant} {...groupProps} />;
+}
+
 export {
   HydrangeaPlant as Hydrangea,
   ForsythiaPlant as Forsythia,
   BlackcurrantPlant as Blackcurrant,
+  LavenderPlant as Lavender,
   MiscanthusPlant as Miscanthus,
   PennisetumPlant as Pennisetum,
 };
 export type {
   BlackcurrantStats,
   ForsythiaStats,
+  HidcoteRegion,
   HydrangeaStats,
+  LavenderStats,
   LimelightSeasonProfile,
   LynwoodRegion,
   MalepartusSeasonProfile,

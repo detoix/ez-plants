@@ -1,9 +1,12 @@
 import {
   Blackcurrant,
   Forsythia,
-  Hydrangea,
   HAMELN_PROFILE,
   HAMELN_SOURCES,
+  HIDCOTE_PROFILE,
+  HIDCOTE_SOURCES,
+  Hydrangea,
+  Lavender,
   LIMELIGHT_PROFILE,
   LIMELIGHT_SOURCES,
   LYNWOOD_PROFILE,
@@ -446,6 +449,89 @@ export const PLANTS = Object.freeze({
         ageYears: state.age,
         dayOfYear: state.day,
         seasonProfile: state.phenologyProfile,
+      });
+    },
+  }),
+  lavender: Object.freeze({
+    id: 'lavender',
+    label: 'Lavender',
+    labelPl: 'Lawenda w\u0105skolistna',
+    cultivar: 'Hidcote',
+    species: HIDCOTE_PROFILE.species,
+    kicker: 'Garden digital twin \u00b7 proof 06',
+    profile: HIDCOTE_PROFILE,
+    sources: HIDCOTE_SOURCES,
+    // Early July: the whole plant in flower, which is the eight weeks a
+    // lavender is grown for.
+    defaults: Object.freeze({ age: 4, day: 190 }),
+    maxYears: HIDCOTE_PROFILE.architecture.modelHorizonYears,
+    size: Object.freeze({
+      heightM: HIDCOTE_PROFILE.architecture.matureHeightM,
+      radiusM: HIDCOTE_PROFILE.architecture.matureRadiusM,
+    }),
+    bedRadiusM: 0.46,
+    profileControl: Object.freeze({
+      key: 'region',
+      label: 'Region',
+      options: Object.freeze([
+        ['central', 'Central PL'],
+        ['northeast', 'NE PL'],
+        ['early', 'Mild yr'],
+        ['late', 'Cold yr'],
+      ]),
+    }),
+    seasons: Object.freeze([
+      { label: 'Winter mound', day: 30 },
+      { label: 'Spring growth', day: 120 },
+      { label: 'Green spikes', day: 165 },
+      { label: 'First colour', day: 180 },
+      { label: 'Peak', day: 190 },
+      { label: 'Going over', day: 212 },
+      { label: 'Sheared', day: 226 },
+      { label: 'Regrown', day: 268 },
+    ]),
+    stats: Object.freeze([
+      { key: 'visibleBranches', label: 'Framework' },
+      { key: 'visibleShoots', label: 'Shoots' },
+      { key: 'visibleLeaves', label: 'Leaves' },
+      { key: 'visibleSpikes', label: 'Spikes' },
+    ]),
+    yieldLine: Object.freeze({
+      label: 'Modelled height \u00d7 spread',
+      key: 'dimensions',
+      unit: 'm',
+      format: (value) =>
+        value
+          ? `${value.heightM.toFixed(2)} \u00d7 ${value.spreadM.toFixed(2)} m`
+          : '\u2014',
+      note: 'Height is measured to the tips of the flower stems; RHS measures the foliage mound alone, which this model keeps separately.',
+    }),
+    // There is nothing selective to prune on a lavender and no renewal cut
+    // available at all. The one shear it gets is in the calendar.
+    actions: Object.freeze([]),
+    modelNote:
+      '<strong>A subshrub: the frame is permanent, and it will not break from old wood.</strong> Everything green is this year\u2019s shoot or last year\u2019s; the display is held on leafless stems for about eight weeks and then sheared off in a day, together with 2.5&nbsp;cm of leaf. There is no renewal cut \u2014 an old, woody plant is replaced, so past year 10 this is the next lavender in the same ground.',
+    create(state) {
+      return new Lavender({
+        cultivar: 'Hidcote',
+        seed: state.seed ?? 20260626,
+        // Lets the field page switch the wind off; it is the most expensive
+        // per-vertex work in the scene, so it has to be measurable.
+        leafWind: state.leafWind,
+        maxYears: HIDCOTE_PROFILE.architecture.modelHorizonYears,
+        ageYears: state.age,
+        dayOfYear: state.day,
+        region: state.phenologyProfile,
+        assets: {
+          // Bush 3 is EZ-Tree's coarser, greyer shrub bark. On this plant it
+          // is tinted olive rather than brown: see the renderer's barkTint.
+          bark: shrubBark('Bush 3'),
+          leaf: {
+            tint: 0xffffff,
+            alphaTest: 0.5,
+            roundedNormals: true,
+          },
+        },
       });
     },
   }),
