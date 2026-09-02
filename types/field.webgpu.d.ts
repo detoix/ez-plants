@@ -2,8 +2,8 @@ import type { Material } from 'three';
 
 /**
  * Clone a plant material into the WebGPU field's supported TSL representation.
- * Known leaf wind and authored back-face normals are preserved; unknown GLSL
- * hooks are rejected.
+ * Known leaf wind, Thuja hierarchy, and authored back-face normals are
+ * preserved; unknown GLSL hooks are rejected.
  */
 export declare function prepareWebGPUPlantMaterial(
   material: Material,

@@ -1096,6 +1096,115 @@ export declare class Cherrylaurel extends PlantRenderer {
 }
 
 /* ==================================================================== *
+ * Emerald arborvitae — Thuja occidentalis 'Smaragd'
+ * ==================================================================== */
+
+/** Weather-timing brackets around the central-Poland spring flush. */
+export type SmaragdSeasonProfile = 'typical' | 'early' | 'late';
+
+export interface SmaragdPhenology {
+  dayOfYear: number;
+  season: 'spring' | 'summer' | 'autumn' | 'winter';
+  phase:
+    | 'winter-evergreen'
+    | 'bud-swelling'
+    | 'spring-flush'
+    | 'summer-canopy'
+    | 'hardening';
+  stage: string;
+  label: string;
+  bbch: string;
+  bbchCode: string;
+  seasonProfile: SmaragdSeasonProfile;
+  seasonProfileLabel: string;
+  offsetDays: number;
+  calendar: Readonly<Record<string, number>>;
+  foliageVisibility: 1;
+  shootGrowthProgress: number;
+  shootExtensionActive: boolean;
+  freshTipProgress: number;
+  tipHardeningProgress: number;
+  winterTone: number;
+  evergreen: true;
+  winterBronzing: false;
+}
+
+export interface ThujaWindOptions {
+  /** Set false to omit all wind shader work. */
+  enabled?: boolean;
+  /** Absolute shader time in seconds. Normally advanced through `update()`. */
+  time?: number;
+  /** World-space prevailing wind vector. */
+  strength?: THREE.Vector3 | { x: number; y: number; z: number };
+  /** Low-frequency whole-crown and scaffold motion rate. */
+  frequency?: number;
+  /** Distal scale-spray displacement in metres. */
+  flutterStrength?: number;
+  /** Distal scale-spray flutter rate. */
+  flutterFrequency?: number;
+  /** Optional initial crown height; live snapshots replace it automatically. */
+  crownHeight?: number;
+  /** Per-LOD crown and terminal responses, from near to far. */
+  lodProfiles?: readonly { crown: number; flutter: number }[];
+}
+
+export interface ThujaOptions {
+  cultivar?: 'Smaragd' | 'Emerald Green' | 'Emerald';
+  seed?: string | number;
+  plantId?: string;
+  maxYears?: number;
+  ageYears?: number;
+  dayOfYear?: number;
+  seasonProfile?: SmaragdSeasonProfile;
+  offsetDays?: number;
+  assets?: PlantAssets;
+  /** Smaragd exposes no destructive care events. */
+  events?: readonly [];
+  lodLevels?: PlantLODLevel[];
+  leafWind?: ThujaWindOptions;
+}
+
+export interface ThujaStats extends PlantRenderStats {
+  species: string;
+  cultivar: string;
+  ageYears: number;
+  dayOfYear: number;
+  seasonProfile: SmaragdSeasonProfile;
+  visibleBoughs: number;
+  visibleLeaderSegments: number;
+  visibleScaffoldSegments: number;
+  visibleBranchlets: number;
+  visibleSprays: number;
+  freshSprays: number;
+  biologicalVisibleSprays: number;
+  maximumVisibleSprays: number;
+  evergreen: true;
+  winterBronzing: false;
+  dimensions: PlantDimensions;
+  phenology: SmaragdPhenology;
+  careHints: readonly CareHint[];
+}
+
+export declare class Thuja extends PlantRenderer {
+  constructor(options?: ThujaOptions);
+  seasonProfile: SmaragdSeasonProfile;
+  offsetDays: number;
+
+  setState(patch: {
+    ageYears?: number;
+    dayOfYear?: number;
+    seasonProfile?: SmaragdSeasonProfile;
+    offsetDays?: number;
+  }): this;
+  setPhenologyProfile(profile: {
+    seasonProfile?: SmaragdSeasonProfile;
+    offsetDays?: number;
+  }): this;
+  stats(): ThujaStats;
+  serialize(): ThujaOptions & { schemaVersion: 1; type: 'Thuja' };
+}
+
+/* ==================================================================== *
  * Free functions
  * ==================================================================== */
 
@@ -1379,6 +1488,50 @@ export declare function evaluateRotundifoliaModel(
   [key: string]: unknown;
 };
 
+export declare function getSmaragdCalendar(options?: {
+  seasonProfile?: SmaragdSeasonProfile;
+  offsetDays?: number;
+}): Readonly<Record<string, number>>;
+
+export declare function getSmaragdPhenology(
+  value?: DayOfYearInput,
+  options?: {
+    seasonProfile?: SmaragdSeasonProfile;
+    offsetDays?: number;
+  },
+): Readonly<SmaragdPhenology>;
+
+export declare function getSmaragdCareHints(
+  value?: DayOfYearInput,
+  options?: {
+    plantAgeYears?: number;
+    seasonProfile?: SmaragdSeasonProfile;
+    offsetDays?: number;
+  },
+): readonly CareHint[];
+
+export declare function createSmaragdModel(options?: {
+  seed?: string | number;
+  maxYears?: number;
+}): { kind: 'thuja-smaragd-growth-model'; [key: string]: unknown };
+
+export declare function evaluateSmaragdModel(
+  model: { kind: string; [key: string]: unknown },
+  options?: {
+    ageYears?: number;
+    dayOfYear?: number;
+    events?: readonly [];
+    seasonProfile?: SmaragdSeasonProfile;
+    offsetDays?: number;
+  },
+): {
+  dimensions: PlantDimensions;
+  phenology: SmaragdPhenology;
+  careHints: readonly CareHint[];
+  stats: Record<string, number | boolean>;
+  [key: string]: unknown;
+};
+
 /* ==================================================================== *
  * Sourced cultivar profiles
  * ==================================================================== */
@@ -1656,4 +1809,18 @@ export declare const ROTUNDIFOLIA_PHASE_ASSUMPTIONS: Readonly<
 >;
 export declare const ROTUNDIFOLIA_SEASON_PROFILES: Readonly<
   Record<RotundifoliaSeasonProfile, Readonly<Record<string, unknown>>>
+>;
+
+export declare const SMARAGD_PROFILE: Readonly<Record<string, unknown>>;
+export declare const SMARAGD_RENDER_PRIORS: Readonly<Record<string, unknown>>;
+export declare const SMARAGD_SOURCES: Readonly<Record<string, CultivarSource>>;
+export declare const SMARAGD_CALENDAR: Readonly<Record<string, number>>;
+export declare const SMARAGD_CALENDAR_PROVENANCE: Readonly<
+  Record<string, unknown>
+>;
+export declare const SMARAGD_PHASE_ASSUMPTIONS: Readonly<
+  Record<string, unknown>
+>;
+export declare const SMARAGD_SEASON_PROFILES: Readonly<
+  Record<SmaragdSeasonProfile, Readonly<Record<string, unknown>>>
 >;

@@ -9,8 +9,9 @@ import type { PlantDetail, PlantLODLevel, PlantRenderer } from './plants';
  * Requires the optional peer `@detoix/instanced-mesh`, and requires `three`
  * r185 to be deduplicated in the consuming bundler. The same field API is
  * exposed by `./field` (WebGL) and `./field/webgpu` (WebGPU). The WebGPU entry
- * translates the library's known leaf-wind and authored-normal hooks to TSL;
- * unknown GLSL `ShaderMaterial` or `onBeforeCompile` customization is rejected.
+ * translates the library's known leaf-wind, Thuja hierarchy, and
+ * authored-normal hooks to TSL; unknown GLSL `ShaderMaterial` or
+ * `onBeforeCompile` customization is rejected.
  * See the README.
  * ==================================================================== */
 

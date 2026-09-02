@@ -29,23 +29,24 @@ test('the field registry includes every shipped plant renderer', () => {
     'echinacea',
     'miscanthus',
     'pennisetum',
+    'thuja',
   ]);
   assert.equal(species.length, FIELD_SPECIES_COUNT);
 });
 
-test('the 400-plant eight-species scatter remains deterministic and terrain-conforming', () => {
+test('the 400-plant nine-species scatter remains deterministic and terrain-conforming', () => {
   const groundAt = (x, z) => terrainHeightAt(x, z, { amplitude: 1.7 });
   const first = createFieldLayout({ groundAt });
   const second = createFieldLayout({ groundAt });
 
   assert.deepEqual(first, second);
   assert.equal(FIELD_DEFAULT_COUNT, 400);
-  assert.equal(FIELD_SPECIES_COUNT, 8);
+  assert.equal(FIELD_SPECIES_COUNT, 9);
   assert.equal(FIELD_LAYOUT_SEED, 20260828);
   assert.equal(first.extent, 25.2);
   assert.deepEqual(
     first.perSpecies.map((placements) => placements.length),
-    [50, 50, 50, 50, 50, 50, 50, 50],
+    [45, 45, 45, 45, 44, 44, 44, 44, 44],
   );
 
   for (const placements of first.perSpecies) {

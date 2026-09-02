@@ -3,8 +3,11 @@ import {
   Fn,
   abs,
   attribute,
+  clamp,
   dot,
   floor,
+  fract,
+  length,
   max,
   min,
   mix,
@@ -12,6 +15,7 @@ import {
   normalViewGeometry,
   normalize,
   sin,
+  smoothstep,
   step,
   uniform,
   uv,
@@ -33,6 +37,12 @@ import {
   instanceDeformationForMaterial,
   MAGNUS_HEAD_DEFORMATION,
 } from '../instance-deformation.js';
+import {
+  readThujaWindMetadataFromMatrix,
+  thujaWindForMaterial,
+} from '../plants/thuja/wind.js';
+
+const GOLDEN_RATIO_CONJUGATE = 0.61803398875;
 
 // This is the same Ashima 3D simplex function used by leaf-wind.js, expressed
 // as nodes rather than a second, approximate wind model. Keeping the signal
@@ -158,6 +168,138 @@ function createLeafWindPositionFactory(wind) {
   };
 }
 
+function createThujaWindPositionFactory(wind) {
+  const time = liveUniform(wind.time, () => wind.time);
+  const strength = liveUniform(
+    wind.uniforms.uWindStrength.value,
+    () => wind.uniforms.uWindStrength.value,
+  );
+  const frequency = liveUniform(
+    wind.uniforms.uWindFrequency.value,
+    () => wind.uniforms.uWindFrequency.value,
+  );
+  const crownHeight = liveUniform(
+    wind.uniforms.uThujaCrownHeight.value,
+    () => wind.uniforms.uThujaCrownHeight.value,
+  );
+  const flutterStrength = liveUniform(
+    wind.uniforms.uThujaFlutterStrength.value,
+    () => wind.uniforms.uThujaFlutterStrength.value,
+  );
+  const flutterFrequency = liveUniform(
+    wind.uniforms.uThujaFlutterFrequency.value,
+    () => wind.uniforms.uThujaFlutterFrequency.value,
+  );
+  const lodNear = liveUniform(
+    wind.uniforms.uThujaLODNear.value,
+    () => wind.uniforms.uThujaLODNear.value,
+  );
+  const lodMiddle = liveUniform(
+    wind.uniforms.uThujaLODMiddle.value,
+    () => wind.uniforms.uThujaLODMiddle.value,
+  );
+  const lodFar = liveUniform(
+    wind.uniforms.uThujaLODFar.value,
+    () => wind.uniforms.uThujaLODFar.value,
+  );
+
+  return ({ positionNode, instanceMatrix }) => {
+    // prepareWebGPUPlantInstance stores the decoded biological channels in the
+    // unused affine bottom row after restoring the metadata-bearing z scale.
+    const familyCode = instanceMatrix.element(0).w;
+    const crownFraction = instanceMatrix.element(1).w;
+    const lodAndExposure = instanceMatrix.element(2).w;
+    const lodLevel = floor(lodAndExposure.div(2));
+    const exposure = lodAndExposure.sub(lodLevel.mul(2));
+
+    const positionInField = instanceMatrix.mul(vec4(positionNode, 1)).xyz;
+    const originInField = instanceMatrix.mul(vec4(0, 0, 0, 1)).xyz;
+    const vertexRise = max(
+      0,
+      positionInField.y.sub(originInField.y).div(crownHeight),
+    );
+    const height = clamp(crownFraction.add(vertexRise), 0, 1);
+    const heightGate = smoothstep(0.08, 0.94, height);
+    const exposureGate = mix(0.16, 1, exposure.mul(exposure));
+    const mobility = max(0.02, min(0.9, heightGate.mul(exposureGate)));
+
+    const familyPhase = fract(familyCode.mul(GOLDEN_RATIO_CONJUGATE)).mul(
+      Math.PI * 2,
+    );
+    const clock = time.mul(frequency);
+    const globalSignal = sin(clock)
+      .mul(0.64)
+      .add(sin(clock.mul(0.57).add(1.9)).mul(0.24))
+      .add(sin(clock.mul(1.71).add(0.4)).mul(0.12));
+    const familySignal = sin(clock.mul(1.19).add(familyPhase));
+
+    const windMagnitude = length(strength.xz);
+    const windDirection = strength.xz.div(max(windMagnitude, 0.000001));
+    const crossDirection = vec2(windDirection.y.negate(), windDirection.x);
+    const middleGate = step(0.5, lodLevel);
+    const farGate = step(1.5, lodLevel);
+    const crownResponse = mix(
+      mix(lodNear.x, lodMiddle.x, middleGate),
+      lodFar.x,
+      farGate,
+    );
+    const flutterResponse = mix(
+      mix(lodNear.y, lodMiddle.y, middleGate),
+      lodFar.y,
+      farGate,
+    );
+
+    const attachmentWeight = smoothstep(0, 0.72, uv().y);
+    const bendWeight = height
+      .mul(height)
+      .mul(mobility)
+      .mul(crownResponse)
+      .mul(attachmentWeight);
+    const crownSignal = globalSignal
+      .mul(0.82)
+      .add(mix(0.08, 0.24, exposure).mul(familySignal));
+    const bend = windMagnitude.mul(bendWeight).mul(crownSignal);
+    const crossBend = windMagnitude.mul(0.16).mul(bendWeight).mul(familySignal);
+
+    const tipWeight = smoothstep(0.38, 1, uv().y);
+    const flutterSignal = sin(
+      time
+        .mul(flutterFrequency)
+        .add(familyPhase.mul(1.73))
+        .add(uv().y.mul(2.4)),
+    ).mul(sin(time.mul(flutterFrequency).mul(0.43).add(familyPhase)));
+    const flutter = flutterStrength
+      .mul(flutterResponse)
+      .mul(tipWeight)
+      .mul(heightGate)
+      .mul(exposure)
+      .mul(exposure)
+      .mul(flutterSignal);
+    const lateral = crossBend.add(flutter);
+    const displacement = vec3(
+      windDirection.x.mul(bend).add(crossDirection.x.mul(lateral)),
+      abs(flutter).mul(0.12),
+      windDirection.y.mul(bend).add(crossDirection.y.mul(lateral)),
+    );
+
+    // The WebGL path bends after the organ matrix, in plant-local metres. TSL
+    // supplies a pre-instance position node, so counter-transform that desired
+    // displacement through the orthogonal matrix columns before returning it.
+    const columnX = instanceMatrix.element(0).xyz;
+    const columnY = instanceMatrix.element(1).xyz;
+    const columnZ = instanceMatrix.element(2).xyz;
+    const scaleX = max(length(columnX), 0.000001);
+    const scaleY = max(length(columnY), 0.000001);
+    const scaleZ = max(length(columnZ), 0.000001);
+    const localDisplacement = vec3(
+      dot(columnX.div(scaleX), displacement).div(scaleX),
+      dot(columnY.div(scaleY), displacement).div(scaleY),
+      dot(columnZ.div(scaleZ), displacement).div(scaleZ),
+    );
+    return positionNode.add(localDisplacement);
+  };
+}
+
 function deformMagnusHead({ positionNode, instanceMatrix }) {
   const headWeight = attribute('magnusHead', 'float');
   const rayWeight = attribute('magnusRay', 'float');
@@ -194,6 +336,22 @@ function createPositionFactory(wind, deformation) {
  * Surface tint is restored before the color enters Three's material graph.
  */
 export function prepareWebGPUPlantInstance(material, matrix, color) {
+  const thujaWind = thujaWindForMaterial(material);
+  if (thujaWind) {
+    const metadata = readThujaWindMetadataFromMatrix(matrix);
+    const elements = matrix.elements;
+    const width = Math.hypot(elements[0], elements[1], elements[2]);
+    const depth = Math.hypot(elements[8], elements[9], elements[10]);
+    const restore = width / depth;
+    elements[8] *= restore;
+    elements[9] *= restore;
+    elements[10] *= restore;
+    elements[3] = metadata.familyCode;
+    elements[7] = metadata.crownFraction;
+    elements[11] = metadata.lodLevel * 2 + metadata.exposure;
+    return;
+  }
+
   const deformation = instanceDeformationForMaterial(material);
   if (!deformation) return;
   if (deformation.kind !== MAGNUS_HEAD_DEFORMATION) {
@@ -213,10 +371,11 @@ export function prepareWebGPUPlantInstance(material, matrix, color) {
  * Clone one plant material into a clean WebGPU/TSL source material.
  *
  * Source plants remain ordinary Three.js/WebGL renderers. Their known shader
- * semantics are carried across explicitly: leaf wind becomes an
- * instance-aware TSL position stage, and rounded card/floret normals retain
- * their authored direction on back faces. Unknown GLSL hooks are rejected so
- * the WebGPU field can never appear to work while silently dropping an effect.
+ * semantics are carried across explicitly: leaf wind and Thuja's hierarchical
+ * crown motion become instance-aware TSL position stages, and rounded
+ * card/floret normals retain their authored direction on back faces. Unknown
+ * GLSL hooks are rejected so the WebGPU field can never appear to work while
+ * silently dropping an effect.
  */
 export function prepareWebGPUPlantMaterial(material) {
   if (!material?.isMaterial) {
@@ -224,13 +383,14 @@ export function prepareWebGPUPlantMaterial(material) {
   }
 
   const wind = leafWindForMaterial(material);
+  const thujaWind = thujaWindForMaterial(material);
   const windMetadata = leafWindMetadataForMaterial(material);
   const authoredNormals = keepsAuthoredNormalsOnBackFaces(material);
   const normalPolicy = leafBackfaceNormalPolicyForMaterial(material);
   const deformation = instanceDeformationForMaterial(material);
   const hasGLSLHook =
     material.onBeforeCompile !== THREE.Material.prototype.onBeforeCompile;
-  if (hasGLSLHook && !wind && !authoredNormals && !deformation) {
+  if (hasGLSLHook && !wind && !thujaWind && !authoredNormals && !deformation) {
     throw new Error(
       `Material "${material.name || material.type}" has an unsupported GLSL ` +
         'onBeforeCompile customization. Port it to TSL before using WebGPU.',
@@ -257,10 +417,12 @@ export function prepareWebGPUPlantMaterial(material) {
     THREE.Material.prototype.customProgramCacheKey;
 
   if (authoredNormals) prepared.normalNode = normalViewGeometry;
-  if (wind || deformation) {
+  if (wind || thujaWind || deformation) {
     setWebGPUInstancePositionNode(
       prepared,
-      createPositionFactory(wind, deformation),
+      thujaWind
+        ? createThujaWindPositionFactory(thujaWind)
+        : createPositionFactory(wind, deformation),
     );
   }
   return prepared;

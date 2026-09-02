@@ -38,7 +38,11 @@ import {
   type PennisetumOptions,
   type PennisetumStats,
   type RotundifoliaSeasonProfile,
+  type SmaragdSeasonProfile,
   type TiselTrialYear,
+  Thuja,
+  type ThujaOptions,
+  type ThujaStats,
 } from '@detoix/ez-plants';
 
 /**
@@ -695,6 +699,65 @@ export function CherrylaurelPlant({
   return <primitive object={plant} {...groupProps} />;
 }
 
+/* ==================================================================== *
+ * Thuja occidentalis 'Smaragd'
+ * ==================================================================== */
+
+export interface ThujaProps
+  extends BasePlantProps,
+    Pick<ThujaOptions, ConstructionKeys>,
+    Omit<GroupProps, 'children' | 'args'> {
+  /** Weather-timing bracket around the central-European spring flush. */
+  seasonProfile?: SmaragdSeasonProfile;
+  onStats?: (stats: ThujaStats) => void;
+}
+
+/** Thuja occidentalis 'Smaragd' as a React Three Fiber component. */
+export function ThujaPlant({
+  seed,
+  maxYears,
+  plantId,
+  cultivar,
+  assets,
+  leafWind,
+  lodLevels,
+  level = 0,
+  ageYears = 10,
+  dayOfYear = 160,
+  seasonProfile = 'typical',
+  offsetDays = 0,
+  onStats,
+  ...groupProps
+}: ThujaProps) {
+  const plant = useDisposable(
+    () =>
+      new Thuja({
+        seed,
+        maxYears,
+        plantId,
+        cultivar,
+        assets,
+        leafWind,
+        lodLevels,
+        ageYears,
+        dayOfYear,
+        seasonProfile,
+        offsetDays,
+      }),
+    [seed, maxYears, plantId, cultivar, assets, leafWind, lodLevels],
+  );
+
+  useAppliedState(
+    plant,
+    { ageYears, dayOfYear, seasonProfile, offsetDays },
+    onStats as (stats: never) => void,
+  );
+  usePlantLevel(plant, level);
+  usePlantFrame(plant);
+
+  return <primitive object={plant} {...groupProps} />;
+}
+
 export {
   HydrangeaPlant as Hydrangea,
   EchinaceaPlant as Echinacea,
@@ -704,6 +767,7 @@ export {
   MiscanthusPlant as Miscanthus,
   PennisetumPlant as Pennisetum,
   CherrylaurelPlant as Cherrylaurel,
+  ThujaPlant as Thuja,
 };
 export type {
   BlackcurrantStats,
@@ -721,5 +785,7 @@ export type {
   HamelnSeasonProfile,
   PennisetumStats,
   RotundifoliaSeasonProfile,
+  SmaragdSeasonProfile,
   TiselTrialYear,
+  ThujaStats,
 };

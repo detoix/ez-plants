@@ -156,13 +156,44 @@ export async function createScene(renderer, descriptor, initialState) {
   const views = plantReviewViews(descriptor);
   const target = new THREE.Vector3();
   const offset = new THREE.Vector3();
+  const plantBounds = new THREE.Box3();
 
   /** Distance from a pose's eye to what it is looking at. */
-  function poseDistance(pose) {
-    return offset
-      .fromArray(pose.position)
-      .sub(target.fromArray(pose.target))
-      .length();
+  function poseDistance(pose, scale = 1) {
+    offset.fromArray(pose.position).multiplyScalar(scale);
+    target.fromArray(pose.target).multiplyScalar(scale);
+    return offset.sub(target).length();
+  }
+
+  function liveDimensions() {
+    const dimensions = plant.stats?.().dimensions;
+    plant.updateWorldMatrix(true, true);
+    plantBounds.setFromObject(plant, true);
+    const boundedHeight = plantBounds.isEmpty()
+      ? 0
+      : plantBounds.max.y - Math.min(0, plantBounds.min.y);
+    const boundedRadius = plantBounds.isEmpty()
+      ? 0
+      : Math.max(
+          Math.abs(plantBounds.min.x),
+          Math.abs(plantBounds.max.x),
+          Math.abs(plantBounds.min.z),
+          Math.abs(plantBounds.max.z),
+        );
+    return {
+      heightM: Math.max(
+        boundedHeight,
+        Number.isFinite(dimensions?.heightM) && dimensions.heightM > 0
+          ? dimensions.heightM
+          : heightM,
+      ),
+      radiusM: Math.max(
+        boundedRadius,
+        Number.isFinite(dimensions?.radiusM) && dimensions.radiusM > 0
+          ? dimensions.radiusM
+          : descriptor.size.radiusM,
+      ),
+    };
   }
 
   /**
@@ -182,16 +213,15 @@ export async function createScene(renderer, descriptor, initialState) {
    * way in, and goes on cropping deliberately, instead of being quietly
    * promoted to the same shot as `front` because a phone is narrow.
    */
-  function aspectFit() {
+  function aspectFit(scale, dimensions) {
     const half = THREE.MathUtils.degToRad(camera.fov) / 2;
-    const { radiusM } = descriptor.size;
-    const targetY = views.front.target[1];
-    const halfHeight = Math.max(targetY, heightM - targetY);
+    const targetY = views.front.target[1] * scale;
+    const halfHeight = Math.max(targetY, dimensions.heightM - targetY);
     const forHeight = halfHeight / Math.tan(half);
-    const forWidth = radiusM / (Math.tan(half) * camera.aspect);
+    const forWidth = dimensions.radiusM / (Math.tan(half) * camera.aspect);
     // A little air, so the outermost twig is not sitting on the frame edge.
     const required = Math.max(forHeight, forWidth) * 1.04;
-    return Math.max(1, required / poseDistance(views.front));
+    return Math.max(1, required / poseDistance(views.front, scale));
   }
 
   let currentView = 'three-quarter';
@@ -199,14 +229,21 @@ export async function createScene(renderer, descriptor, initialState) {
   function setReviewView(requestedView = 'three-quarter') {
     const view = views[requestedView] ? requestedView : 'three-quarter';
     const pose = views[view];
-    const fit = aspectFit();
+    const dimensions = liveDimensions();
+    const scale = dimensions.heightM / heightM;
+    const fit = aspectFit(scale, dimensions);
     currentView = view;
     currentPortrait = camera.aspect < 1;
     camera.up.fromArray(pose.up ?? [0, 1, 0]);
-    target.fromArray(pose.target);
-    offset.fromArray(pose.position).sub(target).multiplyScalar(fit);
+    target.fromArray(pose.target).multiplyScalar(scale);
+    offset
+      .fromArray(pose.position)
+      .multiplyScalar(scale)
+      .sub(target)
+      .multiplyScalar(fit);
     camera.position.copy(target).add(offset);
     controls.target.copy(target);
+    controls.minDistance = dimensions.heightM * 0.8;
     // A pose that had to be pushed back to fit must be allowed to stay there.
     controls.maxDistance = Math.max(heightM * 6, offset.length() * 1.15);
     // Upright, the controls are a sheet along the bottom edge and the plant is

@@ -10,6 +10,12 @@ import {
 } from '../src/lib/leaf-material.js';
 import { LeafWind } from '../src/lib/leaf-wind.js';
 import { Echinacea } from '../src/lib/plants/echinacea/echinacea.js';
+import { Thuja } from '../src/lib/plants/thuja/thuja.js';
+import {
+  readThujaWindMetadataFromMatrix,
+  thujaWindForMaterial,
+} from '../src/lib/plants/thuja/wind.js';
+import { prepareWebGPUPlantInstance } from '../src/lib/field/plant-material-webgpu.js';
 import {
   createPlantPrototype,
   prepareWebGPUPlantMaterial,
@@ -54,6 +60,26 @@ test('material contracts survive separately bundled library entries', async () =
   } finally {
     windMaterial.dispose();
     normalMaterial.dispose();
+  }
+});
+
+test('the Thuja wind contract survives separately bundled library entries', async () => {
+  const producer = await import(
+    '../src/lib/plants/thuja/wind.js?thuja-wind-producer'
+  );
+  const consumer = await import(
+    '../src/lib/plants/thuja/wind.js?thuja-wind-consumer'
+  );
+  const material = new THREE.MeshStandardMaterial({
+    name: 'Cross-bundle Thuja wind',
+  });
+  const wind = new producer.ThujaWind();
+
+  try {
+    wind.apply(material);
+    assert.strictEqual(consumer.thujaWindForMaterial(material), wind);
+  } finally {
+    material.dispose();
   }
 });
 
@@ -241,6 +267,93 @@ test('WebGPU PlantField translates Magnus head morphs without another draw', () 
     assert.ok(Math.abs(color.r - (sourceRed % 2)) < 1e-6);
     assert.ok(Math.abs(color.b - (sourceBlue % 2)) < 1e-6);
     assert.equal(field.stats().organDrawCalls, 3);
+  } finally {
+    field.dispose();
+    prototype.dispose();
+    plant.dispose();
+  }
+});
+
+test('WebGPU PlantField preserves Thuja hierarchy, LOD metadata and metre-scale wind', () => {
+  const plant = new Thuja({
+    seed: 'smaragd-webgpu-field',
+    ageYears: 5,
+    dayOfYear: 160,
+  });
+  const prototype = createPlantPrototype(plant);
+  const source = prototype.bands[0].baked.organs.find(
+    (organ) => organ.kind === 'sprays',
+  );
+  const sourceMatrix = new THREE.Matrix4().fromArray(source.matrices);
+  const sourceMetadata = readThujaWindMetadataFromMatrix(sourceMatrix);
+  const preparedMatrix = sourceMatrix.clone();
+  prepareWebGPUPlantInstance(source.material, preparedMatrix, null);
+  const field = new PlantField({
+    prototypes: [prototype],
+    placements: [{ position: [2, 0, -3], rotationY: 0.7, scale: 1.1 }],
+    perInstanceCulling: false,
+  });
+
+  try {
+    const entry = field._organMeshes.get('sprays');
+    assert.equal(
+      entry.variants.length,
+      3,
+      'the spray LOD ladder was flattened',
+    );
+    const drawLimits = [3, 2, 2];
+    const sprayTriangles = [];
+    for (let level = 0; level < prototype.bands.length; level += 1) {
+      field.setLevelAt(0, level);
+      const levelSource = prototype.bands[level].baked.organs.find(
+        (organ) => organ.kind === 'sprays',
+      );
+      const levelSourceMatrix = new THREE.Matrix4().fromArray(
+        levelSource.matrices,
+      );
+      const levelMetadata = readThujaWindMetadataFromMatrix(levelSourceMatrix);
+      const slot = field._slots[0].get('sprays');
+      const mesh = slot.variant.mesh;
+      const matrix = new THREE.Matrix4();
+      mesh.getMatrixAt(slot.ids[0], matrix);
+      const xScale = new THREE.Vector3().fromArray(matrix.elements, 0).length();
+      const zScale = new THREE.Vector3().fromArray(matrix.elements, 8).length();
+
+      sprayTriangles.push(mesh.geometry.index.count / 3);
+      assert.ok(mesh.material.positionNode?.isNode);
+      assert.ok(mesh.material.castShadowPositionNode?.isNode);
+      assert.equal(matrix.elements[3], levelMetadata.familyCode);
+      assert.ok(
+        Math.abs(matrix.elements[7] - levelMetadata.crownFraction) < 1e-6,
+      );
+      assert.ok(
+        Math.abs(
+          matrix.elements[11] -
+            (levelMetadata.lodLevel * 2 + levelMetadata.exposure),
+        ) < 1e-6,
+      );
+      assert.ok(Math.abs(xScale - zScale) < 1e-6);
+      assert.equal(field.stats().drawCalls, drawLimits[level]);
+    }
+    assert.deepEqual(sprayTriangles, [6, 4, 2]);
+    assert.equal(sourceMetadata.lodLevel, 0);
+    assert.ok(
+      Math.abs(
+        Math.hypot(
+          preparedMatrix.elements[0],
+          preparedMatrix.elements[1],
+          preparedMatrix.elements[2],
+        ) -
+          Math.hypot(
+            preparedMatrix.elements[8],
+            preparedMatrix.elements[9],
+            preparedMatrix.elements[10],
+          ),
+      ) < 1e-9,
+    );
+
+    field.update(0.25, 4.5);
+    assert.equal(thujaWindForMaterial(source.material).time, 4.5);
   } finally {
     field.dispose();
     prototype.dispose();

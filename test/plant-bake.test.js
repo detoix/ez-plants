@@ -91,6 +91,15 @@ test('a bake is plain three, with nothing from an instancing library in it', asy
       for (const organ of baked.organs) {
         assert.ok(organ.geometry.isBufferGeometry, organ.name);
         assert.ok(organ.material.isMaterial, organ.name);
+        for (const shadowMaterial of [
+          organ.customDepthMaterial,
+          organ.customDistanceMaterial,
+        ]) {
+          assert.ok(
+            shadowMaterial == null || shadowMaterial.isMaterial,
+            `${organ.name} has an invalid shadow material`,
+          );
+        }
         assert.ok(organ.matrices instanceof Float32Array, organ.name);
         assert.equal(organ.matrices.length, organ.count * 16, organ.name);
         assert.ok(organ.count > 0, organ.name);
@@ -191,6 +200,8 @@ test('a bake owns its wood copy and nothing else', async () => {
       for (const organ of baked.organs) {
         watch(organ.geometry);
         watch(organ.material);
+        if (organ.customDepthMaterial) watch(organ.customDepthMaterial);
+        if (organ.customDistanceMaterial) watch(organ.customDistanceMaterial);
       }
       if (baked.wood) {
         watch(baked.wood.material);

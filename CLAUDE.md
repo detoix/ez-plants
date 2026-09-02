@@ -28,10 +28,10 @@ hashes, and optimization commands are recorded in
 `src/app/grass-webgpu/assets/grass004/README.md`.
 
 The plants use `@detoix/ez-plants/field/webgpu` and the packed
-`@detoix/instanced-mesh/webgpu` backend. The application recreates the
-original deterministic 400-plant mix: blackcurrant, forsythia, hydrangea, and
-miscanthus, each with a three-prototype pool by default. `FieldViewDriver`
-culls whole plants and applies LOD changes with a per-frame budget. Its
+`@detoix/instanced-mesh/webgpu` backend. The application distributes a
+deterministic 400-plant mix across all nine shipped species, including Thuja,
+with a three-prototype pool by default. `FieldViewDriver` culls whole plants
+and applies LOD changes with a per-frame budget. Its
 whole-plant sphere is the only visibility authority: pooled organs and wood do
 not run a second frustum test. Wood resolves the field's already-applied band,
 so branches and organs cross an LOD boundary together. Query dials are `count`,

@@ -19,6 +19,7 @@ const PLANT_LEAF_PLATES = [
   'forsythia',
   'hydrangea',
   'lavender',
+  'thuja',
 ];
 
 // Plates that are not leaves. A hydrangea's flower head is clothed in cards

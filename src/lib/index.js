@@ -150,3 +150,23 @@ export {
   createRotundifoliaModel,
   evaluateRotundifoliaModel,
 } from './plants/cherrylaurel/model.js';
+
+export { Thuja } from './plants/thuja/thuja.js';
+export {
+  SMARAGD_PROFILE,
+  SMARAGD_RENDER_PRIORS,
+  SMARAGD_SOURCES,
+} from './plants/thuja/smaragd.js';
+export {
+  getSmaragdCalendar,
+  getSmaragdPhenology,
+  getSmaragdCareHints,
+  SMARAGD_CALENDAR,
+  SMARAGD_CALENDAR_PROVENANCE,
+  SMARAGD_PHASE_ASSUMPTIONS,
+  SMARAGD_SEASON_PROFILES,
+} from './plants/thuja/phenology.js';
+export {
+  createSmaragdModel,
+  evaluateSmaragdModel,
+} from './plants/thuja/model.js';

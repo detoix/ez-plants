@@ -1,6 +1,6 @@
 # GPU-driven lawn
 
-This is the lawn rendered by `/field`, alongside the eight-species WebGPU plant
+This is the lawn rendered by `/field`, alongside the nine-species WebGPU plant
 field. Storage buffers, compute atomics, distance thinning and indirect draws
 all run through the same Three.js `WebGPURenderer` as the plants. The small
 entry module loads this runtime only after its capability gate succeeds.

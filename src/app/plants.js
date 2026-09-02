@@ -21,8 +21,11 @@ import {
   Pennisetum,
   ROTUNDIFOLIA_PROFILE,
   ROTUNDIFOLIA_SOURCES,
+  SMARAGD_PROFILE,
+  SMARAGD_SOURCES,
   TISEL_PROFILE,
   TISEL_SOURCES,
+  Thuja,
   TreePreset,
 } from '@detoix/ez-plants';
 import { getBarkMaps, getLeafMap, LeafType } from './textures';
@@ -677,6 +680,73 @@ export const PLANTS = Object.freeze({
             alphaTest: 0.5,
             roundedNormals: true,
           },
+        },
+      });
+    },
+  }),
+
+  thuja: Object.freeze({
+    id: 'thuja',
+    label: 'Thuja',
+    labelPl: 'Żywotnik zachodni',
+    cultivar: 'Smaragd',
+    species: SMARAGD_PROFILE.species,
+    kicker: 'Garden digital twin · proof 09',
+    profile: SMARAGD_PROFILE,
+    sources: SMARAGD_SOURCES,
+    defaults: Object.freeze({ age: 10, day: 160 }),
+    maxYears: 30,
+    size: Object.freeze({
+      heightM: SMARAGD_PROFILE.architecture.tenYearHeightM,
+      radiusM: SMARAGD_PROFILE.architecture.matureRadiusM,
+    }),
+    bedRadiusM: 0.82,
+    profileControl: Object.freeze({
+      key: 'seasonProfile',
+      label: 'Season timing',
+      options: Object.freeze([
+        ['typical', 'Typical'],
+        ['early', 'Early'],
+        ['late', 'Late'],
+      ]),
+    }),
+    seasons: Object.freeze([
+      { label: 'Winter green', day: 30 },
+      { label: 'Bud swell', day: 108 },
+      { label: 'Fresh tips', day: 140 },
+      { label: 'Summer', day: 200 },
+      { label: 'Hardened', day: 270 },
+      { label: 'Winter green', day: 330 },
+    ]),
+    stats: Object.freeze([
+      { key: 'visibleBoughs', label: 'Crown samples' },
+      { key: 'visibleSprays', label: 'Foliage modules' },
+    ]),
+    yieldLine: Object.freeze({
+      label: 'Modelled height × spread',
+      key: 'dimensions',
+      unit: 'm',
+      format: (value) =>
+        value
+          ? `${value.heightM.toFixed(2)} × ${value.spreadM.toFixed(2)} m`
+          : '—',
+      note: 'Each instanced module represents a small cluster of overlapping flat branchlets, not one of the thousands of millimetre-scale leaves.',
+    }),
+    actions: Object.freeze([]),
+    modelNote:
+      '<strong>The foliage is made of flat sprays, not needles.</strong> One merged EZ-Tree leader carries persistent scaffold and renewal cohorts; every branchlet layers four staggered pairs of independently oriented planar scale-spray fans into the closed outer shell. “Smaragd” stays emerald through winter, so the calendar grows pale spring tips but never invents deciduous loss or the wild species&rsquo; bronze winter phase.',
+    create(state) {
+      return new Thuja({
+        cultivar: 'Smaragd',
+        seed: state.seed ?? 1950,
+        leafWind: state.leafWind,
+        maxYears: 30,
+        ageYears: state.age,
+        dayOfYear: state.day,
+        seasonProfile: state.phenologyProfile,
+        assets: {
+          bark: shrubBark('Pine Medium'),
+          leaf: { tint: 0xffffff, roundedNormals: true },
         },
       });
     },

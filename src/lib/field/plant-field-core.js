@@ -13,12 +13,11 @@ import * as THREE from 'three';
  * The field closes that, and it does so differently for the two mesh families,
  * because they want opposite answers:
  *
- * **Organs — one mesh for the whole field, spanning every band.** Organ LOD in
- * this library does not simplify geometry; it draws *fewer* organs and fattens
- * the survivors to compensate. The `BufferGeometry` is byte-identical between
- * bands. So a near plant contributing three thousand leaves and a far one
- * contributing four hundred belong in the same buffer and the same draw call,
- * and the band shows up only in how many instances each writes.
+ * **Organs — one mesh per compatible geometry rung for the whole field.** Most
+ * organ LOD draws *fewer* instances and fattens the survivors, so every band
+ * still shares one buffer and one draw. Plants such as Thuja and Echinacea use
+ * genuinely different index buffers at distance; each distinct rung receives
+ * its own pooled mesh without making draw count depend on plant count.
  *
  * **Wood — one mesh per prototype, with real geometry LODs.** Here the buffers
  * genuinely differ between bands: different vertex counts, different indices,
