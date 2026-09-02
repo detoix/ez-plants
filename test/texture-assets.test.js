@@ -14,6 +14,7 @@ const LEAF_FILES = ['ash.webp', 'aspen.webp', 'oak.webp', 'pine.webp'];
 const PLANT_ROOT = new URL('../src/lib/plants/', import.meta.url);
 const PLANT_LEAF_PLATES = [
   'blackcurrant',
+  'cherrylaurel',
   'echinacea',
   'forsythia',
   'hydrangea',
@@ -189,14 +190,21 @@ test('every plant folder carries the plate its renderer defaults to', () => {
 });
 
 test('a leaf card without a plate is never alpha-tested into an opaque rectangle', async () => {
-  const { Blackcurrant, Echinacea, Forsythia, Hydrangea, Lavender } =
-    await import('../src/lib/index.js');
+  const {
+    Blackcurrant,
+    Cherrylaurel,
+    Echinacea,
+    Forsythia,
+    Hydrangea,
+    Lavender,
+  } = await import('../src/lib/index.js');
 
   // Node has no image decoder, so the plate resolves to null here. The cards
   // must then render untextured rather than alpha-testing against alpha 1.0,
   // which discards nothing and leaves every leaf a solid quad.
   for (const Plant of [
     Blackcurrant,
+    Cherrylaurel,
     Echinacea,
     Forsythia,
     Hydrangea,

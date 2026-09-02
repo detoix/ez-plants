@@ -41,6 +41,7 @@ function loadPlantRegistry() {
   );
   const buildRegistry = Function(
     'Blackcurrant',
+    'Cherrylaurel',
     'Echinacea',
     'Forsythia',
     'HIDCOTE_PROFILE',
@@ -59,6 +60,8 @@ function loadPlantRegistry() {
     'MAGNUS_SOURCES',
     'Miscanthus',
     'Pennisetum',
+    'ROTUNDIFOLIA_PROFILE',
+    'ROTUNDIFOLIA_SOURCES',
     'TISEL_PROFILE',
     'TISEL_SOURCES',
     'TreePreset',
@@ -81,6 +84,7 @@ function loadPlantRegistry() {
 
   return buildRegistry(
     capturePlant('Blackcurrant'),
+    capturePlant('Cherrylaurel'),
     capturePlant('Echinacea'),
     capturePlant('Forsythia'),
     publicApi.HIDCOTE_PROFILE,
@@ -99,6 +103,8 @@ function loadPlantRegistry() {
     publicApi.MAGNUS_SOURCES,
     capturePlant('Miscanthus'),
     capturePlant('Pennisetum'),
+    publicApi.ROTUNDIFOLIA_PROFILE,
+    publicApi.ROTUNDIFOLIA_SOURCES,
     publicApi.TISEL_PROFILE,
     publicApi.TISEL_SOURCES,
     {

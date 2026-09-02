@@ -131,3 +131,22 @@ export {
   createMagnusModel,
   evaluateMagnusModel,
 } from './plants/echinacea/model.js';
+
+export { Cherrylaurel } from './plants/cherrylaurel/cherrylaurel.js';
+export {
+  ROTUNDIFOLIA_PROFILE,
+  ROTUNDIFOLIA_SOURCES,
+} from './plants/cherrylaurel/rotundifolia.js';
+export {
+  getRotundifoliaPhenology,
+  getRotundifoliaCareHints,
+  getRotundifoliaCalendar,
+  ROTUNDIFOLIA_CALENDAR,
+  ROTUNDIFOLIA_CALENDAR_PROVENANCE,
+  ROTUNDIFOLIA_PHASE_ASSUMPTIONS,
+  ROTUNDIFOLIA_SEASON_PROFILES,
+} from './plants/cherrylaurel/phenology.js';
+export {
+  createRotundifoliaModel,
+  evaluateRotundifoliaModel,
+} from './plants/cherrylaurel/model.js';

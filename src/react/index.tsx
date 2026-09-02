@@ -9,6 +9,7 @@ type GroupProps = ThreeElements['group'];
 import {
   Blackcurrant,
   Echinacea,
+  Cherrylaurel,
   Forsythia,
   Hydrangea,
   Lavender,
@@ -18,6 +19,8 @@ import {
   type BlackcurrantStats,
   type EchinaceaOptions,
   type EchinaceaStats,
+  type CherrylaurelOptions,
+  type CherrylaurelStats,
   type ForsythiaOptions,
   type ForsythiaStats,
   type HidcoteRegion,
@@ -34,6 +37,7 @@ import {
   type HamelnSeasonProfile,
   type PennisetumOptions,
   type PennisetumStats,
+  type RotundifoliaSeasonProfile,
   type TiselTrialYear,
 } from '@detoix/ez-plants';
 
@@ -626,6 +630,71 @@ export function LavenderPlant({
   return <primitive object={plant} {...groupProps} />;
 }
 
+/* ==================================================================== *
+ * Prunus laurocerasus 'Rotundifolia'
+ * ==================================================================== */
+
+export interface CherrylaurelProps
+  extends BasePlantProps,
+    Pick<CherrylaurelOptions, ConstructionKeys>,
+    Omit<GroupProps, 'children' | 'args'> {
+  /** Weather-timing bracket around the central-European calendar. */
+  seasonProfile?: RotundifoliaSeasonProfile;
+  onStats?: (stats: CherrylaurelStats) => void;
+}
+
+/**
+ * Prunus laurocerasus 'Rotundifolia' as a React Three Fiber component.
+ *
+ * The persistent woody graph and stable instance pools are built once. Age,
+ * day and season timing mutate that live renderer, including its year-round
+ * evergreen canopy, without replacing the mounted Three.js group.
+ */
+export function CherrylaurelPlant({
+  seed,
+  maxYears,
+  plantId,
+  cultivar,
+  assets,
+  leafWind,
+  lodLevels,
+  level = 0,
+  ageYears = 8,
+  dayOfYear = 119,
+  seasonProfile = 'typical',
+  offsetDays = 0,
+  onStats,
+  ...groupProps
+}: CherrylaurelProps) {
+  const plant = useDisposable(
+    () =>
+      new Cherrylaurel({
+        seed,
+        maxYears,
+        plantId,
+        cultivar,
+        assets,
+        leafWind,
+        lodLevels,
+        ageYears,
+        dayOfYear,
+        seasonProfile,
+        offsetDays,
+      }),
+    [seed, maxYears, plantId, cultivar, assets, leafWind, lodLevels],
+  );
+
+  useAppliedState(
+    plant,
+    { ageYears, dayOfYear, seasonProfile, offsetDays },
+    onStats as (stats: never) => void,
+  );
+  usePlantLevel(plant, level);
+  usePlantFrame(plant);
+
+  return <primitive object={plant} {...groupProps} />;
+}
+
 export {
   HydrangeaPlant as Hydrangea,
   EchinaceaPlant as Echinacea,
@@ -634,10 +703,12 @@ export {
   LavenderPlant as Lavender,
   MiscanthusPlant as Miscanthus,
   PennisetumPlant as Pennisetum,
+  CherrylaurelPlant as Cherrylaurel,
 };
 export type {
   BlackcurrantStats,
   EchinaceaStats,
+  CherrylaurelStats,
   ForsythiaStats,
   HidcoteRegion,
   HydrangeaStats,
@@ -649,5 +720,6 @@ export type {
   MiscanthusStats,
   HamelnSeasonProfile,
   PennisetumStats,
+  RotundifoliaSeasonProfile,
   TiselTrialYear,
 };

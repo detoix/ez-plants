@@ -1,5 +1,6 @@
 import {
   Blackcurrant,
+  Cherrylaurel,
   Echinacea,
   Forsythia,
   HAMELN_PROFILE,
@@ -18,6 +19,8 @@ import {
   MAGNUS_PROFILE,
   MAGNUS_SOURCES,
   Pennisetum,
+  ROTUNDIFOLIA_PROFILE,
+  ROTUNDIFOLIA_SOURCES,
   TISEL_PROFILE,
   TISEL_SOURCES,
   TreePreset,
@@ -602,6 +605,79 @@ export const PLANTS = Object.freeze({
         ageYears: state.age,
         dayOfYear: state.day,
         seasonProfile: state.phenologyProfile,
+      });
+    },
+  }),
+
+  cherrylaurel: Object.freeze({
+    id: 'cherrylaurel',
+    label: 'Cherry laurel',
+    labelPl: 'Laurowiśnia wschodnia',
+    cultivar: 'Rotundifolia',
+    species: ROTUNDIFOLIA_PROFILE.species,
+    kicker: 'Garden digital twin · proof 08',
+    profile: ROTUNDIFOLIA_PROFILE,
+    sources: ROTUNDIFOLIA_SOURCES,
+    // Late April: the year's pale-green flush expands over the evergreen crown.
+    defaults: Object.freeze({ age: 8, day: 119 }),
+    maxYears: 50,
+    size: Object.freeze({
+      heightM: ROTUNDIFOLIA_PROFILE.architecture.matureHeightM,
+      radiusM: ROTUNDIFOLIA_PROFILE.architecture.matureRadiusM,
+    }),
+    bedRadiusM: 2.6,
+    profileControl: Object.freeze({
+      key: 'seasonProfile',
+      label: 'Season timing',
+      options: Object.freeze([
+        ['typical', 'Typical'],
+        ['early', 'Early'],
+        ['late', 'Late'],
+      ]),
+    }),
+    seasons: Object.freeze([
+      { label: 'Winter evergreen', day: 30 },
+      { label: 'Bud swell', day: 96 },
+      { label: 'Flowering', day: 119 },
+      { label: 'Fruit set', day: 155 },
+      { label: 'Fruit developing', day: 205 },
+      { label: 'Ripe fruit', day: 250 },
+      { label: 'Evergreen', day: 330 },
+    ]),
+    stats: Object.freeze([
+      { key: 'visibleCanes', label: 'Framework stems' },
+      { key: 'visibleLeaves', label: 'Evergreen leaves' },
+    ]),
+    yieldLine: Object.freeze({
+      label: 'Modelled height × spread',
+      key: 'dimensions',
+      unit: 'm',
+      format: (value) =>
+        value
+          ? `${value.heightM.toFixed(2)} × ${value.spreadM.toFixed(2)} m`
+          : '—',
+      note: 'The renderer focuses on the woody framework and evergreen foliage.',
+    }),
+    actions: Object.freeze([]),
+    modelNote:
+      '<strong>The glossy crown remains leafed through winter.</strong> This two-draw renderer intentionally models only woody stems and foliage; fresh pale-green growth expands over the older dark canopy as the year advances.',
+    create(state) {
+      return new Cherrylaurel({
+        cultivar: 'Rotundifolia',
+        seed: state.seed ?? 29,
+        leafWind: state.leafWind,
+        maxYears: 50,
+        ageYears: state.age,
+        dayOfYear: state.day,
+        seasonProfile: state.phenologyProfile,
+        assets: {
+          bark: shrubBark('Bush 3'),
+          leaf: {
+            tint: 0xffffff,
+            alphaTest: 0.5,
+            roundedNormals: true,
+          },
+        },
       });
     },
   }),

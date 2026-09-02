@@ -231,6 +231,7 @@ test('the app registry carries a complete Miscanthus descriptor', () => {
   const bark = { type: 'Bark001', textureScale: { x: 1, y: 1 }, maps: {} };
   const registry = Function(
     'Blackcurrant',
+    'Cherrylaurel',
     'Echinacea',
     'Forsythia',
     'HIDCOTE_PROFILE',
@@ -249,6 +250,8 @@ test('the app registry carries a complete Miscanthus descriptor', () => {
     'MAGNUS_SOURCES',
     'Miscanthus',
     'Pennisetum',
+    'ROTUNDIFOLIA_PROFILE',
+    'ROTUNDIFOLIA_SOURCES',
     'TISEL_PROFILE',
     'TISEL_SOURCES',
     'TreePreset',
@@ -258,6 +261,7 @@ test('the app registry carries a complete Miscanthus descriptor', () => {
     `${executable}\nreturn { PLANTS, PLANT_IDS };`,
   )(
     capture('Blackcurrant'),
+    capture('Cherrylaurel'),
     capture('Echinacea'),
     capture('Forsythia'),
     publicApi.HIDCOTE_PROFILE,
@@ -276,6 +280,8 @@ test('the app registry carries a complete Miscanthus descriptor', () => {
     publicApi.MAGNUS_SOURCES,
     capture('Miscanthus'),
     capture('Pennisetum'),
+    publicApi.ROTUNDIFOLIA_PROFILE,
+    publicApi.ROTUNDIFOLIA_SOURCES,
     publicApi.TISEL_PROFILE,
     publicApi.TISEL_SOURCES,
     { 'Bush 1': { bark }, 'Bush 3': { bark } },

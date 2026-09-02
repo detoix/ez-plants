@@ -997,6 +997,105 @@ export declare class Echinacea extends PlantRenderer {
 }
 
 /* ==================================================================== *
+ * Cherry laurel — Prunus laurocerasus 'Rotundifolia'
+ * ==================================================================== */
+
+export type RotundifoliaSeasonProfile = 'typical' | 'early' | 'late';
+
+export interface RotundifoliaPhenology {
+  dayOfYear: number;
+  season: 'spring' | 'summer' | 'autumn' | 'winter';
+  phase:
+    | 'evergreen-rest'
+    | 'spring-flush'
+    | 'flower-bud'
+    | 'flowering'
+    | 'fruit-set'
+    | 'fruit-ripening'
+    | 'ripe-fruit';
+  stage: string;
+  label: string;
+  bbch: string;
+  bbchCode: string;
+  seasonProfile: RotundifoliaSeasonProfile;
+  seasonProfileLabel: string;
+  offsetDays: number;
+  calendar: Readonly<Record<string, number>>;
+  evergreen: true;
+  evergreenLeafRetention: 1;
+  shootGrowthProgress: number;
+  leafFlushProgress: number;
+  leafFlushVisibility: number;
+  flowerBudProgress: number;
+  flowerBudVisibility: number;
+  flowerProgress: number;
+  flowerVisibility: number;
+  flowerOpenVisibility: number;
+  fruitSetProgress: number;
+  fruitGrowthProgress: number;
+  fruitVisibility: number;
+  fruitColourProgress: number;
+  redProgress: number;
+  blackProgress: number;
+  ripeFruitVisibility: number;
+  fruitDropProgress: number;
+  featureStage: 'absent' | 'bud' | 'flower' | 'fruit';
+}
+
+export interface CherrylaurelOptions {
+  cultivar?: 'Rotundifolia';
+  seed?: string | number;
+  plantId?: string;
+  maxYears?: number;
+  ageYears?: number;
+  dayOfYear?: number;
+  seasonProfile?: RotundifoliaSeasonProfile;
+  offsetDays?: number;
+  assets?: PlantAssets;
+  leafWind?: LeafWindOptions;
+  events?: readonly [];
+  lodLevels?: PlantLODLevel[];
+}
+
+export interface CherrylaurelStats extends PlantRenderStats {
+  species: string;
+  cultivar: string;
+  ageYears: number;
+  dayOfYear: number;
+  seasonProfile: RotundifoliaSeasonProfile;
+  visibleRacemes: number;
+  visibleFlowerRacemes: number;
+  visibleFruitRacemes: number;
+  visibleRipeFruitRacemes: number;
+  evergreen: true;
+  dimensions: PlantDimensions;
+  phenology: RotundifoliaPhenology;
+  careHints: readonly CareHint[];
+}
+
+export declare class Cherrylaurel extends PlantRenderer {
+  constructor(options?: CherrylaurelOptions);
+  seasonProfile: RotundifoliaSeasonProfile;
+  offsetDays: number;
+
+  setState(patch: {
+    ageYears?: number;
+    dayOfYear?: number;
+    seasonProfile?: RotundifoliaSeasonProfile;
+    offsetDays?: number;
+  }): this;
+  setPhenologyProfile(profile: {
+    seasonProfile?: RotundifoliaSeasonProfile;
+    offsetDays?: number;
+  }): this;
+  stats(): CherrylaurelStats;
+  serialize(): CherrylaurelOptions & {
+    schemaVersion: 1;
+    type: 'Cherrylaurel';
+  };
+}
+
+/* ==================================================================== *
  * Free functions
  * ==================================================================== */
 
@@ -1228,6 +1327,53 @@ export declare function evaluateMagnusModel(
   crown: MagnusCrown;
   dimensions: PlantDimensions;
   phenology: MagnusPhenology;
+  careHints: readonly CareHint[];
+  stats: Record<string, number | boolean>;
+  [key: string]: unknown;
+};
+
+export declare function getRotundifoliaCalendar(options?: {
+  seasonProfile?: RotundifoliaSeasonProfile;
+  offsetDays?: number;
+}): Readonly<Record<string, number>>;
+
+export declare function getRotundifoliaPhenology(
+  value?: DayOfYearInput,
+  options?: {
+    seasonProfile?: RotundifoliaSeasonProfile;
+    offsetDays?: number;
+  },
+): Readonly<RotundifoliaPhenology>;
+
+export declare function getRotundifoliaCareHints(
+  value?: DayOfYearInput,
+  options?: {
+    plantAgeYears?: number;
+    seasonProfile?: RotundifoliaSeasonProfile;
+    offsetDays?: number;
+  },
+): readonly CareHint[];
+
+export declare function createRotundifoliaModel(options?: {
+  seed?: string | number;
+  maxYears?: number;
+}): {
+  kind: 'cherrylaurel-rotundifolia-growth-model';
+  [key: string]: unknown;
+};
+
+export declare function evaluateRotundifoliaModel(
+  model: { kind: string; [key: string]: unknown },
+  options?: {
+    ageYears?: number;
+    dayOfYear?: number;
+    events?: readonly [];
+    seasonProfile?: RotundifoliaSeasonProfile;
+    offsetDays?: number;
+  },
+): {
+  dimensions: PlantDimensions;
+  phenology: RotundifoliaPhenology;
   careHints: readonly CareHint[];
   stats: Record<string, number | boolean>;
   [key: string]: unknown;
@@ -1495,4 +1641,19 @@ export declare const MAGNUS_PHASE_ASSUMPTIONS: Readonly<
 >;
 export declare const MAGNUS_SEASON_PROFILES: Readonly<
   Record<MagnusSeasonProfile, Readonly<Record<string, unknown>>>
+>;
+
+export declare const ROTUNDIFOLIA_PROFILE: Readonly<Record<string, unknown>>;
+export declare const ROTUNDIFOLIA_SOURCES: Readonly<
+  Record<string, CultivarSource>
+>;
+export declare const ROTUNDIFOLIA_CALENDAR: Readonly<Record<string, number>>;
+export declare const ROTUNDIFOLIA_CALENDAR_PROVENANCE: Readonly<
+  Record<string, unknown>
+>;
+export declare const ROTUNDIFOLIA_PHASE_ASSUMPTIONS: Readonly<
+  Record<string, unknown>
+>;
+export declare const ROTUNDIFOLIA_SEASON_PROFILES: Readonly<
+  Record<RotundifoliaSeasonProfile, Readonly<Record<string, unknown>>>
 >;
