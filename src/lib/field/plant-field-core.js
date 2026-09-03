@@ -131,6 +131,20 @@ export class PlantFieldCore extends THREE.Group {
   static useCustomShadowMaterials = true;
 
   /**
+   * How a backend is told which band a wood instance is drawn at.
+   *
+   * The WebGL backend evaluates a callback per instance per frame. A GPU
+   * backend cannot run JavaScript inside its culling kernel, so it overrides
+   * these to write the same decision as per-instance state instead. Either
+   * way the field decides; only the delivery differs.
+   */
+  static installWoodLODResolver(mesh, resolve) {
+    mesh.resolveLODIndex = resolve;
+  }
+
+  static applyWoodLevel() {}
+
+  /**
    * @param {object} options
    * @param {object[]} options.prototypes Same species, from
    *   `createPlantPrototype`. A field scatters placements across them.
@@ -324,17 +338,22 @@ export class PlantFieldCore extends THREE.Group {
         { capacity: placements.length, renderer: this._renderer },
       );
       mesh.name = `${this.name}_Wood_${index}`;
-      // Whole-plant visibility is authoritative when per-instance culling is
-      // disabled. Wood must follow the same contract as organs: otherwise its
-      // tighter geometry-only sphere can reject branches while the plant's
-      // leaves are still inside the conservative placement sphere.
+      // One wood mesh holds every placement of this prototype, so its own
+      // object-level bound spans the whole field and testing it would only
+      // ever answer yes. Culling happens per instance, below.
       mesh.frustumCulled = false;
-      // This stays off even when a caller opts into per-organ culling. A wood
-      // instance represents the whole skeleton but owns only a tight branch
-      // bound, so testing it independently can remove the skeleton while leaf
-      // cards from the same placement remain. Whole-plant visibility is the
-      // only safe authority for wood.
-      mesh.perObjectFrustumCulled = false;
+      // Wood is culled against the whole plant, not against its own branches.
+      // A wood instance represents the entire skeleton but its geometry bound
+      // covers only the branches, so testing that bound could remove the
+      // skeleton while leaf cards from the same placement remain. Replacing
+      // the sphere with the prototype's full bounds makes wood the most
+      // conservative bound in the field, which is what makes it safe to cull
+      // per instance at all.
+      placementBounds.copy(prototype.bounds);
+      mesh.geometry.boundingSphere = placementBounds.getBoundingSphere(
+        new THREE.Sphere(),
+      );
+      mesh.perObjectFrustumCulled = true;
       mesh.castShadow = castShadow;
       mesh.receiveShadow = receiveShadow;
 
@@ -372,20 +391,22 @@ export class PlantFieldCore extends THREE.Group {
       if (mesh.LODinfo?.shadowRender?.levels.length > 1) {
         shadowLevelForBand[prototype.bands.length - 1] = 1;
       }
-      mesh.resolveLODIndex = (
-        slot,
-        _renderView,
-        _distanceView,
-        computedIndex,
-        isShadowPass,
-      ) => {
-        const placementIndex = placementIndexes[slot];
-        if (placementIndex === undefined) return computedIndex;
-        const band = this._levels[placementIndex];
-        return isShadowPass && hasShadowLevels
-          ? shadowLevelForBand[band]
-          : renderLevelForBand[band];
+      const woodBands = {
+        renderLevelForBand,
+        shadowLevelForBand,
+        hasShadowLevels,
       };
+      this.constructor.installWoodLODResolver(
+        mesh,
+        (slot, _renderView, _distanceView, computedIndex, isShadowPass) => {
+          const placementIndex = placementIndexes[slot];
+          if (placementIndex === undefined) return computedIndex;
+          const band = this._levels[placementIndex];
+          return isShadowPass && hasShadowLevels
+            ? shadowLevelForBand[band]
+            : renderLevelForBand[band];
+        },
+      );
 
       mesh.addInstances(placements.length);
       for (const [slot, placement] of placements.entries()) {
@@ -393,6 +414,8 @@ export class PlantFieldCore extends THREE.Group {
         // Remembered so a hidden plant loses its trunk as well as its leaves.
         placement.woodMesh = mesh;
         placement.woodSlot = slot;
+        placement.woodBands = woodBands;
+        this._applyWoodLevel(placementIndexes[slot]);
       }
       mesh.computeBoundingBox();
 
@@ -601,6 +624,26 @@ export class PlantFieldCore extends THREE.Group {
     return this;
   }
 
+  /**
+   * Tell the backend which band this placement's wood is drawn at.
+   *
+   * A no-op on a backend that reads the resolver callback instead.
+   */
+  _applyWoodLevel(index) {
+    const placement = this._placements[index];
+    const bands = placement?.woodBands;
+    if (!bands || !placement.woodMesh) return this;
+
+    const band = this._levels[index];
+    this.constructor.applyWoodLevel(
+      placement.woodMesh,
+      placement.woodSlot,
+      bands.renderLevelForBand[band],
+      bands.hasShadowLevels ? bands.shadowLevelForBand[band] : -1,
+    );
+    return this;
+  }
+
   _applyVisibility(index) {
     const visible = this._visible[index] === 1;
     for (const { variant, ids } of this._slots[index].values()) {
@@ -713,6 +756,7 @@ export class PlantFieldCore extends THREE.Group {
     if (this._visible[index] === 0) this._applyVisibility(index);
 
     this._levels[index] = level;
+    this._applyWoodLevel(index);
     this._stats.repacks += 1;
     this._stats.instanceWrites += written;
     // Drawn as asked. If the levels the caller chose need more instances than

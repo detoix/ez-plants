@@ -140,11 +140,11 @@ export async function createMixedPlantField({
         castShadow: shadows,
         receiveShadow: shadows,
         name: `${descriptor.label}Field`,
-        // FieldViewDriver owns one conservative sphere per whole plant. A
-        // second leaf/branch culler uses different bounds and can split a
-        // plant at the edge of the view, so the production field deliberately
-        // has one visibility authority.
-        perInstanceCulling: false,
+        // The WebGPU backend culls per instance in a compute pass, so this
+        // costs no measurable CPU and is exact: a plant at the edge of the
+        // view draws only the leaves that are actually on screen. It was off
+        // while culling was a CPU scan over every pooled organ.
+        perInstanceCulling: true,
       });
       group.add(field);
       fields.push({

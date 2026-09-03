@@ -5,14 +5,20 @@ import * as THREE from 'three';
 
 import { FieldViewDriver } from '../src/app/field-view.js';
 
-test('whole-plant culling uses the WebGPU near-plane convention', () => {
-  let visibility = null;
+test('on-screen tests use the WebGPU near-plane convention, and hide nothing', () => {
+  // The driver still decides which plants are on screen, but only to spend its
+  // level-change budget on plants somebody can see. Hiding them is the
+  // renderer's job, per instance, in a compute pass.
+  let hidden = 0;
   const field = {
     placementSphere() {
       return new THREE.Sphere(new THREE.Vector3(0, 0, -0.05), 0.001);
     },
-    setVisibility(flags) {
-      visibility = Array.from(flags, Boolean);
+    setVisibility() {
+      hidden += 1;
+    },
+    setVisibleAt() {
+      hidden += 1;
     },
     setLevelAt() {},
   };
@@ -30,5 +36,5 @@ test('whole-plant culling uses the WebGPU near-plane convention', () => {
   const stats = driver.update(camera);
 
   assert.equal(stats.visible, 0);
-  assert.deepEqual(visibility, [false]);
+  assert.equal(hidden, 0, 'the driver must not hide placements itself');
 });

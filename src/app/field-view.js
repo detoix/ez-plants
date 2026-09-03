@@ -11,17 +11,18 @@ const projection = new THREE.Matrix4();
  * suggested distances and its placements' bounds, and acts on neither -- it
  * reads no camera at all. This is the camera.
  *
- * ## Culling whole plants
+ * ## Culling is the renderer's job now
  *
- * `InstancedMesh2` can cull per instance, and at field scale that is the wrong
- * granularity by a wide margin: organs are pooled per kind across every plant,
- * so the renderer has nothing coarser than one leaf to reason about, and tests
- * every one of them every frame. Measured at 400 plants: 434,000 sphere tests
- * costing ~36 ms, to reject about three quarters of them. One sphere per plant
- * rejected 73% in 0.007 ms in the original measurement, because a plant behind
- * you takes all of its leaves with it.
+ * It did not used to be. Culling 434,000 pooled organs on the CPU cost ~36 ms
+ * at 400 plants, so this driver culled whole plants instead -- one sphere each,
+ * 0.007 ms -- and hid the losers with `setVisibility`. The WebGPU backend now
+ * runs that test per instance in a compute pass at no measurable CPU cost, and
+ * against each instance's own bounds, so it rejects strictly more than a
+ * whole-plant sphere could.
  *
- * So the field is built with `perInstanceCulling: false` and told what to hide.
+ * This driver therefore no longer hides anything. It still computes which
+ * plants are on screen, for one reason only: to spend its level-change budget
+ * on plants somebody can see.
  *
  * ## Deferring detail nobody can see
  *
@@ -96,14 +97,10 @@ export class FieldViewDriver {
       const { chosen, levels } = entry;
       const count = chosen.length;
       total += count;
-      let changedVisibility = false;
 
       for (let index = 0; index < count; index += 1) {
         const onScreen = this.frustum.intersectsSphere(spheres[index]) ? 1 : 0;
-        if (onScreen !== visible[index]) {
-          visible[index] = onScreen;
-          changedVisibility = true;
-        }
+        visible[index] = onScreen;
         if (onScreen) visibleCount += 1;
 
         // Levels are still decided for everything. The decision is arithmetic
@@ -121,10 +118,6 @@ export class FieldViewDriver {
           record.pending += 1;
           queued += 1;
         }
-      }
-
-      if (changedVisibility) {
-        entry.field.setVisibility(visible);
       }
     }
 

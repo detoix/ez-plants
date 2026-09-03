@@ -302,18 +302,16 @@ test('slack from demotions is reported, and compact() reclaims it', async () => 
 });
 
 test('a placement can be hidden, and stays hidden across a level change', async () => {
-  // Culling at field scale belongs to the caller, because the renderer's own
-  // per-instance test has nothing coarser than a leaf to reason about: 434,000
-  // sphere tests a frame at 400 plants, against 400 if you know which leaves
-  // belong to which plant. This is the API that makes the cheap version
-  // possible, so it has to be exact about what disappears.
+  // Frustum culling is the renderer's job now, but hiding a placement is not
+  // the same thing: a caller may want a plant gone for reasons no camera test
+  // will discover. This is that API, so it has to be exact about what
+  // disappears -- organs and trunk together, and across a level change.
   await withField(
     'hydrangea',
     { count: 20, perInstanceCulling: false },
     (field) => {
       for (const mesh of field._woodMeshes.filter(Boolean)) {
         assert.equal(mesh.frustumCulled, false);
-        assert.equal(mesh.perObjectFrustumCulled, false);
       }
       for (const { variants } of field._organMeshes.values()) {
         for (const { mesh } of variants) {
@@ -373,14 +371,34 @@ test('a placement can be hidden, and stays hidden across a level change', async 
   );
 });
 
-test('wood never re-enables its tighter per-object frustum bound', async () => {
+test('wood is culled against the whole plant, never against its own branches', async () => {
+  // Wood may be culled per instance only because its bound was replaced with
+  // the prototype's full extent. Its own geometry bound covers the branches
+  // alone, and testing that would drop a skeleton while the leaf cards of the
+  // same placement stayed on screen.
   await withField(
     'blackcurrant',
     { count: 12, perInstanceCulling: true },
-    (field) => {
-      for (const mesh of field._woodMeshes.filter(Boolean)) {
+    (field, prototypes) => {
+      for (const [index, mesh] of field._woodMeshes.entries()) {
+        if (!mesh) continue;
         assert.equal(mesh.frustumCulled, false);
-        assert.equal(mesh.perObjectFrustumCulled, false);
+        assert.equal(mesh.perObjectFrustumCulled, true);
+
+        const plant = new THREE.Box3()
+          .copy(prototypes[index].bounds)
+          .getBoundingSphere(new THREE.Sphere());
+        const branches = mesh.geometry.clone();
+        branches.computeBoundingSphere();
+        assert.ok(
+          mesh.geometry.boundingSphere.radius >= plant.radius - 1e-6,
+          'the wood culling bound does not cover the whole plant',
+        );
+        assert.ok(
+          mesh.geometry.boundingSphere.radius > branches.boundingSphere.radius,
+          'the wood culling bound is still the tight branch bound',
+        );
+        branches.dispose();
       }
       for (const { mesh } of field._organMeshes.values()) {
         assert.equal(mesh.perObjectFrustumCulled, true);

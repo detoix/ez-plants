@@ -17,6 +17,19 @@ export class PlantField extends PlantFieldCore {
   static prepareMaterial = prepareWebGPUPlantMaterial;
   static prepareInstance = prepareWebGPUPlantInstance;
   static useCustomShadowMaterials = false;
+
+  /**
+   * A `resolveLODIndex` callback cannot run inside a culling compute shader,
+   * and installing one would send the whole wood mesh back to the CPU path.
+   * The band is written as per-instance state instead, where the kernel reads
+   * it -- the same decision, delivered as data.
+   */
+  static installWoodLODResolver() {}
+
+  static applyWoodLevel(mesh, slot, renderLevel, shadowLevel) {
+    mesh.setLODOverrideAt(slot, renderLevel);
+    mesh.setLODOverrideAt(slot, shadowLevel, true);
+  }
 }
 
 export default PlantField;

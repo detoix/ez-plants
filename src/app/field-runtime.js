@@ -131,9 +131,13 @@ function createHUD(renderer, adapter, surface) {
         `${grassStats.computeCalls} this frame · ${GRASS_RINGS.length + 1} steady`,
       );
       set('placements', formatInteger(grassStats.placements));
+      // The on-screen count comes from the view driver's per-plant sphere test.
+      // `visiblePlants` counts placements not hidden through `setVisibility`,
+      // and nothing hides them any more -- frustum culling is the backend's,
+      // per instance -- so that number is always the whole field.
       set(
         'plant-count',
-        `${formatInteger(plantStats.visiblePlants)} / ${formatInteger(plantStats.plants)}`,
+        `${formatInteger(plantStats.culling?.visible ?? plantStats.visiblePlants)} / ${formatInteger(plantStats.plants)}`,
       );
       set('plant-instances', formatInteger(plantStats.organInstances));
       set('plant-draws', formatInteger(plantStats.drawCalls));

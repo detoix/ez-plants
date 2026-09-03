@@ -30,11 +30,15 @@ hashes, and optimization commands are recorded in
 The plants use `@detoix/ez-plants/field/webgpu` and the packed
 `@detoix/instanced-mesh/webgpu` backend. The application distributes a
 deterministic 400-plant mix across all nine shipped species, including Thuja,
-with a three-prototype pool by default. `FieldViewDriver` culls whole plants
-and applies LOD changes with a per-frame budget. Its
-whole-plant sphere is the only visibility authority: pooled organs and wood do
-not run a second frustum test. Wood resolves the field's already-applied band,
-so branches and organs cross an LOD boundary together. Query dials are `count`,
+with a three-prototype pool by default. Frustum culling is the
+backend's: it tests every organ and wood instance in a compute pass, so the
+field is built with `perInstanceCulling: true`. Wood is culled against the
+prototype's full bounds rather than its own branch bound, which is what makes
+testing it per instance safe. `FieldViewDriver` no longer hides anything; it
+still decides which plants are on screen, so its per-frame LOD budget is spent
+on plants somebody can see. Wood consumes the field's already-applied band as
+per-instance state (`setLODOverrideAt`), so branches and organs cross an LOD
+boundary together without a per-instance JavaScript callback. Query dials are `count`,
 `day`, `prototypes`, `budget`, `lod`, `wind`, `shadows`, `pixelratio`,
 `terrain`, and `underlay`.
 

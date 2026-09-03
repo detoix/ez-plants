@@ -72,7 +72,7 @@ web_modules/
 # Output of 'npm pack'
 *.tgz
 !vendor/
-!vendor/detoix-instanced-mesh-0.3.16-webgpu.0.tgz
+!vendor/detoix-instanced-mesh-0.4.0-webgpu.0.tgz
 
 # Yarn Integrity file
 .yarn-integrity
