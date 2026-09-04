@@ -74,28 +74,39 @@ test('foliage is never empty, on any day of any year', () => {
   }
 });
 
-test('coarse bands carry the display on the leaf card rather than dropping it', () => {
+test('coarse bands drop the spikes rather than disguising them', () => {
+  // The spikes are this plant's feature organ and they hold band 0's third
+  // draw. Past band 0 a plant is wood and foliage, and the display goes with
+  // the draw.
+  //
+  // This renderer used to re-seat each spike as two cards from the leaf pool
+  // instead, which kept the colour at no extra draw and cost far more than it
+  // saved: cards at placements no leaf occupies mean a coarse band is not a
+  // subset of the fine one, which is what lets a field allocate the leaf pool
+  // once instead of once per band. Measured across 400 plants, that was the
+  // difference between 310 MiB of instance data and 91 MiB.
   const plant = makePlant({ ageYears: 5, dayOfYear: 193 });
   try {
     const spikes = meshNamed(plant, MESH_NAMES.spikes);
     const leaves = meshNamed(plant, MESH_NAMES.leaves);
     const band0 = { spikes: spikes.count, leaves: leaves.count };
-    assert.ok(band0.spikes > 0);
-    assert.equal(plant.stats().spikesDrawnAsCards, false);
+    assert.ok(band0.spikes > 0, 'band 0 must draw real spikes');
 
     for (const level of [1, 2]) {
       plant.setLevel(level);
       const stats = plant.stats();
-      // The spike mesh is gone and the plant is inside two draws...
-      assert.equal(spikes.count, 0);
-      assert.equal(stats.drawCalls, 2);
-      // ...but the spikes themselves are not: they are still reported, and
-      // they are still being written, as cards from the leaf pool.
-      assert.equal(stats.spikesDrawnAsCards, true);
-      assert.ok(stats.visibleSpikes > 0, `band ${level} lost its flowers`);
+      assert.equal(spikes.count, 0, `band ${level} still draws a spike mesh`);
+      assert.equal(stats.drawCalls, 2, `band ${level} is not wood and foliage`);
+      assert.equal(
+        stats.visibleSpikes,
+        0,
+        `band ${level} still reports spikes it does not draw`,
+      );
+      // The leaf pool holds leaves and nothing else, which is the property the
+      // field's composed path depends on.
       assert.ok(
-        leaves.count > stats.visibleSpikes * 2,
-        `band ${level} leaf pool must carry the stems and spikes too`,
+        leaves.count > 0 && leaves.count < band0.leaves,
+        `band ${level} should thin the foliage, not carry extra cards in it`,
       );
     }
 

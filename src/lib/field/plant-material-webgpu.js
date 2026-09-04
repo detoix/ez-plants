@@ -335,7 +335,7 @@ function createPositionFactory(wind, deformation) {
  * Move Magnus's packed visibility values into matrix metadata for WebGPU.
  * Surface tint is restored before the color enters Three's material graph.
  */
-export function prepareWebGPUPlantInstance(material, matrix, color) {
+export function prepareWebGPUPlantInstance(material, matrix, color, level) {
   const thujaWind = thujaWindForMaterial(material);
   if (thujaWind) {
     const metadata = readThujaWindMetadataFromMatrix(matrix);
@@ -348,7 +348,13 @@ export function prepareWebGPUPlantInstance(material, matrix, color) {
     elements[10] *= restore;
     elements[3] = metadata.familyCode;
     elements[7] = metadata.crownFraction;
-    elements[11] = metadata.lodLevel * 2 + metadata.exposure;
+    // The band comes from the caller when it knows one. A field composes a
+    // survivor's matrix from the finest band, so the ratio it decodes carries
+    // that band's LOD level rather than the one being drawn -- while the
+    // family, crown height and exposure it also carries are properties of the
+    // spray and identical at every band.
+    const lodLevel = Number.isInteger(level) ? level : metadata.lodLevel;
+    elements[11] = lodLevel * 2 + metadata.exposure;
     return;
   }
 

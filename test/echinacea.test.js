@@ -705,7 +705,7 @@ test('serialization round-trips state and custom leaf wind reaches every render 
   }
 });
 
-test('one packed head pool morphs rays, cones and support-only stalks', () => {
+test('one packed head pool morphs its rays and cones', () => {
   const plant = new Echinacea({
     seed: 'magnus-ray-morph',
     ageYears: 5,
@@ -761,102 +761,107 @@ test('one packed head pool morphs rays, cones and support-only stalks', () => {
       assert.equal(decodeHeadVisibility(heads.instanceColor.getX(index)), 1);
     }
 
+    // A coarse band draws the heads it has and no others. It used to add one
+    // capitulum-less head per flowering axis, to stand in for the stalk the
+    // dropped stems left behind; the stems are drawn at every band now.
     plant.setState({ ageYears: 5, dayOfYear: 158 });
     plant.setLevel(2);
     let visibleCapitula = 0;
-    let supportOnlyStalks = 0;
     for (let index = 0; index < heads.count; index += 1) {
-      if (decodeHeadVisibility(heads.instanceColor.getX(index))) {
-        visibleCapitula += 1;
-      } else {
-        supportOnlyStalks += 1;
-      }
+      assert.equal(
+        decodeHeadVisibility(heads.instanceColor.getX(index)),
+        1,
+        `coarse head ${index} was written without its capitulum`,
+      );
+      visibleCapitula += 1;
     }
     assert.ok(visibleCapitula > 0);
-    assert.ok(supportOnlyStalks > 0);
-    assert.equal(heads.count, plant.stats().visibleAxes);
+    assert.ok(heads.count <= plant.stats().visibleAxes);
   } finally {
     plant.dispose();
   }
 });
 
-test('a retained lateral winter cone keeps a ground-connected coarse support', () => {
-  const snapshot = evaluateMagnusModel(
-    createMagnusModel({ seed: 'audit', maxYears: 20 }),
-    { ageYears: 5, dayOfYear: 12 },
-  );
-  assert.ok(
-    snapshot.heads.some((head) => head.axisId.includes(':axis:lateral')),
-    'fixture no longer retains a lateral winter cone',
-  );
-  assert.ok(
-    snapshot.heads.every((head) => Math.abs(head.stemBasePosition.y) < 1e-9),
-  );
-
-  const plant = new Echinacea({
-    seed: 'audit',
-    ageYears: 5,
-    dayOfYear: 12,
-  });
-  const instance = new THREE.Matrix4();
+test('a coarse band draws every head where the fine band drew it', () => {
+  // A coarse band used to re-root each head at its stem base and stretch it to
+  // the stem's length, so the head drew the stalk the dropped stems left
+  // behind. That made a coarse band a different set of organs rather than the
+  // fine set with some culled, and cost this kind the field's composed path.
+  const plant = new Echinacea({ seed: 'audit', ageYears: 5, dayOfYear: 215 });
+  const fine = new THREE.Matrix4();
+  const coarse = new THREE.Matrix4();
   try {
-    plant.setLevel(2);
     const heads = meshNamed(plant, MESH_NAMES.heads);
-    assert.equal(
-      heads.count,
-      snapshot.heads.length + snapshot.headSupports.length,
-    );
-    assert.equal(heads.count, snapshot.axes.length);
-    assert.equal(heads.geometry.userData.coarsePeduncle, true);
+    plant.setLevel(0);
+    const positions = [];
     for (let index = 0; index < heads.count; index += 1) {
-      heads.getMatrixAt(index, instance);
-      assert.ok(
-        Math.abs(instance.elements[13]) < 1e-6,
-        `coarse winter support ${index} floats above the crown`,
+      heads.getMatrixAt(index, fine);
+      positions.push(new THREE.Vector3().setFromMatrixPosition(fine));
+    }
+    assert.ok(positions.length > 0);
+    assert.ok(
+      positions.every((position) => position.y > 0.05),
+      'a head at band 0 should stand on its stem, not on the crown',
+    );
+
+    for (const level of [1, 2]) {
+      plant.setLevel(level);
+      assert.equal(
+        heads.count,
+        positions.length,
+        `band ${level} draws a different number of heads`,
       );
+      for (let index = 0; index < heads.count; index += 1) {
+        heads.getMatrixAt(index, coarse);
+        const there = new THREE.Vector3().setFromMatrixPosition(coarse);
+        assert.ok(
+          there.distanceTo(positions[index]) < 1e-6,
+          `band ${level} moved head ${index} by ${there.distanceTo(positions[index])} m`,
+        );
+      }
     }
   } finally {
     plant.dispose();
   }
 });
 
-test('coarse seasons integrate one support for every visible flowering axis', () => {
-  const plant = new Echinacea({
-    seed: 's2',
-    ageYears: 5,
-    dayOfYear: 73,
-  });
-  const model = createMagnusModel({ seed: 's2' });
-  const instance = new THREE.Matrix4();
+test('the stems are drawn at every band, and stay where they are', () => {
+  // The third part past band 0, recorded in `test/geometry-budget.test.js`.
+  // Echinacea is at two fifths of its triangle budget, and the alternative was
+  // folding the stems into the heads, which is what broke composition.
+  const plant = new Echinacea({ seed: 's2', ageYears: 5, dayOfYear: 200 });
+  const matrix = new THREE.Matrix4();
   try {
+    const stems = meshNamed(plant, MESH_NAMES.stems);
+    plant.setLevel(0);
+    const fine = [];
+    for (let index = 0; index < stems.count; index += 1) {
+      stems.getMatrixAt(index, matrix);
+      fine.push(matrix.clone());
+    }
+    assert.ok(fine.length > 0);
+    const band0Triangles = stems.geometry.index.count / 3;
+
     for (const level of [1, 2]) {
       plant.setLevel(level);
-      for (const dayOfYear of [73, 140, 158]) {
-        plant.setState({ dayOfYear });
-        const snapshot = evaluateMagnusModel(model, {
-          ageYears: 5,
-          dayOfYear,
-        });
-        const stats = plant.stats();
-        const heads = meshNamed(plant, MESH_NAMES.heads);
-        assert.ok(stats.visibleAxes > 0);
-        assert.equal(stats.stemSegments, 0);
-        assert.equal(meshNamed(plant, MESH_NAMES.stems).count, 0);
-        assert.equal(
-          heads.count,
-          snapshot.heads.length + snapshot.headSupports.length,
+      assert.equal(
+        stems.count,
+        fine.length,
+        `band ${level} stopped drawing some stem segments`,
+      );
+      assert.ok(
+        stems.geometry.index.count / 3 < band0Triangles,
+        `band ${level} should take a cheaper stem rung`,
+      );
+      for (let index = 0; index < stems.count; index += 1) {
+        stems.getMatrixAt(index, matrix);
+        assert.deepEqual(
+          [...matrix.elements],
+          [...fine[index].elements],
+          `band ${level} moved stem segment ${index}`,
         );
-        assert.equal(heads.count, stats.visibleAxes);
-        assert.ok(stats.drawCalls <= 2);
-        for (let index = 0; index < heads.count; index += 1) {
-          heads.getMatrixAt(index, instance);
-          assert.ok(Math.abs(instance.elements[13]) < 1e-6);
-        }
-        if (dayOfYear === 158) {
-          assert.ok(stats.visibleHeads > 0);
-          assert.ok(stats.visibleHeads < stats.visibleAxes);
-        }
       }
+      assert.ok(plant.stats().stemSegments > 0);
     }
   } finally {
     plant.dispose();
@@ -870,7 +875,12 @@ test('all three LODs stay within the new-plant triangle and draw budgets', () =>
     dayOfYear: 230,
   });
   const triangleLimits = [25_000, 10_000, 5_000];
-  const drawLimits = [3, 2, 2];
+  // Three parts at every band, not the usual 3/2/2. Recorded, with its
+  // reasoning and its numbers, in `test/geometry-budget.test.js`: this plant
+  // sits at two fifths of its triangle budget, and the alternative to a third
+  // part was folding its stems into its heads, which cost the field the
+  // composed path for the kind.
+  const drawLimits = [3, 3, 3];
   const worstTriangles = [0, 0, 0];
   const worstDraws = [0, 0, 0];
   try {
@@ -889,13 +899,13 @@ test('all three LODs stay within the new-plant triangle and draw budgets', () =>
     for (let level = 0; level < plant.lodLevels.length; level += 1) {
       plant.setLevel(level);
       assert.equal(meshNamed(plant, MESH_NAMES.heads).count, matureHeadCount);
-      assert.equal(
+      // No band carries a stem inside its head geometry any more, and every
+      // band draws the real stems.
+      assert.notEqual(
         meshNamed(plant, MESH_NAMES.heads).geometry.userData.coarsePeduncle,
-        level > 0,
+        true,
       );
-      if (level > 0) {
-        assert.equal(meshNamed(plant, MESH_NAMES.stems).count, 0);
-      }
+      assert.ok(meshNamed(plant, MESH_NAMES.stems).count > 0);
     }
 
     for (const dayOfYear of [20, 165, 205, 230, 280, 320]) {

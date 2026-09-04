@@ -25,12 +25,8 @@ const UP = new THREE.Vector3(0, 1, 0);
  * A lavender leaf is more than ten times as long as it is wide, and the
  * plate keeps that proportion (`scripts/make-lavender-leaf-texture.mjs`), so a card
  * scaled uniformly by leaf length comes out the right width with no second
- * number to keep in step. The constant is needed for the *other* two things
- * this plate draws — the flower stems and the spikes at coarse bands — which
- * are given a real width rather than a length, and therefore have to divide
- * by the share of the tile the paint covers.
+ * number to keep in step.
  */
-const LEAF_PLATE_FILL = 0.096;
 
 /**
  * Foliage colour through the year.
@@ -67,64 +63,47 @@ const SPIKE_TINT_SPREAD = 0.12;
 /** Instance colour for an organ that wants the material's own colour. */
 const NEUTRAL = new THREE.Color(0xffffff);
 
-/**
- * How far down to bring a spike stand-in's colour.
- *
- * The two plates do not sit at the same value. The spike plate is a dark
- * calyx column with bright corollas on it, deliberately, because that
- * contrast is the whole read of the organ; the leaf plate is one even
- * mid-grey-green. Tinting a leaf card with a spike's colour therefore
- * produces something visibly lighter and more saturated than the mesh it
- * stands in for, and a band change becomes a change of colour rather than a
- * change of detail. This is the difference between the two plates' mean
- * values, applied once.
- */
-const STAND_IN_VALUE = 0.62;
-
-/**
- * Two kinds, and the second one is the plant.
- *
- * There is no third. A lavender's other candidates for an organ mesh are the
- * flower stems, and they are wood: a peduncle is a stem, it is stiff, round
- * and 20 cm long, and it belongs in the same merged mesh as the frame it grows
- * out of rather than in a pool of its own. That decision is what leaves band 0
- * its third draw for the spikes, which is what the plant is grown for.
- *
- * See library rule 9 and `test/geometry-budget.test.js`.
- */
 const INSTANCE_KINDS = Object.freeze(['leaves', 'spikes']);
 
 /**
- * The bands, and why this plant does not lose its flowers at any of them.
+ * The bands, and what this plant gives up at each of them.
  *
- * Rule 9 gives bands 1 and 2 two draws: wood and foliage. For most plants that
- * means the feature organ is dropped, and for most plants that is survivable.
- * It is not survivable here. A lavender out of flower is a grey hummock; the
- * violet is not an ornament on the plant, it *is* the plant, and a field of
- * lavender that turns grey at four metres has lost the thing it was planted
- * for. Miscanthus and hydrangea both hit this and paid a draw for it.
+ * Rule 9 gives bands 1 and 2 two draws: wood and foliage. The feature organ
+ * gets band 0's third draw and is dropped after it, and here that organ is the
+ * spike. It is a real loss: a lavender out of flower is a grey hummock, and
+ * the violet is not an ornament on this plant, it *is* the plant.
  *
- * This plant does not have to, because rule 9 already names the way out: past
- * band 0, a feature organ has to be carried by the leaf card. So it is. Once
- * the spike mesh is dropped, a spike is seated as one more card from the leaf
- * pool — the plate's blade is a narrow tapering body, which at four metres is
- * a perfectly good spike — with the violet arriving as its instance colour.
- * The flower stem comes with it, as a second card stretched thin, in the leaf
- * material's own grey-green, which is already the right colour for a peduncle.
- * Two triangles each, no new draw, and the plant keeps its identity all the
- * way out.
+ * This renderer used to refuse that loss, by re-seating each spike as two more
+ * cards from the leaf pool once the spike mesh was dropped — the plate's blade
+ * is a narrow tapering body, and at four metres a violet-tinted one reads as a
+ * spike. It kept the colour at no extra draw, and it cost far more than it
+ * looked like it did.
+ *
+ * **A coarse band must be the fine band with organs culled.** That is what
+ * lets a field allocate an organ kind once, for its finest band, and make a
+ * band change a survivor mask rather than a free and a reallocation — and a
+ * reallocation is a full re-upload and a synchronous shader rebuild. Cards at
+ * placements no leaf occupies break that relation outright, so the leaf pool
+ * fell back to holding every band independently: measured across 400 plants,
+ * this one trick was the whole difference between 310 MiB of instance data and
+ * 91 MiB, to save a draw that `TARGET_DRAWS` itself calls "nowhere near a
+ * bottleneck".
+ *
+ * So the spikes now simply go, and the answer to a lavender field that must
+ * stay violet further out is to move the band, not to disguise the organ. The
+ * distances below are already generous for a half-metre plant — the other
+ * shrubs here switch at about three times their own height and these are
+ * nearer seven — precisely because this plant's ornament is worth carrying as
+ * real geometry for as long as it can be afforded.
  *
  * That is also why `woodOrderLimit` can go to zero here. Bands 1 and 2 mesh
  * only the 22 framework branches: the green shoots are 8 cm of 1.5 mm stem
- * buried inside their own leaf tufts, and the flower stems have just become
- * cards. What is left is the frame, which is the only wood a lavender ever
- * really shows.
+ * buried inside their own leaf tufts, and the flower stems go with the spikes
+ * they carry. What is left is the frame, which is the only wood a lavender
+ * ever really shows.
  *
- * The distances are generous for a half-metre plant — the other shrubs here
- * switch at about three times their own height, and these are nearer seven.
- * That is deliberate and it is the caller's to override: a lavender's ornament
- * is small and high-frequency, so it is worth carrying the real spike mesh
- * further out than a panicle or a plume would be.
+ * The distances are the caller's to override, and on this plant that is the
+ * dial that matters.
  */
 const DEFAULT_LOD_LEVELS = Object.freeze([
   Object.freeze({
@@ -304,12 +283,10 @@ export class Lavender extends PlantRenderer {
     this._protect(
       '_leafBaseColor',
       '_leafSeasonTint',
-      '_standInDivisor',
       '_lavenderRuntimeSignature',
     );
     this._leafBaseColor = leafMaterials.surface.color.clone();
     this._leafSeasonTint = new THREE.Color();
-    this._standInDivisor = new THREE.Color();
 
     this._materials = {
       stem,
@@ -396,9 +373,6 @@ export class Lavender extends PlantRenderer {
     const historicalCounts = {
       ...this._emptyInstanceCounts(),
       ...capacities,
-      // At coarse bands the leaf pool carries the flower stems and the spikes
-      // as well as the leaves, so it has to be sized for all three.
-      leaves: capacities.leaves + capacities.spikes * 2,
     };
     this._sizeInstancePool({
       historicalCounts,
@@ -532,68 +506,6 @@ export class Lavender extends PlantRenderer {
     );
   }
 
-  /**
-   * Seat one whole flower shoot — stem and spike — as two leaf cards.
-   *
-   * What bands 1 and 2 draw instead of a spike mesh and a meshed peduncle.
-   * The stem is the leaf plate stretched to 1.5 mm across and left in the
-   * foliage's own colour, which is already a peduncle's colour; the spike is
-   * the same plate at the spike's real width, tinted.
-   *
-   * The tint has to be divided by the leaf material's seasonal colour before
-   * it is written, because that colour multiplies every instance in this pool
-   * — so a violet written raw comes out through a grey-green filter and lands
-   * somewhere between the two. Dividing it back out is exact for the material
-   * and approximate for the plate underneath, which at four metres is a
-   * distinction with no consequence.
-   */
-  #setSpikeStandIn(runtime, spike, axis, detailScale) {
-    const { matrix, position, scale, colour, direction, quaternion } =
-      this.#scratch;
-
-    // The stem: root to the spike's base, as one stretched card.
-    const root = vector(axis.root);
-    direction.copy(spike.position).sub(root);
-    const stemLength = direction.length();
-    if (stemLength > 1e-4) {
-      direction.multiplyScalar(1 / stemLength);
-      quaternion.copy(makeBasisQuaternion(direction, UP));
-      const stemWidth =
-        (HIDCOTE_PROFILE.peduncle.baseRadiusM[1] * 2.2 * detailScale) /
-        LEAF_PLATE_FILL;
-      position.copy(root);
-      scale.set(stemWidth, stemLength, stemWidth);
-      matrix.compose(position, quaternion, scale);
-      this._writeInstance('leaves', runtime.identity, matrix, NEUTRAL);
-    }
-
-    const width = (spike.widthM * detailScale) / LEAF_PLATE_FILL;
-    position.copy(spike.position);
-    scale.set(width, spike.lengthM * detailScale, width);
-    matrix.compose(position, runtime.quaternion, scale);
-    this.#spikeColour(colour, spike, runtime);
-    const divisor = this._standInDivisor.copy(this._materials.leaf.color);
-    const scaled = STAND_IN_VALUE;
-    colour.setRGB(
-      THREE.MathUtils.clamp(
-        (colour.r * scaled) / Math.max(0.02, divisor.r),
-        0,
-        6,
-      ),
-      THREE.MathUtils.clamp(
-        (colour.g * scaled) / Math.max(0.02, divisor.g),
-        0,
-        6,
-      ),
-      THREE.MathUtils.clamp(
-        (colour.b * scaled) / Math.max(0.02, divisor.b),
-        0,
-        6,
-      ),
-    );
-    this._writeInstance('leaves', runtime.identity, matrix, colour);
-  }
-
   #setLeafMaterialPhenology(phenology) {
     const spring = THREE.MathUtils.smoothstep(phenology.springGrowth, 0, 0.9);
     this._leafSeasonTint
@@ -617,9 +529,10 @@ export class Lavender extends PlantRenderer {
     const phenology = snapshot.phenology;
     this.#setLeafMaterialPhenology(phenology);
 
-    // Whether the spike mesh is being drawn at all. When it is not, the flower
-    // shoots ride in the leaf pool instead of vanishing.
-    const spikesAsCards = this._detail.dropKinds.includes('spikes');
+    // Past band 0 the spikes are simply not drawn. They are the plant's
+    // feature organ and they get band 0's third draw; a coarse band is wood
+    // and foliage, and the display goes with the draw.
+    const spikesDropped = this._detail.dropKinds.includes('spikes');
 
     // Sized on what will actually be written, not on how many leaf sites the
     // graph holds. This plant is evergreen, so a site that is not drawn today
@@ -631,8 +544,6 @@ export class Lavender extends PlantRenderer {
         for (const node of axis.nodes) {
           for (const leaf of node.leaves) if (leaf.visible) writes += 1;
         }
-        // At coarse bands a flower shoot is two more cards from this pool.
-        if (spikesAsCards && axis.spike?.visible) writes += 2;
       }
     }
     const capacity = this._instancePool.mesh('leaves').instanceMatrix.count;
@@ -646,16 +557,6 @@ export class Lavender extends PlantRenderer {
     const leafScale =
       this._detail.leafScale *
       (leafStride > this._detail.leafStride ? 1.08 : 1);
-    // Spikes thin one step behind the leaves. A lavender that keeps its
-    // foliage and loses its flowers has lost more than one that does the
-    // reverse, so the display is the last thing to go. Card counts fall with
-    // the square of apparent size, so the survivors grow by the root of the
-    // stride -- and only when there actually is one. Growing them at a band
-    // that thins nothing just draws a stand of fat violet blobs.
-    const spikeStride = Math.max(1, Math.ceil(leafStride / 2));
-    const spikeScale =
-      spikeStride > 1 ? Math.min(1.9, Math.sqrt(spikeStride)) : 1;
-
     let visibleBranches = 0;
     let visibleAxes = 0;
     let visibleShoots = 0;
@@ -692,22 +593,12 @@ export class Lavender extends PlantRenderer {
         }
 
         const spike = axis.spike;
-        if (!spike?.visible) continue;
+        if (spikesDropped || !spike?.visible) continue;
         const runtime = this._runtime.spikes.get(spike.id);
         if (!runtime) {
           throw new Error(`Missing render spike for model organ ${spike.id}.`);
         }
-        if (spikesAsCards) {
-          const detailScale = this.#detailScale(
-            runtime,
-            spikeStride,
-            spikeScale,
-          );
-          if (detailScale <= 0) continue;
-          this.#setSpikeStandIn(runtime, spike, axis, detailScale);
-        } else {
-          this.#setSpike(runtime, spike);
-        }
+        this.#setSpike(runtime, spike);
         visibleSpikes++;
       }
     }
@@ -724,7 +615,6 @@ export class Lavender extends PlantRenderer {
       visibleShoots,
       visibleLeaves,
       visibleSpikes,
-      spikesDrawnAsCards: spikesAsCards,
       biologicalVisibleLeaves: snapshot.stats.leaves,
       biologicalVisibleSpikes: snapshot.stats.spikes,
       ...this._drawCallStats(),

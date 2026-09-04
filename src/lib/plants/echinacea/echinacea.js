@@ -35,14 +35,12 @@ const HEAD_LADDER = Object.freeze([
     raySegments: 2,
     radialSegments: 12,
     coneRings: 3,
-    coarsePeduncle: true,
   }),
   Object.freeze({
     rays: 12,
     raySegments: 1,
     radialSegments: 8,
     coneRings: 2,
-    coarsePeduncle: true,
   }),
 ]);
 
@@ -53,6 +51,17 @@ const HEAD_LADDER = Object.freeze([
  * cone drops, allowing the dedicated stems to disappear while every leafy
  * shoot remains supported within the exact 3/2/2 draw budget.
  */
+/**
+ * Points of a stem's curve spanned by one drawn segment, at every band.
+ *
+ * Not a band lever, deliberately. Walking a stem with a wider stride re-places
+ * every survivor on a new, longer chord, so a coarse band would be a different
+ * set of organs rather than the fine set with some culled -- and a field could
+ * not then allocate the kind once. `organLevel` carries the coarse band
+ * instead, dropping a segment from an open tube to a card.
+ */
+const STEM_SECTION_STRIDE = 1;
+
 const DEFAULT_LOD_LEVELS = Object.freeze([
   Object.freeze({
     distance: 0,
@@ -62,22 +71,18 @@ const DEFAULT_LOD_LEVELS = Object.freeze([
     distance: 5,
     hysteresis: 0.1,
     detail: Object.freeze({
-      sectionStride: 2,
       leafStride: 2,
       leafScale: 1.14,
       organLevel: 1,
-      dropKinds: Object.freeze(['stems']),
     }),
   }),
   Object.freeze({
     distance: 9,
     hysteresis: 0.12,
     detail: Object.freeze({
-      sectionStride: 3,
       leafStride: 3,
       leafScale: 1.27,
       organLevel: 2,
-      dropKinds: Object.freeze(['stems']),
     }),
   }),
 ]);
@@ -309,7 +314,14 @@ export class Echinacea extends PlantRenderer {
   #createInstances() {
     this._addInstancedOrgan('stems', {
       name: 'Echinacea_HerbaceousStems',
-      geometry: this._stemGeometry(5, { openEnded: true }),
+      // A stem's segments stay where they are at every band, so a coarse band
+      // is this kind with nothing moved. The cost comes out of the segment
+      // rather than out of the count: ten triangles of open tube near, two of
+      // card beyond. See `#setAxis`.
+      geometries: [
+        this._stemGeometry(5, { openEnded: true }),
+        this._stemCardGeometry(),
+      ],
       material: this._materials.stem,
       group: this._woodyGroup,
     });
@@ -394,7 +406,7 @@ export class Echinacea extends PlantRenderer {
   }
 
   #setAxis(axis, phenology) {
-    const stride = this._detail.sectionStride;
+    const stride = STEM_SECTION_STRIDE;
     const segment = new THREE.Object3D();
     let written = 0;
     for (let index = 0; index < axis.points.length - 1; index += stride) {
@@ -442,19 +454,17 @@ export class Echinacea extends PlantRenderer {
     detailScale,
     { capitulumVisible = true, colour = this.#headColour(head) } = {},
   ) {
-    const coarsePeduncle = this._detail.organLevel > 0;
-    const position = vector(
-      coarsePeduncle ? head.stemBasePosition : head.position,
-    );
-    const direction = coarsePeduncle
-      ? vector(head.position).sub(position).normalize()
-      : vector(head.direction, UP).normalize();
+    // The same placement at every band. A coarse head used to be re-rooted at
+    // its stem base and stretched to the stem's length, so that it drew the
+    // stem the coarse bands dropped -- which made a coarse band a different
+    // set of organs rather than the fine set with some culled, and cost this
+    // kind the field's composed path. The stems are drawn at every band now.
+    const position = vector(head.position);
+    const direction = vector(head.direction, UP).normalize();
     const quaternion = makeBasisQuaternion(direction, UP);
     quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(UP, head.spin));
     const diameter = head.diameterM * detailScale;
-    const verticalScale = coarsePeduncle
-      ? vector(head.position).distanceTo(position)
-      : diameter * head.verticalScale;
+    const verticalScale = diameter * head.verticalScale;
     // Two red units encode the capitulum flag; two blue units per quantised
     // visibility step encode ray expansion. The shader restores the original
     // seasonal channel remainders after decoding both values.
@@ -484,15 +494,12 @@ export class Echinacea extends PlantRenderer {
     let visibleFlowerBuds = 0;
     let visibleSeedHeads = 0;
     this._instancePool.suppress(this._detail.dropKinds);
-    const dedicatedStemsVisible = !this._detail.dropKinds.includes('stems');
 
     for (const axis of snapshot.axes) {
       if (!axis.visible) continue;
       visibleAxes += 1;
       if (axis.kind === 'main') visiblePrimaryStems += 1;
-      if (dedicatedStemsVisible) {
-        stemSegments += this.#setAxis(axis, phenology);
-      }
+      stemSegments += this.#setAxis(axis, phenology);
     }
 
     for (const leaf of snapshot.leaves) {
@@ -518,21 +525,6 @@ export class Echinacea extends PlantRenderer {
       else if (head.stage === 'opening' || head.stage === 'open') {
         visibleFlowers += 1;
       } else if (head.stage === 'seed-head') visibleSeedHeads += 1;
-    }
-
-    if (this._detail.organLevel > 0) {
-      for (const support of snapshot.headSupports) {
-        const detailScale = this._organDetailScale(
-          support.id,
-          headStride,
-          THREE.MathUtils.lerp(1, 1.08, clamp01(this._detail.leafScale - 1)),
-        );
-        if (detailScale <= 0) continue;
-        this.#setHead(support, detailScale, {
-          capitulumVisible: false,
-          colour: this.#stemColour(support, phenology),
-        });
-      }
     }
 
     this._instancePool.commitFrame();

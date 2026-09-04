@@ -24,9 +24,9 @@ export class PlantField extends PlantFieldCore {
    * The band is written as per-instance state instead, where the kernel reads
    * it -- the same decision, delivered as data.
    */
-  static installWoodLODResolver() {}
+  static installLODResolver() {}
 
-  static applyWoodLevel(mesh, slot, renderLevel, shadowLevel) {
+  static applyInstanceLevel(mesh, slot, renderLevel, shadowLevel) {
     mesh.setLODOverrideAt(slot, renderLevel);
     mesh.setLODOverrideAt(slot, shadowLevel, true);
   }

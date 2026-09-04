@@ -682,7 +682,6 @@ export function evaluateMagnusModel(
   }
 
   const heads = [];
-  const headSupports = [];
   for (const shoot of activeShoots) {
     for (const head of shoot.heads) {
       if (head.firstFloweringAgeYears > cohortAgeYears) continue;
@@ -698,31 +697,16 @@ export function evaluateMagnusModel(
         id: head.id,
         axisId: head.axisId,
         position: axis.points.at(-1),
-        // A coarse head owns its supporting stalk in the same draw. Ground a
-        // lateral head at its shoot crown too, so independent winter retention
-        // cannot leave a surviving fork floating after the main cone drops.
-        stemBasePosition:
-          axis.kind === 'lateral'
-            ? (axisMap.get(axis.parentAxisId)?.points[0] ?? axis.points[0])
-            : axis.points[0],
         direction,
         spin: head.spin,
       };
-      if (!state.visible) {
-        // At coarse LOD every flowering axis still needs its ground-connected
-        // stalk, even before its bud appears or after its cone drops. The head
-        // mesh can collapse just the capitulum and retain its integrated
-        // peduncle, so all shoots remain supported within the two-draw budget.
-        headSupports.push({
-          ...common,
-          cohort: axis.cohort,
-          weathering: axis.weathering,
-          diameterM: head.diameterM * ageScale,
-          verticalScale: 1,
-          rayVisibility: 0,
-        });
-        continue;
-      }
+      // A head that is not showing is simply not emitted. It used to be kept
+      // as a "support": at a coarse band the stems were dropped, and a head
+      // with its capitulum collapsed stood in for the stalk that held its
+      // shoot up. The stems are drawn at every band now, so nothing needs
+      // standing in for -- and a coarse band that emits heads the finest band
+      // does not is not a band a field can compose.
+      if (!state.visible) continue;
       heads.push({
         ...common,
         visible: true,
@@ -791,7 +775,6 @@ export function evaluateMagnusModel(
     axes,
     leaves,
     heads,
-    headSupports,
     stats,
     appliedEvents: [],
   };

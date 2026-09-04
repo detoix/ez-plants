@@ -10,6 +10,7 @@ import {
   createPrototypePool,
   PlantField,
 } from '../src/lib/field/index.js';
+import { analyzeOrganComposition } from '../src/lib/field/organ-composition.js';
 
 const REPO = new URL('..', import.meta.url).pathname;
 const PLANTS = readdirSync(join(REPO, 'src/lib/plants'), {
@@ -255,49 +256,54 @@ test('levels can be walked up and down without losing or leaking instances', asy
   });
 });
 
-test('slack from demotions is reported, and compact() reclaims it', async () => {
-  // Freeing an interior subset leaves holes in the active geometry rung. A
-  // whole-field demotion may instead empty that rung completely and reclaim
-  // its tail, so exercise the actual fragmented case here.
-  await withField('hydrangea', { count: 40 }, (field) => {
-    const built = field.stats();
-    assert.equal(built.unusedSlots, 0, 'a fresh field should have no slack');
+test('the buffers never move, and slack is what a coarse band reserves', () => {
+  // The contract that replaced compaction. Every organ kind is allocated once,
+  // for its finest band, because every coarser band is a subset of that one --
+  // so the span is fixed for the life of the field and a band change cannot
+  // grow it. A storage buffer cannot resize in place, so growth re-uploaded it
+  // whole and rebuilt both the material and culling node graphs, synchronously;
+  // fixed allocation removes the stall and the growth together.
+  //
+  // The price is slack: a plant at a coarse band leaves the rest of its slots
+  // reserved and empty, and the per-frame culling pass still steps over them.
+  return withField('hydrangea', { count: 40 }, (field) => {
+    field.setLevels(new Array(40).fill(0));
+    const finest = field.stats();
+    assert.equal(
+      finest.unusedSlots,
+      0,
+      'every plant at its finest band should leave nothing reserved',
+    );
 
     field.setLevels(
       Array.from({ length: 40 }, (_, index) => (index < 20 ? 2 : 0)),
     );
-    const demoted = field.stats();
-    assert.ok(
-      demoted.unusedSlots > 0,
-      'demoting an interior subset freed slots but reported none',
-    );
-    for (const [kind, { variants }] of field._organMeshes) {
-      const span = variants.reduce(
-        (total, { mesh }) => total + mesh._instancesArrayCount,
-        0,
-      );
-      const active = variants.reduce(
-        (total, { mesh }) => total + mesh.instancesCount,
-        0,
-      );
-      assert.equal(span, demoted.slotsByKind[kind]);
-      assert.ok(span >= active, `${kind}: active instances exceed its slots`);
-    }
-    assert.equal(demoted.slots - demoted.organInstances, demoted.unusedSlots);
-
-    field.compact();
-    const compacted = field.stats();
-    assert.equal(compacted.unusedSlots, 0, 'compact() left slack behind');
+    const mixed = field.stats();
     assert.equal(
-      compacted.organInstances,
-      demoted.organInstances,
-      'compact() changed what the field draws',
+      mixed.slots,
+      finest.slots,
+      'a band change moved the allocation',
     );
-    assert.deepEqual(
-      compacted.levelCounts,
-      demoted.levelCounts,
-      'compact() changed the levels',
+    assert.ok(
+      mixed.unusedSlots > 0,
+      'a coarse band should leave slots reserved and empty',
     );
+    assert.equal(mixed.slots - mixed.organInstances, mixed.unusedSlots);
+
+    field.setLevels(new Array(40).fill(2));
+    const coarsest = field.stats();
+    assert.equal(coarsest.slots, finest.slots);
+    assert.ok(
+      coarsest.unusedSlots > mixed.unusedSlots,
+      'the coarsest arrangement should reserve the most',
+    );
+
+    // And back, with nothing having been reallocated on the way.
+    field.setLevels(new Array(40).fill(0));
+    const returned = field.stats();
+    assert.equal(returned.slots, finest.slots);
+    assert.equal(returned.unusedSlots, 0);
+    assert.equal(returned.organInstances, finest.organInstances);
   });
 });
 
@@ -313,8 +319,8 @@ test('a placement can be hidden, and stays hidden across a level change', async 
       for (const mesh of field._woodMeshes.filter(Boolean)) {
         assert.equal(mesh.frustumCulled, false);
       }
-      for (const { variants } of field._organMeshes.values()) {
-        for (const { mesh } of variants) {
+      for (const { mesh } of field._organMeshes.values()) {
+        {
           assert.equal(mesh.frustumCulled, false);
           assert.equal(mesh.perObjectFrustumCulled, false);
         }
@@ -322,8 +328,8 @@ test('a placement can be hidden, and stays hidden across a level change', async 
 
       const drawn = () => {
         let organs = 0;
-        for (const { variants } of field._organMeshes.values()) {
-          for (const { mesh } of variants) {
+        for (const { mesh } of field._organMeshes.values()) {
+          {
             for (let id = 0; id < mesh._instancesArrayCount; id += 1) {
               if (mesh.getActiveAndVisibilityAt(id)) organs += 1;
             }
@@ -557,7 +563,8 @@ test('field LOD keeps Echinacea leaf-card topology and routes heads through thei
     placements: [{ position: [0, 0, 0] }],
   });
   const triangleLimits = [25_000, 10_000, 5_000];
-  const drawLimits = [3, 2, 2];
+  // Echinacea draws its stems at every band; see test/geometry-budget.test.js.
+  const drawLimits = [3, 3, 3];
   let leafCardTopology = null;
   const matrix = new THREE.Matrix4();
   const box = new THREE.Box3();
@@ -567,16 +574,18 @@ test('field LOD keeps Echinacea leaf-card topology and routes heads through thei
       field.setLevelAt(0, level);
       let triangles = 0;
       let draws = 0;
-      for (const { variants } of field._organMeshes.values()) {
-        for (const { mesh } of variants) {
-          if (mesh.instancesCount === 0) continue;
-          draws += 1;
-          triangles +=
-            ((mesh.geometry.index?.count ??
-              mesh.geometry.getAttribute('position').count) /
-              3) *
-            mesh.instancesCount;
-        }
+      // A kind is one mesh with a geometry level per way of drawing it, so
+      // the cost of a band is the level that band selects -- not the mesh's
+      // own geometry, which is always the finest band's.
+      for (const kind of field._organMeshes.keys()) {
+        const band = prototype.organComposition(kind).bands[level];
+        if (!band.drawn) continue;
+        draws += 1;
+        const geometry = band.organ.geometry;
+        triangles +=
+          ((geometry.index?.count ?? geometry.getAttribute('position').count) /
+            3) *
+          band.survivors.length;
       }
 
       assert.equal(draws, drawLimits[level]);
@@ -588,51 +597,47 @@ test('field LOD keeps Echinacea leaf-card topology and routes heads through thei
 
       const leafSlot = field._slots[0].get('leaves');
       const headSlot = field._slots[0].get('heads');
-      assert.equal(leafSlot.variant.mesh.geometry.index.count / 3, 2);
+      assert.equal(leafSlot.mesh.geometry.index.count / 3, 2);
       const topology = {
         positions: Array.from(
-          leafSlot.variant.mesh.geometry.getAttribute('position').array,
+          leafSlot.mesh.geometry.getAttribute('position').array,
         ),
-        uvs: Array.from(
-          leafSlot.variant.mesh.geometry.getAttribute('uv').array,
-        ),
+        uvs: Array.from(leafSlot.mesh.geometry.getAttribute('uv').array),
       };
       leafCardTopology ??= topology;
       assert.deepEqual(topology, leafCardTopology);
-      assert.equal(
-        headSlot.variant.mesh.geometry.userData.coarsePeduncle,
-        level > 0,
-      );
+      // No band builds a stem into the head geometry any more: the heads sit
+      // where the fine band put them and the stems are drawn beside them.
+      assert.notEqual(headSlot.mesh.geometry.userData.coarsePeduncle, true);
 
       const bakedHead = prototype.bands[level].baked.organs.find(
         (organ) => organ.kind === 'heads',
       );
       assert.strictEqual(
-        headSlot.variant.mesh.customDepthMaterial,
+        headSlot.mesh.customDepthMaterial,
         bakedHead.customDepthMaterial,
       );
       assert.strictEqual(
-        headSlot.variant.mesh.customDistanceMaterial,
+        headSlot.mesh.customDistanceMaterial,
         bakedHead.customDistanceMaterial,
       );
 
-      if (level === 0) {
+      {
         const stemSlot = field._slots[0].get('stems');
         const bakedStem = prototype.bands[level].baked.organs.find(
           (organ) => organ.kind === 'stems',
         );
         assert.equal(Object.hasOwn(bakedStem, 'customDepthMaterial'), false);
-        assert.equal(stemSlot.variant.mesh.customDepthMaterial, undefined);
-        assert.equal(stemSlot.variant.mesh.customDistanceMaterial, undefined);
+        assert.equal(stemSlot.mesh.customDepthMaterial, undefined);
+        assert.equal(stemSlot.mesh.customDistanceMaterial, undefined);
       }
 
       if (level > 0) {
-        const mesh = headSlot.variant.mesh;
+        const mesh = headSlot.mesh;
         mesh.geometry.computeBoundingBox();
         mesh.getMatrixAt(headSlot.ids[0], matrix);
         box.copy(mesh.geometry.boundingBox).applyMatrix4(matrix);
-        assert.ok(box.min.y > -0.02, 'coarse peduncle starts at the crown');
-        assert.ok(box.max.y > 0.65, 'coarse head remains at stem height');
+        assert.ok(box.min.y > 0.05, 'a coarse head should stand on its stem');
 
         if (level === 2) {
           for (const [material, shaderLib] of [
@@ -721,6 +726,15 @@ test('field organ meshes own their geometry and instance index', () => {
     plant: { update() {} },
     organCount(kind) {
       return kind === 'leaves' ? 1 : 0;
+    },
+    // A field allocates each organ kind once, for its finest band, so it has
+    // to be told how the bands relate. Derived from the fixture's own bake, so
+    // it cannot claim something the bake does not support.
+    organComposition(kind) {
+      return analyzeOrganComposition(
+        this.bands.map((band) => band.baked),
+        kind,
+      );
     },
   };
   const gl = {

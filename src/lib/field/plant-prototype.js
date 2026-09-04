@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
 import { leafWindForMaterial } from '../leaf-wind.js';
+import { analyzeOrganComposition } from './organ-composition.js';
 
 const windMatrix = new THREE.Matrix4();
 
@@ -122,6 +123,15 @@ export function createPlantPrototype(plant, { levels = null, id = null } = {}) {
   }
   bounds.expandByScalar(cullingPadding);
 
+  // Analyzed once, here, rather than per query: a field asks per organ kind
+  // while it builds, and the answer cannot change while the bakes are frozen.
+  // A few milliseconds per prototype at bake time, and a field cannot be built
+  // without it -- an organ kind that does not compose cannot share one
+  // allocation across its bands.
+  const compositions = new Map(
+    organKinds.map((kind) => [kind, analyzeOrganComposition(baked, kind)]),
+  );
+
   return {
     id: id ?? plant.name,
     plant,
@@ -138,6 +148,24 @@ export function createPlantPrototype(plant, { levels = null, id = null } = {}) {
       const bake = baked[band];
       if (!bake) return 0;
       return bake.organs.find((organ) => organ.kind === kind)?.count ?? 0;
+    },
+
+    /**
+     * How one organ kind's bands relate.
+     *
+     * An `analyzeOrganComposition` result, whose `compositional` says whether
+     * a field may allocate the kind once and switch bands with a survivor mask
+     * rather than reallocating. `null` for a kind this prototype does not
+     * bake.
+     *
+     * Every organ kind in this library composes, and
+     * `test/organ-lod-composition.test.js` holds it that way. The analysis
+     * still runs per prototype rather than being assumed, because the relation
+     * is a property of the bake: a plant is free to substitute at a coarse
+     * band, and four kinds once did.
+     */
+    organComposition(kind) {
+      return compositions.get(kind) ?? null;
     },
 
     /** Total organ instances at one band — the number the budget counts. */

@@ -21,6 +21,7 @@ import {
   prepareWebGPUPlantMaterial,
   PlantField,
 } from '../src/lib/field/index.webgpu.js';
+import { analyzeOrganComposition } from '../src/lib/field/organ-composition.js';
 
 test('material contracts survive separately bundled library entries', async () => {
   const windProducer = await import('../src/lib/leaf-wind.js?wind-producer');
@@ -204,6 +205,15 @@ test('WebGPU PlantField adapts source wind without mutating plant materials', ()
     ),
     organCount: () => 1,
   };
+  // A field allocates each organ kind once, for its finest band, so it needs
+  // to be told how the bands relate. Derived from the fixture's own bake
+  // rather than hand-written, so the fixture cannot claim something the bake
+  // does not support.
+  prototype.organComposition = (kind) =>
+    analyzeOrganComposition(
+      prototype.bands.map((band) => band.baked),
+      kind,
+    );
   const field = new PlantField({
     prototypes: [prototype],
     placements: [{ position: [0, 0, 0] }],
@@ -245,7 +255,7 @@ test('WebGPU PlantField translates Magnus head morphs without another draw', () 
   try {
     const entry = field._organMeshes.get('heads');
     const slot = field._slots[0].get('heads');
-    const mesh = slot.variant.mesh;
+    const mesh = slot.mesh;
     const id = slot.ids[0];
     const source = prototype.bands[0].baked.organs.find(
       (organ) => organ.kind === 'heads',
@@ -257,7 +267,12 @@ test('WebGPU PlantField translates Magnus head morphs without another draw', () 
     mesh.getMatrixAt(id, matrix);
     mesh.getColorAt(id, color);
 
-    assert.equal(entry.variants.length, 3, 'the geometry ladder was flattened');
+    // One mesh, with a geometry level per way of drawing the kind.
+    assert.equal(
+      entry.mesh.LODinfo.objects.length,
+      3,
+      'the geometry ladder was flattened',
+    );
     assert.ok(mesh.material.positionNode?.isNode);
     assert.ok(mesh.material.castShadowPositionNode?.isNode);
     assert.equal(matrix.elements[3], Math.floor(sourceRed * 0.5));
@@ -297,7 +312,7 @@ test('WebGPU PlantField preserves Thuja hierarchy, LOD metadata and metre-scale 
   try {
     const entry = field._organMeshes.get('sprays');
     assert.equal(
-      entry.variants.length,
+      entry.mesh.LODinfo.objects.length,
       3,
       'the spray LOD ladder was flattened',
     );
@@ -313,13 +328,22 @@ test('WebGPU PlantField preserves Thuja hierarchy, LOD metadata and metre-scale 
       );
       const levelMetadata = readThujaWindMetadataFromMatrix(levelSourceMatrix);
       const slot = field._slots[0].get('sprays');
-      const mesh = slot.variant.mesh;
+      const mesh = slot.mesh;
       const matrix = new THREE.Matrix4();
-      mesh.getMatrixAt(slot.ids[0], matrix);
+      // A band's organ `n` is written to the slot of the base organ it
+      // survived from, not to slot `n`: the coarse bands are subsets, so their
+      // first spray is rarely the first spray of the finest band.
+      const survivors =
+        prototype.organComposition('sprays').bands[level].survivors;
+      mesh.getMatrixAt(slot.ids[survivors[0]], matrix);
       const xScale = new THREE.Vector3().fromArray(matrix.elements, 0).length();
       const zScale = new THREE.Vector3().fromArray(matrix.elements, 8).length();
 
-      sprayTriangles.push(mesh.geometry.index.count / 3);
+      // The parent mesh always carries the finest band's geometry; a band's
+      // own rung is a geometry level inside it.
+      const bandGeometry =
+        prototype.organComposition('sprays').bands[level].organ.geometry;
+      sprayTriangles.push(bandGeometry.index.count / 3);
       assert.ok(mesh.material.positionNode?.isNode);
       assert.ok(mesh.material.castShadowPositionNode?.isNode);
       assert.equal(matrix.elements[3], levelMetadata.familyCode);

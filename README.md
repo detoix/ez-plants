@@ -211,9 +211,9 @@ of draw calls too, and the number does not grow with the number of plants.**
   coarsens on its own ladder. `PlantField` carries each organ rung's matching
   depth/distance material and shadow contract; wind and seasonal organ morphs
   therefore shape field shadows too. Wood still uses `addShadowLOD`.
-- The optional field layer draws hundreds of plants in one pooled instanced
-  mesh per compatible organ-geometry rung. Bands that share geometry still
-  share the same draw. See [Fields](#fields).
+- The optional field layer draws hundreds of plants from one pooled instanced
+  mesh per organ kind, allocated once for the finest band, with a geometry
+  level inside it per way of drawing that kind. See [Fields](#fields).
 
 ### 6. Stay on EZ-Tree; diverge only where morphology forces it
 
@@ -267,8 +267,14 @@ only dependency an extracted plant needs.
 
 ### 9. Every LOD band has a triangle budget, and the numbers are EZ-Tree's
 
-Budget: **25,000 triangles at band 0, 10,000 at band 1, 5,000 at band 2** — drawn
-as wood + leaves + one feature organ at band 0, and wood + leaves after that.
+Budget: **25,000 triangles at band 0, 10,000 at band 1, 5,000 at band 2**, drawn
+as **three parts at band 0 and two after that**.
+
+A part is one draw: an organ kind that has instances, or the merged woody mesh
+if the plant has one. Which parts they are is the plant's business. A shrub
+usually spends its two on wood and foliage; a herbaceous perennial has no wood
+at all and spends them on foliage and its flowers. The budget is the count, not
+a list of reserved slots.
 
 The numbers are measured, not invented. `Tree.defaultLODLevels` in
 `src/lib/tree.js` states a contract — _"LOD1 is roughly 40% of the full triangle
@@ -281,9 +287,11 @@ is not a more complex object than an oak, so that ladder is the bar.
   draws are pooled per organ kind across every plant of a species, and the
   handful the field uses is nowhere near a bottleneck. It matters because the
   geometry that leaves with a dropped kind is what actually costs.
-- Past band 0 a plant is wood and foliage. A feature organ — a panicle, a
-  raceme, a truss — has to be carried by the leaf card or baked into the
-  silhouette, exactly as EZ-Tree drops a leaf to a single billboard at LOD2.
+- Past band 0 a plant is two parts. The third — usually the feature organ, a
+  panicle, a raceme, a truss — is dropped, exactly as EZ-Tree drops a leaf to a
+  single billboard at LOD2. Dropped means dropped: rehousing it in a surviving
+  kind's pool costs a field far more than the draw it saves, which is the
+  lesson recorded under the leaf-pool bullet below.
 - When a band is over budget, **merge kinds before dropping them**. Three blade
   kinds that differ only in posture are one kind with three transforms; a
   petiole belongs in the leaf card, not in a mesh of its own.
@@ -316,19 +324,19 @@ is not a more complex object than an oak, so that ladder is the bar.
   them stays, so what leaves is a 15 cm stick that is thinner than a pixel at
   the distance the band is for, inside foliage its own leaves already fill.
   Order 0 is never dropped, whatever the limit says.
-- **The leaf pool is where a dropped feature organ goes to survive.** Rule 9
-  says a coarse band's feature organ has to be carried by the leaf card, and
-  hydrangea and miscanthus both read that as needing a foliage atlas and paid
-  a draw instead. It does not: a leaf card is a tapering alpha body with a
-  per-instance colour, and at the distance a coarse band is for that is a
-  perfectly good lavender spike. Lavender seats its whole flower shoot from
-  the leaf pool once the spike mesh is dropped — the stem as one card
-  stretched thin in the foliage's own grey-green, the head as another at the
-  spike's real width, tinted violet. Four triangles, no new draw, and a field
-  of it keeps its colour at every band instead of going grey at four metres.
-  The one thing to get right is that the two plates do not sit at the same
-  value, so the tint has to be divided by the leaf material's own colour and
-  brought down to match, or a band change reads as a change of colour.
+- **A dropped feature organ is dropped, not rehoused.** Lavender used to refuse
+  rule 9's loss: once the spike mesh was dropped it re-seated each spike as two
+  more cards from the leaf pool — the stem stretched thin in the foliage's own
+  grey-green, the head at the spike's real width, tinted violet. Four triangles,
+  no new draw, and a field that kept its colour at every band. It was reverted,
+  because the saving was measured on the wrong axis. A field allocates an organ
+  kind once, for its finest band, and switches bands with a survivor mask — but
+  only while a coarse band is the fine band with organs _culled_. Cards at
+  placements no leaf occupies break that outright, and the leaf pool falls back
+  to holding every band separately: across 400 plants this one trick was the
+  difference between 310 MiB of instance data and 91 MiB, spent to save a draw
+  that the draw budget itself calls "nowhere near a bottleneck". If a plant must
+  keep its ornament further out, move the band; do not disguise the organ.
 - **A plant's own organs can go in the wood.** A peduncle is a stem: stiff,
   round, twenty centimetres long, and no more an instanced organ than a twig
   is. Lavender meshes its two hundred and forty flower stems into the same merged
@@ -371,17 +379,17 @@ message prints the numbers to paste.
 
 Measured against the rules above (`npm test`):
 
-| Rule                      | State                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1 — two parameters        | Held. Age and day are the only plant parameters; `scenario` is gone and every plant is unconditionally maintained. The calendar selector and `offsetDays` compose the calendar that `dayOfYear` is read against — they place the calendar, not the plant.                                                                                                                                                                                                              |
-| 2 — curated               | Held, and now structural: a looked-after plant is the only plant the model can produce.                                                                                                                                                                                                                                                                                                                                                                                |
-| 3 — botany as spec        | Held. All nine are cultivar-level with cited sources and separately labelled assumptions.                                                                                                                                                                                                                                                                                                                                                                              |
-| 4 — photo comparison      | A standing working practice, not a repo artifact: it asks whoever builds a plant to go and look at photographs first. `scripts/shoot.mjs` renders the comparison shot. Nothing to audit here by design — the rule is satisfied while the plant is being built, or not at all.                                                                                                                                                                                          |
-| 5 — fast                  | Draw calls held and enforced: `test/draw-call-budget.test.js` holds every plant to one draw per organ kind plus one for the wood, and `test/plant-field.test.js` pins that field draws do not move between 10, 100 and 400 plants. Field organs are pooled by compatible geometry rung; WebGPU translates known wind and seasonal morph effects to TSL for both surface and shadow positions.                                                                          |
-| 6 — stay on EZ-Tree       | Held. All nine plants extend `PlantRenderer` and add only their own morphology; nothing in `src/lib/` imports from `src/app/`. Echinacea reuses the original seeded axis grower for annual green stem centrelines, while Thuja keeps the shared woody renderer and specializes only its scale-spray crown.                                                                                                                                                             |
-| 7 — self-contained folder | Held. No plant imports another — the shared calendar lives in `src/lib/calendar.js`. Textured plants carry their own assets; bark is generated in `src/lib/bark-plate.js` and shared. All nine models are Three.js-free and their snapshots survive a JSON round-trip. `npm run plant:add` copies a plant that renders standing alone, with `three` as its only dependency.                                                                                            |
-| 8 — two front doors       | Held. All nine plants ship a three.js class and an R3F component with matching props.                                                                                                                                                                                                                                                                                                                                                                                  |
-| 9 — band budgets          | Held in full on blackcurrant, forsythia, lavender, Echinacea, Pennisetum, Cherry laurel and Thuja, and for triangles on hydrangea and miscanthus. `test/geometry-budget.test.js` holds the current cost of every plant at every band and forbids it growing. Ten-year Thuja costs 12,650 / 4,360 / 1,212 triangles in 3 / 2 / 2 draws; the age-five ratchet state is 5,409 / 1,884 / 549. The draw gaps on hydrangea and miscanthus are structural rather than costly. |
+| Rule                      | State                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 — two parameters        | Held. Age and day are the only plant parameters; `scenario` is gone and every plant is unconditionally maintained. The calendar selector and `offsetDays` compose the calendar that `dayOfYear` is read against — they place the calendar, not the plant.                                                                                                                                                                                                                    |
+| 2 — curated               | Held, and now structural: a looked-after plant is the only plant the model can produce.                                                                                                                                                                                                                                                                                                                                                                                      |
+| 3 — botany as spec        | Held. All nine are cultivar-level with cited sources and separately labelled assumptions.                                                                                                                                                                                                                                                                                                                                                                                    |
+| 4 — photo comparison      | A standing working practice, not a repo artifact: it asks whoever builds a plant to go and look at photographs first. `scripts/shoot.mjs` renders the comparison shot. Nothing to audit here by design — the rule is satisfied while the plant is being built, or not at all.                                                                                                                                                                                                |
+| 5 — fast                  | Draw calls held and enforced: `test/draw-call-budget.test.js` holds every plant to its structural ceiling of parts -- every organ kind at once, and wood if it meshes any, and `test/plant-field.test.js` pins that field draws do not move between 10, 100 and 400 plants. Field organs are pooled one mesh per organ kind, with a geometry level per rung inside it; WebGPU translates known wind and seasonal morph effects to TSL for both surface and shadow positions. |
+| 6 — stay on EZ-Tree       | Held. All nine plants extend `PlantRenderer` and add only their own morphology; nothing in `src/lib/` imports from `src/app/`. Echinacea reuses the original seeded axis grower for annual green stem centrelines, while Thuja keeps the shared woody renderer and specializes only its scale-spray crown.                                                                                                                                                                   |
+| 7 — self-contained folder | Held. No plant imports another — the shared calendar lives in `src/lib/calendar.js`. Textured plants carry their own assets; bark is generated in `src/lib/bark-plate.js` and shared. All nine models are Three.js-free and their snapshots survive a JSON round-trip. `npm run plant:add` copies a plant that renders standing alone, with `three` as its only dependency.                                                                                                  |
+| 8 — two front doors       | Held. All nine plants ship a three.js class and an R3F component with matching props.                                                                                                                                                                                                                                                                                                                                                                                        |
+| 9 — band budgets          | Held in full on blackcurrant, forsythia, lavender, Echinacea, Pennisetum, Cherry laurel and Thuja, and for triangles on hydrangea and miscanthus. `test/geometry-budget.test.js` holds the current cost of every plant at every band and forbids it growing. Ten-year Thuja costs 12,650 / 4,360 / 1,212 triangles in 3 / 2 / 2 draws; the age-five ratchet state is 5,409 / 1,884 / 549. The draw gaps on hydrangea and miscanthus are structural rather than costly.       |
 
 ### Extracting a plant
 
@@ -592,10 +600,14 @@ prototypes, then plants.
 
 Two families, two strategies, because they want opposite answers:
 
-- **Organs** are one instanced mesh per compatible geometry rung for the whole
-  field. Levels that only draw fewer organs share a buffer and a draw call.
-  An `organLevel` ladder with genuinely different geometry gets one pooled mesh
-  per active rung, so its coarse triangles and coordinate frame remain real.
+- **Organs** are one instanced mesh per organ kind for the whole field. Every
+  coarser band is the finest band with organs culled and the survivors
+  rescaled, so the kind is allocated once, for the finest band, and every band
+  shares those matrices: a band change is a survivor mask and a level override,
+  never a free and an allocation. An `organLevel` ladder with genuinely
+  different geometry becomes a geometry level inside that one mesh, so its
+  coarse triangles and coordinate frame remain real and it costs a draw only
+  while it is on screen.
 - **Wood** is one mesh per prototype with real geometry LODs, because the
   buffers genuinely differ between levels. Its per-instance LOD resolver reads
   the same applied level as that placement's organs, so branches and foliage
@@ -630,18 +642,20 @@ does not stall the frame, however large the field is around it.
 counts organ instances written since the field was built, and should track the
 plants that moved band rather than the size of the field.
 
-The trade is slack. A demotion frees more slots than the coarser band takes
-back, and instanced buffers only shorten from the tail, so they settle at the
-high-water mark of the finest arrangement the field has ever drawn. Nothing is
-rendered there, but the per-frame culling pass still steps over it:
+The trade is slack. Every organ kind is allocated once, for its finest band,
+because every coarser band is a subset of that one — so the buffers never move,
+and a plant drawn at a coarse band leaves the rest of its slots reserved and
+empty. Nothing is rendered there, but the per-frame culling pass still steps
+over it:
 
 ```js
 field.stats(); // { slots: 436_000, unusedSlots: 158_765, ... }
-field.compact(); // reclaims it, by rewriting every placement
 ```
 
-`compact()` is the old whole-field cost by another name — 58 ms for 120
-hydrangeas — so call it when a pause is acceptable, never inside a render loop.
+That is the price of never reallocating. A storage buffer cannot resize in
+place, so growth re-uploads it whole and rebuilds both the material and culling
+node graphs — synchronously — and a band change that grew a buffer was a stall.
+Fixed allocation removes the stall and the growth together.
 
 ### The budget is advice, not a governor
 

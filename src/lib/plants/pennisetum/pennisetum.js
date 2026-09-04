@@ -81,19 +81,31 @@ const PANICLE_LADDER = Object.freeze([
 
 // A clump carries far more instances than this library's shrubs, so it drops
 // detail sooner and harder.
+/**
+ * Points of a culm's curve spanned by one drawn segment, at every band.
+ *
+ * Not a band lever, deliberately. A culm is drawn as a stack of segments, and
+ * walking it with a wider stride re-places every survivor on a new, longer
+ * chord -- so a coarse band would be a different set of organs rather than the
+ * fine set with some culled, and a field could not allocate the kind once.
+ * Two spends about five and a half segments on a cane, which is what an arch
+ * needs to read as an arch at the near band.
+ */
+const CULM_SECTION_STRIDE = 2;
+
 const DEFAULT_LOD_LEVELS = Object.freeze([
-  // `sectionStride` is the culm lever even at the near band. A mature clump
+  // `organLevel` is the culm lever now: the segments stay put at every band
+  // and drop from a six-triangle tube to a two-triangle card. A mature clump
   // draws 930 culm segments, and at two triangles a side that is a fifth of
   // the plant's entire budget spent on stems that the blades bury.
   Object.freeze({
     distance: 0,
-    detail: Object.freeze({ sectionStride: 2, organLevel: 0 }),
+    detail: Object.freeze({ organLevel: 0 }),
   }),
   Object.freeze({
     distance: 6,
     hysteresis: 0.1,
     detail: Object.freeze({
-      sectionStride: 4,
       segmentFactor: 0.7,
       leafStride: 2,
       leafScale: 1.2,
@@ -109,7 +121,6 @@ const DEFAULT_LOD_LEVELS = Object.freeze([
     distance: 11,
     hysteresis: 0.12,
     detail: Object.freeze({
-      sectionStride: 4,
       segmentFactor: 0.42,
       // Thinned less hard than the old far band, which was tuned when a blade
       // cost 176 triangles. At 8 it can afford to keep more of the clump, and
@@ -244,7 +255,14 @@ export class Pennisetum extends PlantRenderer {
       // left neutral. They are also the one organ kept out of the wind: each
       // culm is drawn as a stack of short segments, and bending each segment
       // by its own local height would pull them apart.
-      culm: this._material({ color: 0xffffff, roughness: 0.82 }),
+      // Double-sided because the coarse rung is a flat card: a culm is a
+      // millimetre or two of silhouette and must not vanish when it happens
+      // to be seen from behind.
+      culm: this._material({
+        color: 0xffffff,
+        roughness: 0.82,
+        side: THREE.DoubleSide,
+      }),
       blade: foliage.surface,
       bladeDepth: foliage.depth,
       bladeDistance: foliage.distance,
@@ -257,7 +275,15 @@ export class Pennisetum extends PlantRenderer {
   #createInstances() {
     this._addInstancedOrgan('culms', {
       name: 'Pennisetum_Culms',
-      geometry: this._stemGeometry(3, { openEnded: true }),
+      // A culm's segments stay where they are at every band, so a coarse
+      // band is this kind with nothing moved -- which is what lets a field
+      // allocate the culms once instead of once per band. The cost comes out
+      // of the segment instead of out of the count: six triangles of open
+      // tube near, two of card beyond. See `#setCulm`.
+      geometries: [
+        this._stemGeometry(3, { openEnded: true }),
+        this._stemCardGeometry(),
+      ],
       material: this._materials.culm,
       group: this._woodyGroup,
     });
@@ -436,13 +462,16 @@ export class Pennisetum extends PlantRenderer {
 
   #setCulm(culm, phenology) {
     const points = culm.points;
-    const stride = this._detail.sectionStride;
+    const stride = CULM_SECTION_STRIDE;
     const segment = new THREE.Object3D();
     const lastIndex = points.length - 1;
     let written = 0;
 
-    // Walk the culm at the current detail stride, always closing on the tip so
-    // a lower level of detail shortens no culm.
+    // Walk the culm at a fixed stride, always closing on the tip so no culm is
+    // shortened. The stride is deliberately not a band lever: thinning it
+    // re-places every surviving segment on a new chord, and a band that
+    // re-places its organs cannot be expressed as the fine band with organs
+    // culled. `organLevel` carries the coarse band instead.
     for (let index = 0; index < points.length - 1; index += stride) {
       const end = Math.min(index + stride, points.length - 1);
       const start = vector(points[index]);

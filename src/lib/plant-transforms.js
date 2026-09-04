@@ -52,6 +52,32 @@ export function createUnitStemGeometry(radialSegments = 5, openEnded = false) {
   return geometry;
 }
 
+/**
+ * A unit stem as a flat card, aligned from local y=0 to local y=1.
+ *
+ * The coarse rung of a stem that must stay in the same place at every band.
+ *
+ * A stem drawn as instanced segments has only two levers: how many segments it
+ * spends on its curve, and how many triangles each segment costs. Spending
+ * fewer segments at a coarse band re-places every one of them -- a coarser
+ * segment starts where a finer one started but spans several, so it is longer
+ * and points along a different chord. That makes a coarse band something other
+ * than the fine band with organs culled, which is the relation a field needs in
+ * order to allocate the kind once instead of once per band.
+ *
+ * So the segments stay put and the triangles go instead. Two triangles rather
+ * than a three-sided tube's six, spanning the same footprint the tube did, so
+ * the same instance matrix places it. Use it with a double-sided material: a
+ * card has no inside, and at the distance this rung is for a stem is a
+ * millimetre or two of silhouette that must not disappear when it is seen from
+ * behind.
+ */
+export function createUnitStemCardGeometry() {
+  const geometry = new THREE.PlaneGeometry(2, 1);
+  geometry.translate(0, 0.5, 0);
+  return geometry;
+}
+
 /** Put a unit +Y segment between two points, with radius in world units. */
 export function composeSegmentMatrix(target, start, end, radius = 1) {
   const direction = end.clone().sub(start);

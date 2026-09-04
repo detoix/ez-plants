@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 
+import { composeSurvivorMatrix } from './organ-composition.js';
+
 /**
  * Many plants, few draw calls.
  *
@@ -13,16 +15,21 @@ import * as THREE from 'three';
  * The field closes that, and it does so differently for the two mesh families,
  * because they want opposite answers:
  *
- * **Organs — one mesh per compatible geometry rung for the whole field.** Most
- * organ LOD draws *fewer* instances and fattens the survivors, so every band
- * still shares one buffer and one draw. Plants such as Thuja and Echinacea use
- * genuinely different index buffers at distance; each distinct rung receives
- * its own pooled mesh without making draw count depend on plant count.
+ * **Organs — one mesh per organ kind for the whole field, with a geometry
+ * level per way of drawing it.** A coarser band is the finest band with organs
+ * culled and the survivors rescaled, so every band shares one set of matrices:
+ * the kind is allocated once, for the finest band, and a band change is a
+ * survivor mask and a level override rather than a free and an allocation.
+ * Plants such as Thuja and Echinacea use genuinely different index buffers at
+ * distance, and each distinct pairing of geometry and shadow flags becomes a
+ * level inside that one mesh — which costs a draw when it is on screen, and
+ * nothing when it is not.
  *
  * **Wood — one mesh per prototype, with real geometry LODs.** Here the buffers
  * genuinely differ between bands: different vertex counts, different indices,
  * a real remesh. Those must be separate geometries, which is exactly what
- * `addLOD` is for, and the per-instance distance selection comes for free.
+ * `addLOD` is for. Organs reach the same mechanism from the other direction:
+ * their buffers are shared, and only their geometry differs.
  *
  * ## What this class is not
  *
@@ -83,34 +90,12 @@ const colour = new THREE.Color();
 const bounds = new THREE.Box3();
 const placementBounds = new THREE.Box3();
 
-/**
- * `InstancedMesh2.removeInstances` takes its ids as rest arguments, and one
- * mature forsythia carries more than four thousand organs of a single kind.
- * Spreading that many arguments is close enough to an engine's argument limit
- * to be worth chunking here rather than discovering the ceiling in someone
- * else's browser.
- */
-const REMOVE_CHUNK = 4096;
-
-function freeInstances(mesh, ids) {
-  for (let start = 0; start < ids.length; start += REMOVE_CHUNK) {
-    const end = Math.min(start + REMOVE_CHUNK, ids.length);
-    mesh.removeInstances(...ids.subarray(start, end));
-  }
-}
-
 /** Accept a Vector3, an array or an {x,y,z}. */
 function toVector(value) {
   if (value == null) return new THREE.Vector3();
   if (value.isVector3) return value.clone();
   if (Array.isArray(value)) return new THREE.Vector3().fromArray(value);
   return new THREE.Vector3(value.x ?? 0, value.y ?? 0, value.z ?? 0);
-}
-
-function organAt(prototype, level, kind) {
-  return prototype.bands[level].baked.organs.find(
-    (organ) => organ.kind === kind,
-  );
 }
 
 function sameOrganVariant(a, b) {
@@ -131,18 +116,21 @@ export class PlantFieldCore extends THREE.Group {
   static useCustomShadowMaterials = true;
 
   /**
-   * How a backend is told which band a wood instance is drawn at.
+   * How a backend is told which band an instance is drawn at.
    *
    * The WebGL backend evaluates a callback per instance per frame. A GPU
    * backend cannot run JavaScript inside its culling kernel, so it overrides
    * these to write the same decision as per-instance state instead. Either
    * way the field decides; only the delivery differs.
+   *
+   * Used for wood, and for any organ kind whose bands are compositional and so
+   * share one mesh with a geometry level per band.
    */
-  static installWoodLODResolver(mesh, resolve) {
+  static installLODResolver(mesh, resolve) {
     mesh.resolveLODIndex = resolve;
   }
 
-  static applyWoodLevel() {}
+  static applyInstanceLevel() {}
 
   /**
    * @param {object} options
@@ -243,6 +231,11 @@ export class PlantFieldCore extends THREE.Group {
     this._levels = Int32Array.from(this._placements.map((p) => p.level));
     this._organMeshes = new Map();
     this._woodMeshes = [];
+    // `stats()` is polled every frame by a HUD, and counting the geometry
+    // levels in use walks every placement of every kind. That is the one thing
+    // in this class that would scale with plant count, so it is computed only
+    // when a level or a visibility has actually moved.
+    this._organDrawCalls = null;
     this._stats = {
       drawCalls: 0,
       organInstances: 0,
@@ -396,7 +389,7 @@ export class PlantFieldCore extends THREE.Group {
         shadowLevelForBand,
         hasShadowLevels,
       };
-      this.constructor.installWoodLODResolver(
+      this.constructor.installLODResolver(
         mesh,
         (slot, _renderView, _distanceView, computedIndex, isShadowPass) => {
           const placementIndex = placementIndexes[slot];
@@ -425,8 +418,37 @@ export class PlantFieldCore extends THREE.Group {
   }
 
   /**
-   * One mesh per compatible geometry rung of an organ kind for the field.
+   * How each prototype expresses one organ kind's bands as subsets.
+   *
+   * Every prototype must agree that the kind composes. A pool is one species
+   * at one day, so they do -- and a kind that does not compose cannot share
+   * one allocation across its bands, which is the whole basis of this class.
+   * `test/organ-lod-composition.test.js` holds every plant in the library to
+   * it, so a plant that stops composing fails there long before it reaches a
+   * field.
+   *
+   * @returns {Map<object, object>} prototype -> its composition
    */
+  _organCompositions(kind) {
+    const compositions = new Map();
+    for (const prototype of this._prototypes) {
+      if (!prototype.organKinds.includes(kind)) continue;
+      const composition = prototype.organComposition(kind);
+      if (!composition?.compositional) {
+        throw new Error(
+          `Organ kind ${kind} of ${prototype.id} does not compose: ` +
+            `${composition?.reason ?? 'no composition was analysed'}. ` +
+            'A coarse band has to be the finest band with organs culled and ' +
+            'the survivors rescaled; a band that re-places or adds organs ' +
+            'cannot share one allocation with the band it came from.',
+        );
+      }
+      compositions.set(prototype, composition);
+    }
+    return compositions;
+  }
+
+  /** One mesh per organ kind, with a geometry level per way of drawing it. */
   _createOrganMeshes({ castShadow, receiveShadow }) {
     const kinds = [];
     for (const prototype of this._prototypes) {
@@ -436,66 +458,150 @@ export class PlantFieldCore extends THREE.Group {
     }
 
     for (const kind of kinds) {
-      const sources = [];
-      for (const prototype of this._prototypes) {
-        for (const band of prototype.bands) {
-          const source = band.baked.organs.find((organ) => organ.kind === kind);
-          if (
-            source &&
-            !sources.some((candidate) => sameOrganVariant(candidate, source))
-          ) {
-            sources.push(source);
-          }
-        }
-      }
-      if (sources.length === 0) continue;
-
-      const variants = [];
-      for (const [variantIndex, source] of sources.entries()) {
-        const capacity = Math.max(
-          1,
-          this._placements.reduce((total, placement) => {
-            const organ = organAt(placement.prototype, placement.level, kind);
-            return organ && sameOrganVariant(source, organ)
-              ? total + organ.count
-              : total;
-          }, 0),
-        );
-        const organGeometry = source.geometry.clone();
-        organGeometry.deleteAttribute('instanceIndex');
-        const mesh = new this.constructor.InstancedMesh2(
-          organGeometry,
-          this._prepareBackendMaterial(source.material),
-          { capacity, renderer: this._renderer },
-        );
-        mesh.name = `${this.name}_${source.name}_Rung${variantIndex}`;
-        mesh.count = 0;
-        mesh.frustumCulled = false;
-        mesh.castShadow = castShadow && source.castShadow;
-        mesh.receiveShadow = receiveShadow && source.receiveShadow;
-        if (this.constructor.useCustomShadowMaterials) {
-          if (source.customDepthMaterial) {
-            mesh.customDepthMaterial = source.customDepthMaterial;
-          }
-          if (source.customDistanceMaterial) {
-            mesh.customDistanceMaterial = source.customDistanceMaterial;
-          }
-        }
-        mesh.perObjectFrustumCulled = this._perInstanceCulling;
-
-        variants.push({ mesh, capacity, source });
-        this.add(mesh);
-      }
-
-      this._organMeshes.set(kind, {
-        mesh: variants[0].mesh,
-        capacity: variants.reduce(
-          (total, variant) => total + variant.capacity,
-          0,
-        ),
-        variants,
+      const compositions = this._organCompositions(kind);
+      if (compositions.size === 0) continue;
+      // Throws rather than reporting failure: a kind that cannot be built has
+      // to stop the field, not quietly go missing from it.
+      this._createComposedOrganMesh(kind, compositions, {
+        castShadow,
+        receiveShadow,
       });
     }
+  }
+
+  _createComposedOrganMesh(kind, compositions, { castShadow, receiveShadow }) {
+    // **A level is a distinct way of drawing the kind, not a band and not a
+    // geometry.** A level is a child mesh that reads the parent's matrix and
+    // colour buffers through getters and owns only its geometry and its own
+    // Object3D flags -- and `castShadow` is one of those flags. Every organ
+    // kind in this library casts shadows at its finest band and at no other,
+    // so grouping by geometry alone would silently give the coarse bands the
+    // fine band's shadow. Grouping by geometry *and* shadow flags is exactly
+    // the grouping the old path used for its separate meshes, so a composed
+    // kind costs the same number of draws as before -- it just stops paying
+    // for a second copy of the matrices.
+    //
+    // `addLevel` deduplicates by geometry identity, so each group is given its
+    // own clone. A clone of an organ card is a few hundred bytes against a
+    // plant's worth of shared matrices.
+    const bandCount = this._bandsPerPrototype;
+    const organForBand = new Array(bandCount).fill(null);
+    for (const composition of compositions.values()) {
+      for (const [band, entry] of composition.bands.entries()) {
+        if (!entry.drawn) continue;
+        if (!organForBand[band]) {
+          organForBand[band] = entry.organ;
+          continue;
+        }
+        // Prototypes are one species at one day, so they agree in practice. If
+        // they ever did not, one level could not serve both and the kind
+        // belongs on the old path rather than half on this one.
+        if (!sameOrganVariant(organForBand[band], entry.organ)) {
+          throw new Error(
+            `Prototypes disagree about organ kind ${kind} at band ${band}: ` +
+              'one geometry level has to serve every prototype in the pool, ' +
+              'and these need different geometry or different shadow flags.',
+          );
+        }
+      }
+    }
+
+    const base = organForBand[0];
+    if (!base) {
+      throw new Error(
+        `Organ kind ${kind} draws nothing at its finest band, so there is no ` +
+          'band for the coarser ones to be subsets of.',
+      );
+    }
+
+    let capacity = 0;
+    for (const placement of this._placements) {
+      capacity += compositions.get(placement.prototype)?.capacity ?? 0;
+    }
+
+    const applyFlags = (object, organ) => {
+      object.castShadow = castShadow && organ.castShadow;
+      object.receiveShadow = receiveShadow && organ.receiveShadow;
+      if (this.constructor.useCustomShadowMaterials) {
+        if (organ.customDepthMaterial) {
+          object.customDepthMaterial = organ.customDepthMaterial;
+        }
+        if (organ.customDistanceMaterial) {
+          object.customDistanceMaterial = organ.customDistanceMaterial;
+        }
+      }
+    };
+
+    const geometry = base.geometry.clone();
+    geometry.deleteAttribute('instanceIndex');
+    const mesh = new this.constructor.InstancedMesh2(
+      geometry,
+      this._prepareBackendMaterial(base.material),
+      { capacity: Math.max(1, capacity), renderer: this._renderer },
+    );
+    mesh.name = `${this.name}_${base.name}_Composed`;
+    mesh.count = 0;
+    mesh.frustumCulled = false;
+    mesh.perObjectFrustumCulled = this._perInstanceCulling;
+    applyFlags(mesh, base);
+
+    // Level 0 is the mesh itself, and it is the base band by construction:
+    // composition requires the finest band to be the superset, so it is drawn.
+    const levelForBand = new Int32Array(bandCount).fill(0);
+    const levelOrgans = [base];
+    const prototype = [...compositions.keys()][0];
+    for (let band = 1; band < bandCount; band += 1) {
+      const organ = organForBand[band];
+      if (!organ) {
+        // A band that drops the kind draws nothing there, so its level is
+        // never selected; the survivor mask hides the instances instead.
+        continue;
+      }
+      const existing = levelOrgans.findIndex((candidate) =>
+        sameOrganVariant(candidate, organ),
+      );
+      if (existing !== -1) {
+        levelForBand[band] = existing;
+        continue;
+      }
+
+      const rung = organ.geometry.clone();
+      rung.deleteAttribute('instanceIndex');
+      mesh.addLOD(
+        rung,
+        this._prepareBackendMaterial(organ.material),
+        prototype.bands[band].distance,
+        prototype.bands[band].hysteresis,
+      );
+      const object = mesh.LODinfo.objects.at(-1);
+      applyFlags(object, organ);
+      levelForBand[band] = mesh.LODinfo.render.levels.findIndex(
+        (level) => level.object === object,
+      );
+      levelOrgans.push(organ);
+    }
+
+    // Which placement owns each instance, so a backend that resolves the level
+    // with a callback can find the band the field already applied. Filled as
+    // instances are allocated; -1 until then.
+    const placementForId = new Int32Array(Math.max(1, capacity)).fill(-1);
+    this.constructor.installLODResolver(
+      mesh,
+      (slot, _renderView, _distanceView, computedIndex) => {
+        const placementIndex = placementForId[slot];
+        if (placementIndex === -1) return computedIndex;
+        return levelForBand[this._levels[placementIndex]];
+      },
+    );
+
+    this._organMeshes.set(kind, {
+      mesh,
+      capacity,
+      compositions,
+      levelForBand,
+      placementForId,
+    });
+    this.add(mesh);
   }
 
   /* ------------------------------------------------------------------ *
@@ -635,7 +741,7 @@ export class PlantFieldCore extends THREE.Group {
     if (!bands || !placement.woodMesh) return this;
 
     const band = this._levels[index];
-    this.constructor.applyWoodLevel(
+    this.constructor.applyInstanceLevel(
       placement.woodMesh,
       placement.woodSlot,
       bands.renderLevelForBand[band],
@@ -645,10 +751,15 @@ export class PlantFieldCore extends THREE.Group {
   }
 
   _applyVisibility(index) {
+    this._invalidateDrawCalls();
     const visible = this._visible[index] === 1;
-    for (const { variant, ids } of this._slots[index].values()) {
+    for (const [kind, { mesh, ids }] of this._slots[index]) {
+      // Every band's instances stay allocated, so showing a plant again must
+      // restore only the organs its current band draws -- never the ones that
+      // band culls.
+      const drawnAt = this._composedMask(index, kind);
       for (let slot = 0; slot < ids.length; slot += 1) {
-        variant.mesh.setVisibilityAt(ids[slot], visible);
+        mesh.setVisibilityAt(ids[slot], visible && drawnAt[slot] === 1);
       }
     }
     const placement = this._placements[index];
@@ -680,75 +791,19 @@ export class PlantFieldCore extends THREE.Group {
    * ## Why this is not a repack
    *
    * The instances of one plant are found by lookup in `_slots`, so the work
-   * here is proportional to that plant's own organ count and does not move when
-   * the field grows. That is the property `test/plant-field.test.js` pins, and
-   * it is the whole difference between a level change costing a plant and a
-   * level change costing the field.
+   * here is proportional to that plant's own organ count and does not move
+   * when the field grows. That is the property `test/plant-field.test.js`
+   * pins, and it is the whole difference between a level change costing a
+   * plant and a level change costing the field.
    *
-   * It works because `InstancedMesh2` maintains a free list: `removeInstances`
-   * hands slots back, `addInstances` takes them again before it extends the
-   * buffer. Freeing this placement's ids immediately before allocating its new
-   * ones means the new instances land in the slots the old ones just vacated,
-   * so a field that walks up and down its levels does not accumulate holes.
-   *
-   * The matrices come from the target band's own bake. A coarser band is the
-   * finer one with organs culled and the survivors uniformly scaled, so this
-   * could in principle touch only the difference -- but writing the plant whole
-   * is a few hundred microseconds, needs no assumption about how a species
-   * builds its bands, and keeps this method something you can read.
+   * Nothing is freed and nothing is allocated after the first call. A band
+   * change hides the organs the band culls, rewrites the survivors' matrices
+   * with the band's rescale, and points them at the band's geometry level.
    */
   _writePlacement(index, level) {
-    const placement = this._placements[index];
-    const slots = this._slots[index];
     let written = 0;
-
     for (const [kind, entry] of this._organMeshes) {
-      const previous = slots.get(kind);
-      if (previous?.ids.length) {
-        freeInstances(previous.variant.mesh, previous.ids);
-        this._stats.organInstances -= previous.ids.length;
-        slots.delete(kind);
-      }
-
-      const organ = organAt(placement.prototype, level, kind);
-      const count = organ?.count ?? 0;
-      if (count === 0) continue;
-      const variant = entry.variants.find((candidate) =>
-        sameOrganVariant(candidate.source, organ),
-      );
-      if (!variant) {
-        throw new Error(`No field geometry rung for organ kind ${kind}.`);
-      }
-      const { mesh } = variant;
-
-      // `addInstances` chooses the ids -- reused ones first -- so they are
-      // captured here in the order it hands them out, and the organ at local
-      // position n is written to ids[n].
-      const ids = new Uint32Array(count);
-      let cursor = 0;
-      mesh.addInstances(count, (_instance, id) => {
-        ids[cursor++] = id;
-      });
-
-      for (let local = 0; local < count; local += 1) {
-        const id = ids[local];
-        organMatrix.fromArray(organ.matrices, local * 16);
-        matrix.multiplyMatrices(placement.transform, organMatrix);
-        const instanceColour = organ.colors
-          ? colour.fromArray(organ.colors, local * 3)
-          : null;
-        this.constructor.prepareInstance(
-          organ.material,
-          matrix,
-          instanceColour,
-        );
-        mesh.setMatrixAt(id, matrix);
-        if (instanceColour) mesh.setColorAt(id, instanceColour);
-      }
-
-      slots.set(kind, { variant, ids });
-      this._stats.organInstances += count;
-      written += count;
+      written += this._writeComposedOrgans(index, level, kind, entry);
     }
 
     // New instances are created visible, so a hidden plant that changes level
@@ -756,6 +811,7 @@ export class PlantFieldCore extends THREE.Group {
     if (this._visible[index] === 0) this._applyVisibility(index);
 
     this._levels[index] = level;
+    this._invalidateDrawCalls();
     this._applyWoodLevel(index);
     this._stats.repacks += 1;
     this._stats.instanceWrites += written;
@@ -765,6 +821,161 @@ export class PlantFieldCore extends THREE.Group {
     // overruling the caller, which is the thing this design avoids.
     this._stats.overBudget = this._stats.organInstances > this._budget;
     return written;
+  }
+
+  /**
+   * One placement's organs of one composed kind, at one band.
+   *
+   * Nothing is freed and nothing is allocated after the first call: the
+   * instances belong to this placement for the field's lifetime. A band change
+   * hides the organs this band culls, rewrites the survivors' matrices with
+   * the band's rescale, and points the survivors at the band's geometry rung.
+   *
+   * The rescale is applied as a right-multiplied diagonal, so a survivor's
+   * matrix comes from the base band's with no decompose and no recompose. See
+   * `composeSurvivorMatrix`.
+   *
+   * A survivor keeps its colour across every band, which is what makes one
+   * colour buffer legitimate -- `test/organ-lod-composition.test.js` proves it
+   * for every organ kind in the library. The colour is still written beside
+   * each band's matrix rather than once at allocation, because a backend's
+   * `prepareInstance` may move data between the two.
+   *
+   * @returns {number} instances written
+   */
+  _writeComposedOrgans(index, level, kind, entry) {
+    const placement = this._placements[index];
+    const composition = entry.compositions.get(placement.prototype);
+    if (!composition) return 0;
+
+    const slots = this._slots[index];
+    let slot = slots.get(kind);
+    if (!slot) {
+      const ids = new Uint32Array(composition.capacity);
+      let cursor = 0;
+      entry.mesh.addInstances(composition.capacity, (_instance, id) => {
+        ids[cursor] = id;
+        entry.placementForId[id] = index;
+        cursor += 1;
+      });
+      slot = { mesh: entry.mesh, ids, drawn: 0 };
+      slots.set(kind, slot);
+    }
+
+    const band = composition.bands[level];
+    const survivors = band.drawn ? band.survivors : null;
+    const ids = slot.ids;
+    const visible = this._visible[index] === 1;
+
+    // Marked rather than searched: `survivors` is sorted by the coarse band's
+    // own instance order, not by base index, so membership is a lookup.
+    const drawnAt = this._composedScratch(composition.capacity);
+    drawnAt.fill(0, 0, composition.capacity);
+    if (survivors) for (const base of survivors) drawnAt[base] = 1;
+
+    const rung = entry.levelForBand[level];
+
+    for (let base = 0; base < composition.capacity; base += 1) {
+      const id = ids[base];
+      entry.mesh.setVisibilityAt(id, visible && drawnAt[base] === 1);
+      if (drawnAt[base] === 0) continue;
+
+      composeSurvivorMatrix(
+        organMatrix,
+        composition.base.matrices,
+        base,
+        band.scale,
+      );
+      matrix.multiplyMatrices(placement.transform, organMatrix);
+      const instanceColour = composition.base.colors
+        ? colour.fromArray(composition.base.colors, base * 3)
+        : null;
+      // The band is passed because a plant may encode it per instance, and a
+      // composed survivor's matrix comes from the base band rather than from
+      // this one. The field knows the band; the conversion boundary should not
+      // have to recover it from data the field just rebuilt.
+      this.constructor.prepareInstance(
+        band.organ.material,
+        matrix,
+        instanceColour,
+        level,
+      );
+      entry.mesh.setMatrixAt(id, matrix);
+      // Written with the matrix, not once at allocation. A backend's
+      // `prepareInstance` may move data between the two -- echinacea encodes
+      // its head morph in a matrix element and keeps the remainder in the
+      // colour -- so a colour written raw, before the band's matrix existed,
+      // would decode to the wrong thing.
+      if (instanceColour) entry.mesh.setColorAt(id, instanceColour);
+      this.constructor.applyInstanceLevel(entry.mesh, id, rung, -1);
+    }
+
+    const drawn = survivors ? survivors.length : 0;
+    this._stats.organInstances += drawn - slot.drawn;
+    slot.drawn = drawn;
+    return drawn;
+  }
+
+  /**
+   * Which of a placement's instances of one kind its current band draws.
+   *
+   * The returned mask is the shared scratch buffer, and is only valid until
+   * the next call.
+   */
+  _composedMask(index, kind) {
+    const entry = this._organMeshes.get(kind);
+    const composition = entry.compositions.get(
+      this._placements[index].prototype,
+    );
+
+    const band = composition.bands[this._levels[index]];
+    const drawnAt = this._composedScratch(composition.capacity);
+    drawnAt.fill(0, 0, composition.capacity);
+    if (band.drawn) for (const base of band.survivors) drawnAt[base] = 1;
+    return drawnAt;
+  }
+
+  /** A reusable survivor mask, grown to the largest capacity asked for. */
+  _composedScratch(capacity) {
+    if (!this._scratch || this._scratch.length < capacity) {
+      this._scratch = new Uint8Array(capacity);
+    }
+    return this._scratch;
+  }
+
+  /**
+   * Geometry levels currently on screen, which is what the frame actually
+   * costs in draws.
+   *
+   * A kind is one mesh, but each way of drawing it is a level with its own
+   * child object and its own draw. Counting the mesh once would report a
+   * saving that is not there. Cached, because this walks every placement and
+   * a HUD asks for it every frame; `_invalidateDrawCalls` clears it.
+   */
+  _countOrganDrawCalls() {
+    if (this._organDrawCalls !== null) return this._organDrawCalls;
+
+    let organDraws = 0;
+    const inUse = new Set();
+    for (const entry of this._organMeshes.values()) {
+      inUse.clear();
+      for (let index = 0; index < this._placements.length; index += 1) {
+        if (this._visible[index] !== 1) continue;
+        const composition = entry.compositions.get(
+          this._placements[index].prototype,
+        );
+        const band = composition?.bands[this._levels[index]];
+        if (band?.drawn) inUse.add(entry.levelForBand[this._levels[index]]);
+      }
+      organDraws += inUse.size;
+    }
+    this._organDrawCalls = organDraws;
+    return organDraws;
+  }
+
+  _invalidateDrawCalls() {
+    this._organDrawCalls = null;
+    return this;
   }
 
   /**
@@ -789,45 +1000,14 @@ export class PlantFieldCore extends THREE.Group {
       bounds.union(placementBounds);
     }
 
-    for (const { variants } of this._organMeshes.values()) {
-      for (const { mesh } of variants) {
-        mesh.boundingBox = bounds.clone();
-        mesh.boundingSphere = bounds.getBoundingSphere(new THREE.Sphere());
+    for (const { mesh } of this._organMeshes.values()) {
+      // A kind's geometry levels are child meshes of this one, and they are
+      // drawn in their own right, so they need the field's bounds too rather
+      // than the single-organ bounds their geometry implies.
+      for (const object of mesh.LODinfo?.objects ?? [mesh]) {
+        object.boundingBox = bounds.clone();
+        object.boundingSphere = bounds.getBoundingSphere(new THREE.Sphere());
       }
-    }
-    return this;
-  }
-
-  /**
-   * Squeeze the slack out of the instance buffers.
-   *
-   * ## Why there is slack at all
-   *
-   * Demoting a plant frees more slots than the coarser band takes back, and
-   * `InstancedMesh2` only shortens its array from the tail. So the arrays settle
-   * at the high-water mark of the finest arrangement the field has ever been
-   * asked to draw, and the difference sits there inactive. Inactive slots draw
-   * nothing, but the per-frame culling pass still steps over them, so a field
-   * that spent one moment entirely at its finest band keeps paying a small scan
-   * cost for it afterwards.
-   *
-   * That is a deliberate trade. The alternative -- repacking so the buffers stay
-   * exactly the size of what is drawn -- is what made a single plant's level
-   * change cost the whole field.
-   *
-   * `stats().slots` and `stats().unusedSlots` report the slack. This reclaims
-   * it, at the price of rewriting every placement, so call it when a pause is
-   * acceptable rather than inside a render loop.
-   */
-  compact() {
-    for (const { variants } of this._organMeshes.values()) {
-      for (const { mesh } of variants) mesh.clearInstances();
-    }
-    for (const slots of this._slots) slots.clear();
-    this._stats.organInstances = 0;
-
-    for (let index = 0; index < this._placements.length; index += 1) {
-      this._writePlacement(index, this._levels[index]);
     }
     return this;
   }
@@ -871,20 +1051,16 @@ export class PlantFieldCore extends THREE.Group {
    * the number of plants, which is the entire claim this class makes.
    */
   stats() {
-    let organDraws = 0;
-    for (const { variants } of this._organMeshes.values()) {
-      for (const { mesh } of variants) {
-        if (mesh.instancesCount > 0) organDraws += 1;
-      }
-    }
+    // A kind is one mesh, but each way of drawing it is a geometry level with
+    // its own child object and so its own draw. Counting the mesh once would
+    // report a saving that is not there: the levels in use are what the frame
+    // costs.
+    const organDraws = this._countOrganDrawCalls();
 
     let slots = 0;
     const slotsByKind = {};
-    for (const [kind, { variants }] of this._organMeshes) {
-      slotsByKind[kind] = variants.reduce(
-        (total, { mesh }) => total + mesh._instancesArrayCount,
-        0,
-      );
+    for (const [kind, { mesh }] of this._organMeshes) {
+      slotsByKind[kind] = mesh._instancesArrayCount;
       slots += slotsByKind[kind];
     }
 
@@ -928,23 +1104,22 @@ export class PlantFieldCore extends THREE.Group {
        */
       instanceWrites: this._stats.instanceWrites,
       /**
-       * Instance slots the organ buffers currently span, drawn or not. Sits at
-       * the high-water mark of the finest arrangement the field has been asked
-       * for, because freed slots are only reclaimed from the tail.
+       * Instance slots the organ buffers span, drawn or not. Fixed for the
+       * life of the field: every organ kind is allocated once, for its finest
+       * band, because every coarser band is a subset of that one. It does not
+       * move when a plant changes band, which is what removes reallocation --
+       * and its re-upload and synchronous shader rebuild -- from a band
+       * change entirely.
        */
       slots,
-      /**
-       * The same span, per organ kind. A band that drops a kind outright --
-       * hydrangea's millimetre-wide stems past seven metres -- empties that
-       * kind's buffer to its first slot, and because every freed slot in it is
-       * then tail, the whole span goes back. Reading `slots` alone, that looks
-       * like the high-water mark falling; per kind it is visibly the rule
-       * working rather than an exception to it.
-       */
+      /** The same span, per organ kind. */
       slotsByKind,
       /**
-       * Slots inside that span which draw nothing. They cost one array read
-       * each per frame in the culling pass; `compact()` reclaims them.
+       * Slots inside that span which draw nothing: what the coarser bands
+       * leave reserved. They cost one array read each per frame in the culling
+       * pass, and they are the price of never reallocating -- a field with
+       * every plant at its finest band has none, and one with every plant at
+       * its coarsest has the most.
        */
       unusedSlots: slots - this._stats.organInstances,
     };
@@ -959,13 +1134,14 @@ export class PlantFieldCore extends THREE.Group {
    */
   dispose() {
     for (const mesh of this._woodMeshes) mesh?.dispose?.();
-    for (const { variants } of this._organMeshes.values()) {
-      for (const { mesh } of variants) {
-        // Organ geometry is cloned specifically for this field mesh; materials
-        // still belong to the source plants and must remain alive.
-        mesh.geometry.dispose();
-        mesh.dispose?.();
+    for (const { mesh } of this._organMeshes.values()) {
+      // Organ geometry is cloned specifically for this field mesh -- including
+      // every geometry level's own clone -- while materials still belong to
+      // the source plants and must remain alive.
+      for (const object of mesh.LODinfo?.objects ?? [mesh]) {
+        object.geometry.dispose();
       }
+      mesh.dispose?.();
     }
     this._woodMeshes.length = 0;
     this._organMeshes.clear();

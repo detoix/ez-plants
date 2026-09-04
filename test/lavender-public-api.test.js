@@ -118,24 +118,6 @@ test('the spike plate fill matches the tile its cards are cut from', () => {
   );
 });
 
-test('the leaf plate fill matches the tile the stand-in cards are cut from', () => {
-  const renderer = readFileSync(
-    new URL('../src/lib/plants/lavender/lavender.js', import.meta.url),
-    'utf8',
-  );
-  const script = readFileSync(
-    new URL('../scripts/make-lavender-leaf-texture.mjs', import.meta.url),
-    'utf8',
-  );
-  const declared = renderer.match(/const LEAF_PLATE_FILL = ([\d.]+);/);
-  const half = script.match(/const HALF_WIDTH = ([\d.]+);/);
-  assert.ok(declared && half);
-  assert.ok(
-    Math.abs(Number(half[1]) * 2 - Number(declared[1])) < 1e-9,
-    `plate draws ${Number(half[1]) * 2} of the tile, renderer expects ${declared[1]}`,
-  );
-});
-
 test('the app registry carries a complete Lavender descriptor', () => {
   const source = readFileSync(APP_SOURCE_URL, 'utf8');
   const executable = source

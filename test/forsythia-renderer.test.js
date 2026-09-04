@@ -460,7 +460,7 @@ test('stats report rendered organs, dimensions and sourced care hints', () => {
     const stats = plant.stats();
     assert.equal(stats.cultivar, 'Lynwood');
     assert.ok(stats.visibleLeaves > 0);
-    // A real bound, not "> 0": one draw per organ kind plus one for the wood
+    // A real bound, not "> 0": every organ kind at once, and one for the wood
     // is the ceiling rule 5 sets. test/draw-call-budget.test.js holds every
     // plant in the library to it across the whole year.
     assert.ok(stats.drawCalls <= plant._organKinds.length + 1);

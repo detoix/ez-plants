@@ -49,12 +49,19 @@ const PLANTS = readdirSync(join(REPO, 'src/lib/plants'), {
 export const TARGET_TRIANGLES = Object.freeze([25_000, 10_000, 5_000]);
 
 /**
- * Draws per plant, per band — one per organ kind, plus one for the wood.
+ * Parts per plant, per band. A part is one draw.
  *
- * Band 0 gets a third for whatever the plant is actually about: a panicle, a
- * raceme, a truss of fruit. Past band 0 a plant is wood and foliage, and the
- * feature organ has to be carried by the leaf card or baked into the
- * silhouette, exactly as EZ-Tree drops a leaf to a single billboard at LOD2.
+ * Three at band 0, two after that, and **which** parts they are is the plant's
+ * business. A part is an organ kind that has instances, or the merged woody
+ * mesh if the plant has one: a shrub usually spends its two coarse parts on
+ * wood and foliage, while echinacea is herbaceous, has no woody mesh at all,
+ * and spends them on foliage and its flowers. Nothing is reserved for wood.
+ *
+ * Band 0 gets a third part for whatever the plant is actually about: a panicle,
+ * a raceme, a truss of fruit. It is dropped after that, exactly as EZ-Tree
+ * drops a leaf to a single billboard at LOD2 -- and dropped means dropped,
+ * because rehousing it in a surviving kind's pool stops a coarse band being a
+ * subset of the fine one, which costs a field more than the draw it saves.
  *
  * This is a design constraint, not a performance fix: at field scale the draws
  * are pooled per kind across every plant of a species, and 32 of them is
@@ -117,14 +124,33 @@ const RECORDED = Object.freeze({
   // 3,620 triangles to one mesh and 136, 72 or 28; the three blade kinds
   // became one, because posture is a rotation rather than a mesh.
   //
+  // Three parts at every band, not two, and recorded rather than hidden.
+  //
+  // Echinacea used to stay inside two by dropping its stems past band 0 and
+  // re-rooting each flower head at its stem base, stretched to the stem's
+  // length, so the head drew the stalk it stood on. That kept the part count
+  // and cost the plant the field's composed path: a coarse band was a
+  // different set of organs rather than the fine set with some culled, so its
+  // heads had to be allocated once per band.
+  //
+  // The part budget is a proxy for triangles -- "the geometry that leaves with
+  // a dropped kind is what actually costs" -- and this plant is at 33/43/44%
+  // of its triangles. Keeping the stems costs 216 triangles at a coarse band,
+  // from an allowance it is using two fifths of. It buys back the composed
+  // path for every organ kind it has.
+  echinacea: { triangles: [8172, 4340, 2206], draws: [3, 3, 3] },
+
+  // Bands 1 and 2 came down when the culms stopped thinning: their segments
+  // now stay put at every band and drop from a six-triangle tube to a
+  // two-triangle card, so a coarse band is the fine band with nothing moved.
   // The third draw at bands 1 and 2 is culms, and it is deliberate. Dropping
   // them fits the budget and looks wrong: the heads are carried on those
   // stems, and without them a clump at six metres has its plumes floating in
   // a gap above its own foliage. Merging culms into either of the other two
   // kinds would mean drawing a stem tube as a leaf ribbon. The triangles are
-  // already gone — 1,584 of them at band 2 — so what is left here is one draw
-  // call, and correctness is worth more than it.
-  miscanthus: { triangles: [23526, 9076, 4368], draws: [3, 3, 3] },
+  // already gone — a band-2 clump spends 976 on them — so what is left here is
+  // one draw call, and correctness is worth more than it.
+  miscanthus: { triangles: [23526, 8468, 3760], draws: [3, 3, 3] },
 });
 
 function triangleCount(geometry) {
@@ -146,7 +172,8 @@ async function createPlant(name) {
 
 /**
  * What one plant costs at each of its own LOD bands, counted the way the field
- * draws it: one draw per organ kind that has instances, plus one for the wood.
+ * draws it: one part per organ kind that has instances, and one more if the
+ * plant meshes wood. This is how a part is counted, not what a part must be.
  */
 function measure(plant) {
   const prototype = createPlantPrototype(plant);

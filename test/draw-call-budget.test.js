@@ -33,7 +33,7 @@ async function createPlant(name, options = {}) {
   return new Plant({ ageYears: 5, dayOfYear: 200, ...options });
 }
 
-/** The structural ceiling: one draw per organ kind, plus one for the wood. */
+/** The structural ceiling: every organ kind at once, and wood if it has any. */
 function ceiling(plant) {
   return plant._organKinds.length + 1;
 }

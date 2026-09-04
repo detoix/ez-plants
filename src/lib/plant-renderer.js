@@ -10,7 +10,11 @@ import {
   sampleWoodyLandmarks,
   stablePlantOrganDetailScale,
 } from './plant-detail.js';
-import { createUnitStemGeometry, vector } from './plant-transforms.js';
+import {
+  createUnitStemCardGeometry,
+  createUnitStemGeometry,
+  vector,
+} from './plant-transforms.js';
 import {
   appendBranchTube,
   BranchCap,
@@ -36,6 +40,7 @@ const DEFAULT_BARK_WRAPS_PER_METRE_RADIUS = 250;
 // guard rather than share anything.
 const unitStem = ({ segments, openEnded }) =>
   createUnitStemGeometry(segments, openEnded);
+const unitStemCard = () => createUnitStemCardGeometry();
 
 /**
  * Machinery shared by every multi-cane shrub renderer in this library.
@@ -319,6 +324,17 @@ export class PlantRenderer extends THREE.Group {
       { segments, openEnded },
       unitStem,
     );
+  }
+
+  /**
+   * The same unit stem as a two-triangle card, for a coarse band.
+   *
+   * The coarse rung of a stem whose segments must stay where they are. It
+   * occupies the footprint `_stemGeometry` does, so one instance matrix places
+   * either. Needs a double-sided material; see `createUnitStemCardGeometry`.
+   */
+  _stemCardGeometry() {
+    return this._sharedGeometry('shared/unit-stem-card', {}, unitStemCard);
   }
 
   _createWoodMesh(material) {
