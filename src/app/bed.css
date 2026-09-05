@@ -1,0 +1,194 @@
+/* The bed page. Deliberately quieter than field.css: this page is meant to be
+   screen-recorded, so the panel sits in one corner, hides with ?ui=0, and
+   never covers the planting. */
+
+:root {
+  --bed-ink: #f2f6ee;
+  --bed-panel: rgba(24, 33, 26, 0.82);
+  --bed-edge: rgba(210, 228, 200, 0.16);
+  --bed-accent: #b7d98a;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #c3d3d8;
+}
+
+#root {
+  position: relative;
+  width: 100vw;
+  height: 100dvh;
+}
+
+#app {
+  position: absolute;
+  inset: 0;
+}
+
+#app canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.bed-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(160deg, #2c3a2e, #16201a);
+  color: var(--bed-ink);
+}
+
+.bed-loading[hidden] {
+  display: none;
+}
+
+.bed-loading-card {
+  max-width: 30rem;
+  padding: 2rem 2.25rem;
+  text-align: center;
+}
+
+.bed-loading-card h1 {
+  margin: 0.35rem 0 0.75rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.bed-loading-card p {
+  margin: 0.35rem 0;
+  color: rgba(242, 246, 238, 0.78);
+  font-size: 0.95rem;
+}
+
+.bed-loading-fallback {
+  margin-top: 1.25rem !important;
+  font-size: 0.82rem !important;
+  color: rgba(242, 246, 238, 0.5) !important;
+}
+
+.bed-loading-error {
+  background: linear-gradient(160deg, #3a2c2c, #201616);
+}
+
+.bed-kicker {
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--bed-accent);
+}
+
+.bed-panel {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  z-index: 10;
+  width: min(20rem, calc(100vw - 2rem));
+  padding: 1rem 1.15rem 1.1rem;
+  border: 1px solid var(--bed-edge);
+  border-radius: 0.9rem;
+  background: var(--bed-panel);
+  backdrop-filter: blur(9px);
+  color: var(--bed-ink);
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.bed-panel[hidden] {
+  display: none;
+}
+
+.bed-head h1 {
+  margin: 0.3rem 0 0.2rem;
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.bed-sliders {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 0.9rem;
+}
+
+.bed-slider {
+  display: grid;
+  grid-template-columns: 4.4rem 1fr;
+  align-items: center;
+  gap: 0.15rem 0.6rem;
+  font-size: 0.8rem;
+}
+
+.bed-slider > span {
+  color: rgba(242, 246, 238, 0.55);
+}
+
+.bed-slider input[type='range'] {
+  width: 100%;
+  accent-color: var(--bed-accent);
+  cursor: pointer;
+}
+
+.bed-slider output {
+  grid-column: 2;
+  font-variant-numeric: tabular-nums;
+}
+
+.bed-status {
+  min-height: 1.1rem;
+  margin: 0.55rem 0 0;
+  font-size: 0.8rem;
+  color: var(--bed-accent);
+}
+
+.bed-stats {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.15rem 0.7rem;
+  margin: 0.7rem 0 0;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--bed-edge);
+  font-size: 0.8rem;
+}
+
+.bed-stats dt {
+  color: rgba(242, 246, 238, 0.55);
+}
+
+.bed-stats dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.bed-hint {
+  margin: 0.85rem 0 0;
+  font-size: 0.74rem;
+  line-height: 1.45;
+  color: rgba(242, 246, 238, 0.5);
+}
+
+.bed-hint code {
+  padding: 0.05rem 0.25rem;
+  border-radius: 0.25rem;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+@media (max-width: 640px) {
+  .bed-panel {
+    top: auto;
+    bottom: 0.75rem;
+    left: 0.75rem;
+    right: 0.75rem;
+    width: auto;
+  }
+
+  .bed-stats,
+  .bed-hint {
+    display: none;
+  }
+}

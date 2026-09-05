@@ -46,18 +46,19 @@ export default ({ command }) => ({
     emptyOutDir: true,
     outDir: '../../dist',
     rollupOptions: {
-      // Two pages: the single-plant review page and the WebGPU field
-      // walkaround. Without naming them here a
+      // Three pages: the single-plant review page, the WebGPU field
+      // walkaround, and the ornamental bed. Without naming them here a
       // directory page works under `vite` and quietly vanishes from the build.
       //
-      // The field lives in its own directory rather than as `field.html` so it
-      // is served at `/field`, with no extension in the URL. That is a property
-      // of the directory layout, not of a rewrite rule, so it holds on any
-      // static host -- including GitHub Pages, which this deploys to and which
-      // offers no rewrites of its own.
+      // The field and the bed live in their own directories rather than as
+      // `field.html` so they are served at `/field` and `/bed`, with no
+      // extension in the URL. That is a property of the directory layout, not
+      // of a rewrite rule, so it holds on any static host -- including GitHub
+      // Pages, which this deploys to and which offers no rewrites of its own.
       input: {
         main: path.resolve(__dirname, 'src/app/index.html'),
         field: path.resolve(__dirname, 'src/app/field/index.html'),
+        bed: path.resolve(__dirname, 'src/app/bed/index.html'),
       },
     },
   },

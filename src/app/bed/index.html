@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#2b3a2f" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <title>EZ-Plants · rabatka</title>
+    <meta
+      name="description"
+      content="Rabatka bylinowa: lawenda, rozplenica i hortensja w pasach, kora i kamienne obrzeże, przez cały rok."
+    />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/bed.css" />
+  </head>
+
+  <body>
+    <div
+      id="loading-screen"
+      class="bed-loading"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <div class="bed-loading-card">
+        <div class="bed-kicker">EZ-Plants · WebGPU</div>
+        <h1 id="loading-heading">Sadzę rabatkę…</h1>
+        <p id="loading-text">Sprawdzam urządzenie WebGPU…</p>
+        <p class="bed-loading-fallback">
+          Ta strona wymaga HTTPS (albo localhost) i przeglądarki z WebGPU.
+        </p>
+      </div>
+    </div>
+
+    <main id="root">
+      <div
+        id="app"
+        role="region"
+        aria-label="Rabatka bylinowa: lawenda, rozplenica i hortensja"
+      ></div>
+
+      <section id="bed-panel" class="bed-panel" aria-label="Sterowanie rabatką">
+        <header class="bed-head">
+          <p class="bed-kicker" data-bed="species">—</p>
+          <h1>Rabatka bylinowa</h1>
+        </header>
+
+        <div class="bed-sliders">
+          <label class="bed-slider" for="bed-age">
+            <span>Wiek</span>
+            <input
+              id="bed-age"
+              type="range"
+              data-bed-age
+              min="1"
+              max="15"
+              step="1"
+            />
+            <output data-bed="age-out">—</output>
+          </label>
+
+          <label class="bed-slider" for="bed-day">
+            <span>Pora roku</span>
+            <input
+              id="bed-day"
+              type="range"
+              data-bed-day
+              min="1"
+              max="365"
+              step="1"
+              list="bed-season-marks"
+            />
+            <output data-bed="day-out">—</output>
+          </label>
+
+          <!-- Tick marks, not a menu: the slider is continuous and these are
+               the dates all three species have something to show at. -->
+          <datalist id="bed-season-marks">
+            <option value="30" label="Zima"></option>
+            <option value="120" label="Wiosna"></option>
+            <option value="190" label="Lawenda"></option>
+            <option value="212" label="Pełnia"></option>
+            <option value="250" label="Róż"></option>
+            <option value="300" label="Jesień"></option>
+          </datalist>
+        </div>
+
+        <p class="bed-status" data-bed="status" aria-live="polite"></p>
+
+        <dl class="bed-stats">
+          <dt>Klatki</dt>
+          <dd data-bed="fps">—</dd>
+          <dt>Rysowania</dt>
+          <dd data-bed="draws">—</dd>
+          <dt>Organy</dt>
+          <dd data-bed="organs">—</dd>
+          <dt>Prototypy</dt>
+          <dd data-bed="plants">—</dd>
+        </dl>
+
+        <p class="bed-hint">
+          Kamera krąży sama. Przeciągnij, żeby przejąć · kółko przybliża.
+          Suwaki przeliczają rabatkę po puszczeniu uchwytu ·
+          <code>?ui=0</code> chowa panel do nagrywania.
+        </p>
+      </section>
+    </main>
+
+    <script type="module" src="../bed.js"></script>
+  </body>
+</html>

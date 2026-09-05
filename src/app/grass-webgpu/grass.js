@@ -154,6 +154,7 @@ function createRingResources({
   frustumPlanes,
   shadows,
   surface,
+  keepAt,
 }) {
   const state = createRingState(ring);
   const originCell = uniform(new THREE.Vector2());
@@ -315,7 +316,15 @@ function createRingResources({
       );
     }
 
-    If(owned.and(retained).and(inFrustum), () => {
+    // An optional world-space keep-out, tested here rather than baked into a
+    // placement record: the six record words are full, and stealing precision
+    // from the blade-width channel to store one bit would change a packing
+    // contract the whole field depends on. A caller that passes no mask builds
+    // no node, so `/field` generates the shader it always did.
+    let keep = owned.and(retained).and(inFrustum);
+    if (keepAt) keep = keep.and(keepAt(worldXZ));
+
+    If(keep, () => {
       const draw = drawStorage.element(uint(ring.index));
       const outputIndex = atomicAdd(draw.get('instanceCount'), uint(1));
       visibleWrite.element(outputIndex).assign(instanceIndex);
@@ -409,11 +418,18 @@ function createRingResources({
   };
 }
 
+/**
+ * @param {object} options
+ * @param {Function} [options.keepAt] Optional world-space mask,
+ *   `(worldXZ) => booleanNode`, returning false where no blade may stand. Used
+ *   by `/bed` to cut the lawn out of the planting; `/field` passes none.
+ */
 export function createGPUDrivenGrass({
   renderer,
   heightMap,
   surface,
   shadows = true,
+  keepAt = null,
 }) {
   if (!surface) throw new TypeError('GPU grass needs the shared lawn surface.');
   const cameraXZ = uniform(new THREE.Vector2());
@@ -452,6 +468,7 @@ export function createGPUDrivenGrass({
       frustumPlanes,
       shadows,
       surface,
+      keepAt,
     }),
   );
   const group = new THREE.Group();
