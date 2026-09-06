@@ -130,6 +130,27 @@ grass draws, this-frame versus steady compute count, placements, aggregate
 plant statistics, PBR transfer/GPU footprint, and the renderer's memory
 estimate.
 
+## Disposal
+
+`createGPUDrivenGrass()` returns a `dispose()` that must free the storage
+buffers itself, through `renderer._attributes.delete()`. That private field is
+deliberate. `BufferAttribute.dispose()` in three r185 only dispatches an event,
+and the sole listener in the WebGPU path is registered by `Geometries` on a
+geometry, for that geometry's own attributes. The lawn's are not among them:
+the placement records and visible IDs are bound as `storage()` nodes, and the
+indirect draw commands arrive through `setIndirect()`, which
+`Geometries.onDispose` does not touch either. `Attributes.delete()` is the same
+call that listener makes -- it destroys the `GPUBuffer` and corrects
+`renderer.info.memory`, which the HUD reports -- and there is no public
+equivalent. `renderer.backend.destroyAttribute()` is not one: it skips the
+memory accounting and throws for an attribute that was never uploaded.
+
+Today the lawn is built once per page and torn down with the renderer, so the
+buffers would be reclaimed with the device regardless. The cost of getting this
+wrong appears the first time something rebuilds the lawn mid-session: 29.3 MiB
+of storage per rebuild, held until the page closes, with the HUD's memory
+estimate reporting the sum of every generation.
+
 ## Provenance
 
 The architecture was informed by

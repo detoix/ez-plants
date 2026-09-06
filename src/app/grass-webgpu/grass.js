@@ -74,6 +74,23 @@ const DrawIndirect = struct(
   'EzGrassDrawIndirect',
 );
 
+/**
+ * Frees the GPU buffer behind a storage attribute.
+ *
+ * `BufferAttribute.dispose()` only dispatches an event, and in the WebGPU path
+ * the sole listener is registered by `Geometries` on a *geometry*. These
+ * attributes are not geometry attributes -- the records and visible IDs are
+ * bound as `storage()` nodes, and the draw commands arrive through
+ * `setIndirect()`, which `Geometries.onDispose` also skips -- so nothing hears
+ * it and the buffers outlive the lawn. Three r185 exposes no public way to
+ * release one; `Attributes.delete()` is the same path `Geometries` takes, and
+ * it both destroys the buffer and corrects `renderer.info.memory`. It no-ops
+ * for an attribute the renderer never uploaded.
+ */
+function releaseStorageBuffer(renderer, attribute) {
+  renderer._attributes?.delete(attribute);
+}
+
 function packAppearance(tint, retention, macro) {
   const tintByte = uint(tint.clamp(0, 1).mul(255).add(0.5));
   const macroByte = uint(macro.clamp(0, 1).mul(255).add(0.5));
@@ -564,12 +581,12 @@ export function createGPUDrivenGrass({
     dispose() {
       readback.dispose();
       resetCompute.dispose();
-      drawAttribute.dispose();
+      releaseStorageBuffer(renderer, drawAttribute);
       for (const resources of rings) {
         resources.placementCompute.dispose();
         resources.cullCompute.dispose();
-        resources.recordAttribute.dispose();
-        resources.visibleAttribute.dispose();
+        releaseStorageBuffer(renderer, resources.recordAttribute);
+        releaseStorageBuffer(renderer, resources.visibleAttribute);
         resources.geometry.dispose();
         resources.material.dispose();
       }
