@@ -203,7 +203,26 @@ function peduncleTemplate(seed, shoot) {
     PEDUNCLE.straightenRange[0],
     PEDUNCLE.straightenRange[1],
   );
-  const tilt = clamp(shoot.tilt * straighten, 0, 1.5);
+  // How far out the stem's own base already is, against the mound it belongs
+  // to. Frame, shoot and stem each sample their splay independently and
+  // nothing was checking the total, so the one chain in a few hundred that
+  // draws the flat end of all three reaches about half again the plant's
+  // radius -- and because it is the *outermost* thing on the plant there is
+  // nothing in front of it to hide it. The result is the halo of spikes on
+  // bare wires that the length falloff below was already written to prevent
+  // and does not fully catch: that factor knows how far the stem leans, not
+  // how far out it starts from.
+  const reachOut = clamp01(
+    Math.hypot(shoot.tipPosition.x, shoot.tipPosition.z) /
+      Math.max(1e-6, ARCHITECTURE.matureRadiusM),
+  );
+  // A stem out on the shoulder stands *up* rather than continuing outward,
+  // and that is mechanics before it is composition: a lavender's peduncle is
+  // a stiff square stem carrying a four-centimetre head, and out at the edge
+  // there is no neighbouring growth to lean it on. The stems that lie over
+  // the skirt in the photographs are short ones on the outside of the dome,
+  // not long ones thrown clear of it.
+  const tilt = clamp(shoot.tilt * straighten * (1 - 0.5 * reachOut), 0, 1.5);
   // The longest stems stand on the vigorous upright shoots through the middle
   // of the plant; a stem leaning out over the skirt is a good deal shorter.
   // Without this the outermost stems reach their full length sideways and the
@@ -221,7 +240,15 @@ function peduncleTemplate(seed, shoot) {
   const outward = vector(Math.cos(azimuth), 0, Math.sin(azimuth));
   const sideways = vector(-outward.z, 0, outward.x);
   const sway = randomRange(seed, [...key, 'sway'], -0.16, 0.16);
-  const lift = randomRange(seed, [...key, 'lift'], -0.22, 0.46);
+  // Signed, so a stem may also fall away below its own base -- see the angle
+  // below. That is right in the middle of the plant, where a stem arching over
+  // has the mound under it, and wrong at the rim, where the same arch is the
+  // difference between a spike resting on the skirt and one hanging off the
+  // plant in mid-air. So the downward half of the range closes as the stem's
+  // base moves out; the upward half is untouched.
+  const sampledLift = randomRange(seed, [...key, 'lift'], -0.22, 0.46);
+  const lift =
+    sampledLift < 0 ? sampledLift * (1 - 0.75 * reachOut) : sampledLift;
   const count = 3;
   const points = [];
 

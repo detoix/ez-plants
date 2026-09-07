@@ -196,3 +196,18 @@ from EZ-Tree's measured LOD ladder. `test/geometry-budget.test.js` enforces it
 as a ratchet: recorded plants may only shrink, unrecorded plants must meet the
 target immediately. Read it before changing plant geometry, and lower a
 plant's recorded entry in the same commit that earns it.
+
+That file measures one instant — age 5, day 230 — and calls it peak season.
+For four of the nine plants it is not: they are heaviest on a day it never
+visits, two of them by an order of magnitude, and for lavender day 230 lands
+four days *after* the shear, so the plant is measured on the first day its
+whole ornament is gone. `test/geometry-budget-peak.test.js` is the second
+ratchet that closes that hole. It rebuilds each plant at the single age and
+day an offline sweep found it worst on, which is nine builds rather than the
+sweep's 216. Its `PEAKS` record is therefore only as good as the last sweep:
+**re-run the sweep when a plant's phenology changes**, not only its geometry.
+
+Blackcurrant and hydrangea are the outstanding debts there, at roughly six
+times the band-0 target on their worst day. Blackcurrant's is the more
+serious: its coarse bands cost 96% of its fine one, which is a thinning fault
+rather than a modelling excess.

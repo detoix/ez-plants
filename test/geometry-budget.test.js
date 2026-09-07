@@ -97,8 +97,10 @@ const RECORDED = Object.freeze({
   // only on the peak-season day this file measures, which for this plant
   // falls a fortnight *after* the shears and so catches it at its cheapest.
   // Swept across every age and every day of the year, the worst case is
-  // 23,589 / 8,600 / 3,410 in 3 / 2 / 2 draws, at spike emergence in the
-  // fourth year of a replacement cycle.
+  // 23,243 / 7,612 / 3,138 in 3 / 2 / 2 draws, at spike emergence in the
+  // fourth year of a replacement cycle. That case is no longer prose: it is
+  // enforced in `geometry-budget-peak.test.js`, which exists because this
+  // file's one date leaves it -- and three other plants' worse ones -- unheld.
   //
   // What kept it there: the flower stems are wood rather than a third organ
   // pool, so band 0's third draw goes to the spikes; a spike is eight
@@ -108,6 +110,11 @@ const RECORDED = Object.freeze({
   // for. Past band 0 the spikes ride in the leaf pool as cards and
   // `woodOrderLimit` meshes only the framework, which is the one piece of
   // wood a lavender ever really shows.
+  //
+  // The realism pass on the flowering stand -- cylindrical spike normals, the
+  // violet re-authored as an albedo, and outer flower stems held inside the
+  // mound -- moved none of these numbers. Normals and tints are free, and
+  // leaning a stem costs what standing it up did.
   lavender: { triangles: [12578, 4184, 1798], draws: [2, 2, 2] },
   // Inside the *triangle* budget at every band as of the card panicle: the
   // head went from five meshes and 6,468 triangles to one mesh and 100, 40 or

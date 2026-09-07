@@ -47,18 +47,62 @@ const WINTER_LEAF_TINT = new THREE.Color(0xb4b9a8);
 /**
  * The spike, through its own eight weeks.
  *
- * Read straight off the photographs, in the order the plant runs them: a
- * silvery grey-green cone of unopened calyces in mid-June, the deep
- * violet-blue the cultivar is grown for in July, and the dark, dry,
- * grey-purple head of early August that stands until the shears. The plate is
- * near-neutral, so all three arrive as an instance tint and one mesh draws
- * every stage.
+ * Read off the photographs, in the order the plant runs them: a silvery
+ * grey-green cone of unopened calyces in mid-June, the deep violet-blue the
+ * cultivar is grown for in July, and the dark, dry, grey-purple head of early
+ * August that stands until the shears. The plate is near-neutral, so all three
+ * arrive as an instance tint and one mesh draws every stage.
+ *
+ * These are **albedos, not photographs**, and the violet is the one that had
+ * to be corrected for it. A colour sampled out of a photograph already has the
+ * daylight in it; used as a multiplier it gets that daylight applied a second
+ * time, and the darker and more saturated the sample the worse the second
+ * application hurts. That is why this constant was the only one of the three
+ * visibly wrong: the green and the dry head were pale enough that the double
+ * darkening stayed inside what a dull calyx looks like, while July's deep
+ * violet-blue -- the one week of the year the whole plant exists for -- came
+ * out a near-black indigo. Measured on the review page, the flowering stand
+ * averaged #2e264a against a plate whose lighting tops out around #71726f.
+ *
+ * A corolla's true reflectance is high; the depth in a photographed lavender
+ * is the light, not the petal. So the violet is authored pale and chromatic
+ * here and allowed to be darkened once, by the renderer, like every other
+ * surface in the scene. Judge it in the render, never by reading this hex.
+ *
+ * ---------------------------------------------------------------------------
+ * Checked against the photographs this file already cites
+ * ---------------------------------------------------------------------------
+ * `HIDCOTE_SOURCES.datedObservations` is not decoration. Sampling the violet
+ * pixels of six of them -- violet only, so no foliage or ground is in the
+ * number -- gives a mean luminance of 96 across the five true
+ * *L. angustifolia* 'Hidcote' plants, spanning 74 to 131 between a shaded
+ * Vilnius plant and one in full sun. The review page rendered 45 before this
+ * change and 68 after, against a sky at 212, so the scene is not
+ * underexposed and the comparison is honest.
+ *
+ * Two things follow, and the second is the useful one:
+ *
+ *   - The direction was right and the size was not. 68 against 96 is most of
+ *     the way, not all of it.
+ *   - **The rest is not this constant's to fix.** Pushing the albedo on to
+ *     0xc49af2 produced an identical rendered luminance of 68 and cost chroma
+ *     -- blue-minus-green fell from 44 to 37, against a photographic mean of
+ *     43. The value is capped by what the review scene's lighting puts on a
+ *     near-vertical card, and a brighter hex only bleaches it. Anyone
+ *     tempted to raise this number again should render it and measure the
+ *     violet pixels before believing it worked.
  */
 const SPIKE_GREEN = new THREE.Color(0xd9e0bd);
-const SPIKE_VIOLET = new THREE.Color(0x7d61c2);
+const SPIKE_VIOLET = new THREE.Color(0xa77fe6);
 const SPIKE_DRY = new THREE.Color(0xab9781);
-/** Spike-to-spike variation. 'Hidcote' is a clone: the range is narrow. */
-const SPIKE_TINT_SPREAD = 0.12;
+/**
+ * Spike-to-spike variation. 'Hidcote' is a clone, so none of this is genotype:
+ * what separates two spikes on one plant is where each is in its own eight
+ * weeks, and `spikeState` already staggers that by up to a fortnight. This is
+ * the smaller, second-order scatter on top -- how much light a head is
+ * standing in -- and it stays narrow for the same reason.
+ */
+const SPIKE_TINT_SPREAD = 0.16;
 
 /** Instance colour for an organ that wants the material's own colour. */
 const NEUTRAL = new THREE.Color(0xffffff);
