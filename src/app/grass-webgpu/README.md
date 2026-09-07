@@ -7,7 +7,7 @@ entry module loads this runtime only after its capability gate succeeds.
 
 It requires a browser with WebGPU in a
 [secure context](https://developer.mozilla.org/en-US/docs/Web/API/WebGPU_API).
-`localhost` is secure; an ordinary `http://` LAN or Tailscale-IP URL is not.
+`localhost` is secure; an ordinary `http://` LAN-IP URL is not.
 Unsupported browsers get an explanation. There is intentionally no WebGL
 fallback whose performance would mean something different.
 

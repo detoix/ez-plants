@@ -8,7 +8,7 @@ npx vite --config vite.app.config.js --port 5177 --strictPort
 
 `/` is the single-plant review page. `/field` is the mixed field page and
 `/bed` is the ornamental bed. Both use WebGPU and need a secure context: use
-localhost or HTTPS, not a plain HTTP LAN/Tailscale-IP URL.
+localhost or HTTPS, not a plain HTTP LAN-IP URL.
 
 All three pages support touch. The field uses a left-side floating thumbstick
 and a right-side look drag because pointer lock and WASD are unavailable on
@@ -161,38 +161,6 @@ it. Query dials are `age`, `day`, `prototypes`, `budget`, `lod`, `wind`,
 `shadows`, `orbit`, `pixelratio` and `ui`; the two sliders write `age` and
 `day` back into the URL, so a framing is a link. `?ui=0` hides the panel for recording. There is no `terrain` dial -- a
 designed bed on a hillside is a different bed.
-
-## Seeing the plants on this laptop
-
-The Radeon HD 6770M is pre-GCN, so the `gpu-browser` tool reaches WebGPU only
-through Dawn's OpenGLES adapter at the **compatibility** feature level, which
-reports `maxStorageBuffersInVertexStage: 0`. The
-`@detoix/instanced-mesh/webgpu` backend is storage-buffer instancing, so under
-`webgpu: true` every plant pipeline fails to create:
-
-```
-number of storage buffers used in vertex stage (2) exceeds
-maxStorageBuffersInVertexStage (0)
-```
-
-`/field` fails identically. Terrain, lawn, mulch, edging and boulders
-render fine; the plants sit in the scene, visible, with correct instance
-counts, and rasterize nothing.
-
-There is a way to see them. Launch Playwright's Chromium **without**
-`webgpu: true` -- so without `--use-webgpu-adapter=opengles` and without the
-compatibility init script -- and Chrome falls back to SwiftShader, which is a
-core device reporting `maxStorageBuffersInVertexStage: 10`:
-
-```js
-launchGpuBrowser({ channel: 'chromium', args: ['--enable-unsafe-webgpu'] });
-```
-
-The whole bed then renders with zero validation errors. It is a software
-rasterizer, so every timing from it is meaningless and `assertWebGpu` will
-correctly refuse it -- use it to look at a composition, never to measure one.
-Expect tens of seconds per frame with the bed on its finest LOD, and raise the
-screenshot timeout accordingly.
 
 ## Terrain and lawn surface
 
