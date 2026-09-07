@@ -103,14 +103,19 @@ const UNIFORM_TOLERANCE = 1e-3;
  * a reason recorded next to it.
  */
 const EXPECTED = Object.freeze({
-  'blackcurrant/berries': ['subset'],
-  'blackcurrant/buds': ['subset'],
-  'blackcurrant/calyces': ['subset'],
-  'blackcurrant/flowers': ['subset'],
+  // The raceme and everything hanging off it, the leaf stalks and the dormant
+  // buds are dropped past band 0 rather than thinned: they were the whole of
+  // this plant's coarse-band cost and none of its coarse-band silhouette. See
+  // `geometry-budget-peak.test.js`, where the ladder they used to flatten is
+  // recorded.
+  'blackcurrant/berries': ['dropped'],
+  'blackcurrant/buds': ['dropped'],
+  'blackcurrant/calyces': ['dropped'],
+  'blackcurrant/flowers': ['dropped'],
   'blackcurrant/leaves': ['subset'],
-  'blackcurrant/pedicels': ['subset'],
+  'blackcurrant/pedicels': ['dropped'],
   'blackcurrant/petioles': ['dropped'],
-  'blackcurrant/racemeAxes': ['subset'],
+  'blackcurrant/racemeAxes': ['dropped'],
   'cherrylaurel/leaves': ['subset'],
   // This used to substitute: a coarse band dropped `stems` and re-rooted each
   // head at its stem base, stretched to the stem's length, so the head drew

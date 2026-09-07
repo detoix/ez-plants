@@ -84,17 +84,28 @@ const PEAKS = Object.freeze({
   },
 
   /**
-   * Debt, and the largest in the library by a wide margin: six times the
-   * band-0 target, with bands 1 and 2 barely dropping from it and six draws
-   * apiece. A coarse band that costs 96% of the fine one is not an LOD ladder,
-   * so this is a thinning bug rather than a modelling excess -- day 100 is the
-   * spring flush, and whatever sheds organs at distance is not shedding these.
+   * Inside the whole budget at bands 1 and 2, on this day and on every other
+   * day of the year; band 0 is still the largest debt in the library.
+   *
+   * The coarse bands used to cost 96% of the fine one -- 143,078 and 141,942
+   * against 148,674, in six draws each. That was not a thinning bug in the
+   * wood or the leaves, both of which thinned correctly: it was that the
+   * raceme, the leaf stalks and the dormant buds were never dropped, so a
+   * plant three pixels wide still drew 856 pedicels and 856 flower buds in
+   * full. Dropping them past band 0 leaves wood and leaves, which is what rule
+   * 9 allows a coarse band, and takes the ladder to 148,674 / 3,998 / 2,862.
+   *
+   * Band 0 is unchanged and is the outstanding debt. It is not a ladder fault
+   * -- it is that `buds`, `flowerBuds` and `berries` are all instanced from
+   * one 120-triangle sphere, so 856 flower buds are 102,720 triangles of
+   * organ smaller than a leaf card. That is a modelling excess and a separate
+   * commit; see `src/lib/plants/blackcurrant/geometry.js`.
    */
   blackcurrant: {
     age: 3,
     day: 100,
-    triangles: [148674, 143078, 141942],
-    draws: [7, 6, 6],
+    triangles: [148674, 3998, 2862],
+    draws: [7, 2, 2],
   },
   /**
    * Debt, and a strange shape: band 0 is six times its target on day 325 while

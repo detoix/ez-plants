@@ -47,6 +47,45 @@ const INSTANCE_KINDS = Object.freeze([
   'berries',
   'calyces',
 ]);
+/**
+ * Everything the raceme is made of, dropped together past band 0.
+ *
+ * The parts of a raceme are the plant's whole cost and none of its coarse
+ * silhouette. A pedicel is 0.5 mm across and a berry 8 mm; at 4.5 m one screen
+ * pixel already spans about 5 mm, so the truss that costs 128,400 triangles in
+ * fruit is drawing a handful of dark pixels a leaf card would have covered
+ * anyway. Library rule 9 names this case exactly -- band 0 gets a third part
+ * for "a panicle, a raceme, a truss of fruit", and it is dropped after that.
+ *
+ * They are dropped as a set rather than thinned individually because they are
+ * one object: keeping the axes without the fruit hangs bare strings off the
+ * bush, and keeping the fruit without the pedicels floats it in the gap where
+ * the string was -- the failure `miscanthus` records for its culms.
+ */
+const RACEME_KINDS = Object.freeze([
+  'racemeAxes',
+  'pedicels',
+  'flowerBuds',
+  'flowers',
+  'berries',
+  'calyces',
+]);
+
+/**
+ * Kinds a coarse band draws nothing for: the raceme, the leaf stalks, and the
+ * dormant buds.
+ *
+ * A 2.5-65 mm leaf stalk costs ten times the leaf it carries -- 20 triangles
+ * against the card's 2. A dormant bud is 3 mm and is modelled with the berry's
+ * own 120-triangle sphere, which out of leaf makes a bare winter bush 40,000
+ * triangles of parts smaller than a pixel; hydrangea drops its buds past band
+ * 0 for the same reason.
+ *
+ * What is left past band 0 is wood and leaves, which is two draws and the
+ * whole of rule 9's coarse allowance.
+ */
+const COARSE_DROP_KINDS = Object.freeze(['petioles', 'buds', ...RACEME_KINDS]);
+
 const DEFAULT_LOD_LEVELS = Object.freeze([
   Object.freeze({ distance: 0, detail: Object.freeze({}) }),
   Object.freeze({
@@ -57,10 +96,7 @@ const DEFAULT_LOD_LEVELS = Object.freeze([
       segmentFactor: 0.75,
       leafStride: 2,
       leafScale: 1.18,
-      // A 2.5-65 mm leaf stalk, at 4.5 m and beyond. It costs ten times the
-      // leaf it carries -- 20 triangles against the card's 2 -- and library
-      // rule 9 allows a third organ kind at band 0 only.
-      dropKinds: Object.freeze(['petioles']),
+      dropKinds: COARSE_DROP_KINDS,
     }),
   }),
   Object.freeze({
@@ -71,7 +107,7 @@ const DEFAULT_LOD_LEVELS = Object.freeze([
       segmentFactor: 0.55,
       leafStride: 3,
       leafScale: 1.32,
-      dropKinds: Object.freeze(['petioles']),
+      dropKinds: COARSE_DROP_KINDS,
     }),
   }),
 ]);

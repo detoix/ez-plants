@@ -167,10 +167,14 @@ test('constructor LOD changes only visual detail and returns exact A-B-A output'
       .count < nearWoodPositions,
   );
   assert.ok(meshNamed(plant, 'Blackcurrant_Leaves').count < nearLeafCount);
-  assert.deepEqual(
-    captureMesh(meshNamed(plant, 'Blackcurrant_Berries')),
-    berries,
-  );
+
+  // The berries are on the bush at day 175 and off it past band 0: the raceme
+  // is this plant's band-0 part, so a coarse band draws none of it. What the
+  // A-B-A below then proves is the half that matters -- dropping a kind is a
+  // suppressed draw, not a discarded pool, so band 0 gets back the exact
+  // instances it had rather than re-placed ones.
+  assert.ok(berries.count > 0, 'day 175 is in fruit');
+  assert.equal(meshNamed(plant, 'Blackcurrant_Berries').count, 0);
   assert.deepEqual(
     {
       leaves: plant.stats().leaves,

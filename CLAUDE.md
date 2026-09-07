@@ -208,6 +208,20 @@ sweep's 216. Its `PEAKS` record is therefore only as good as the last sweep:
 **re-run the sweep when a plant's phenology changes**, not only its geometry.
 
 Blackcurrant and hydrangea are the outstanding debts there, at roughly six
-times the band-0 target on their worst day. Blackcurrant's is the more
-serious: its coarse bands cost 96% of its fine one, which is a thinning fault
-rather than a modelling excess.
+times the band-0 target on their worst day -- and for both of them it is now a
+band-0 debt only.
+
+Blackcurrant's coarse bands used to cost 96% of its fine one. That was the
+raceme, the leaf stalks and the dormant buds never being dropped, so a bush
+three pixels wide still drew 856 pedicels and 856 berries in full; they are
+dropped past band 0 now and the ladder is 148,674 / 3,998 / 2,862 in 7 / 2 / 2
+draws. What is left is a modelling excess rather than a thinning fault:
+`buds`, `flowerBuds` and `berries` are all instanced from one 120-triangle
+sphere in `blackcurrant/geometry.js`, which is what makes band 0 six times its
+target -- 102,720 triangles of flower bud in spring, and 40,000 triangles of
+dormant bud on a bare bush in December.
+
+One caution on that file's `PEAKS` record: a full sweep of ages 1-8 puts
+blackcurrant's band-0 worst at 158,606 triangles on age 4, day 92, not at the
+age 3, day 100 the record names. The recorded day is the one held; the worse
+one is unheld.
