@@ -29,11 +29,15 @@ export const BED_DEFAULT_BUDGET = 900_000;
  *
  * The shipped ladders are tuned for walking a field: a lavender drops to its
  * coarsest band past 3.5 m, which is correct when you stroll past hundreds of
- * them. This page never gets closer than 4.5 m and sits at 13, so unscaled
- * every lavender and most of the grass render at the coarsest band -- measured
- * on the first build, 33 of 33 lavenders at level 2.
+ * them. This page never gets closer than 4.5 m, so unscaled the whole skirt
+ * renders at the coarsest band -- measured on the first build, 33 of 33
+ * lavenders at level 2.
+ *
+ * The 4 this shipped with was set against a 13.2 m camera. The bed is a
+ * domestic 3.85 m now and the orbit sits at 6, so the same scale would hold
+ * every plant on its finest band; 2 keeps the ratio the ladder was tuned at.
  */
-export const BED_DEFAULT_LOD_SCALE = 4;
+export const BED_DEFAULT_LOD_SCALE = 2;
 
 /**
  * Grown states kept in hand.

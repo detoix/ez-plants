@@ -5,6 +5,7 @@ import {
   BED_BANDS,
   BED_BOULDERS,
   BED_PLANTING,
+  PACKING_FACTOR,
   BED_SPECIES_ORDER,
   bedOutline,
   createBedLayout,
@@ -109,7 +110,7 @@ test('no two plants are planted on top of each other', () => {
   );
   for (let a = 0; a < all.length; a += 1) {
     for (let b = a + 1; b < all.length; b += 1) {
-      const minimum = (all[a].footprint + all[b].footprint) * 0.58;
+      const minimum = (all[a].footprint + all[b].footprint) * PACKING_FACTOR;
       const distance = Math.hypot(all[a].x - all[b].x, all[a].z - all[b].z);
       assert.ok(
         distance >= minimum - 1e-9,
@@ -126,7 +127,7 @@ test('nothing is planted through a boulder', () => {
     for (const placement of entry.placements) {
       const [x, , z] = placement.position;
       for (const boulder of BED_BOULDERS) {
-        const minimum = (footprint + boulder.radius) * 0.58;
+        const minimum = (footprint + boulder.radius) * PACKING_FACTOR;
         assert.ok(
           Math.hypot(x - boulder.x, z - boulder.z) >= minimum - 1e-9,
           `a ${entry.id} grows through the boulder at ${boulder.x}, ${boulder.z}`,

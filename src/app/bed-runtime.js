@@ -250,11 +250,12 @@ export async function startBed({ adapter }) {
     });
     stage.scene.add(planting.group);
 
-    // Framed for the whole bed plus a hydrangea's 1.85 m, with room left at
-    // the bottom of the frame: at 11.5 m the mulch ran off the lower edge.
+    // Framed for a 3.85 m bed carrying a hydrangea's 1.85 m. The distance is
+    // the bed's own scale, not a fixed number: at the 13.2 m this page opened
+    // with, a domestic bed is a smudge in the middle of a lawn.
     orbit = createBedOrbit(camera, renderer.domElement, {
-      target: new THREE.Vector3(0, 0.95, -0.35),
-      radius: 13.2,
+      target: new THREE.Vector3(0, 0.7, -0.15),
+      radius: 5.4,
     });
     orbit.setAuto(options.orbit);
 

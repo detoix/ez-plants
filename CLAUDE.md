@@ -63,8 +63,9 @@ holding the middle. Because the camera orbits there is no front to hide
 behind, which is why the tallest plant is in the centre rather than at the
 back.
 
-Three things in that module are load-bearing and were each wrong in the first
-build:
+Seven things in that module are load-bearing. The first three were each wrong
+in the first build; the next two were wrong until the bed was measured rather
+than eyeballed:
 
 - **Depth is measured to the outline polygon, not to the polar radius.** On a
   kidney those disagree by most of a metre across the notch, which puts the
@@ -77,6 +78,30 @@ build:
 - **`footprint` is what the plant occupies at the age this page grows it to**,
   not its mature spread. Packing on mature figures leaves mulch showing
   between every clump, and the bed is meant to be full.
+- **`PACKING_FACTOR` sets how much ground you can see, and it is arithmetic,
+  not taste.** The fill rejects any two plants closer than
+  `(footprintA + footprintB) * PACKING_FACTOR`. Random sequential packing jams
+  at ~0.547 area fraction of those exclusion disks, so the ground cover the
+  fill can ever reach is `0.547 * (0.5 / PACKING_FACTOR)^2`. At the 0.58 this
+  page shipped with that is **41%** -- a hard 59%-bare-mulch ceiling no plant
+  count could beat, which is what the bed looked like. 0.36 puts it at 105%
+  and the canopies close over. Measured off the render, bare mulch went 12.5%
+  -> 3.7% of the bed. Change this before changing plant counts.
+- **The candidate lattice must be finer than the packing.** `CANDIDATE_PITCH`
+  steps it at 0.55 of the centre distance, because the lattice only supplies
+  candidates and the rejection is what sets density. Stepping it at the
+  spacing makes the lattice binding instead: that filled an 8 m2 bed with 22
+  plants, 2.7/m2, against the 7-9 a closed planting wants.
+- **The bed is sized as a domestic island bed, not a park one.** 3.85 x 2.60 m
+  and 8.0 m2, holding 77 plants at 9.6/m2. Garden guidance puts a normal-house
+  island bed at 1.2-2.4 m wide -- past ~2.4 m you cannot reach the middle to
+  maintain it, and 2.4 m is the *minimum* when the bed carries shrubs, which
+  this one does. It shipped at 6.95 x 4.70 m. At a 1.0 m radius the hydrangea
+  band runs out of depth and `createBedLayout` throws.
+- **The orbit distance is the bed's scale, not a constant.** 5.4 m frames
+  3.85 m; the 13.2 m this page opened with makes a domestic bed a smudge.
+  `BED_DEFAULT_LOD_SCALE` moves with it -- it is 2 now, holding the same
+  distance-to-ladder ratio the 4 held at 13.2 m.
 
 The boulders live in the layout, not in `bed-props.js`, because they occupy
 ground: the band fill rejects candidates against them, which is what stops a

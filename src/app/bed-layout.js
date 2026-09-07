@@ -23,20 +23,10 @@
  */
 
 /** Mean radius of the bed, in metres. */
-export const BED_RADIUS = 3.6;
+export const BED_RADIUS = 1.55;
 
 export const BED_SEED = 20260905;
 
-/**
- * Drifts, back to front. `spacing` is the in-drift centre distance and comes
- * from what the plant occupies at the age this page grows it to, which is
- * narrower than its mature spread -- packing on mature figures leaves the
- * mulch showing between every clump. `footprint` is what keeps two bands from
- * growing into each other.
- *
- * Heights, for the record: hydrangea 1.85 m, fountain grass 0.86 m,
- * lavender 0.54 m. The drift centres below are ordered on that.
- */
 /**
  * Concentric bands, measured as metres in from the bed's edge.
  *
@@ -52,9 +42,9 @@ export const BED_SEED = 20260905;
  * band boundaries in the wrong place across the notch.
  */
 export const BED_BANDS = Object.freeze([
-  Object.freeze({ id: 'hydrangea', from: 1.62, to: Infinity }),
-  Object.freeze({ id: 'pennisetum', from: 0.82, to: 1.62 }),
-  Object.freeze({ id: 'lavender', from: 0.22, to: 0.82 }),
+  Object.freeze({ id: 'hydrangea', from: 0.85, to: Infinity }),
+  Object.freeze({ id: 'pennisetum', from: 0.42, to: 0.85 }),
+  Object.freeze({ id: 'lavender', from: 0.06, to: 0.42 }),
 ]);
 
 /**
@@ -66,27 +56,69 @@ export const BED_BANDS = Object.freeze([
  * one. A prop module that placed its own stones could only hope they missed.
  */
 export const BED_BOULDERS = Object.freeze([
-  Object.freeze({ x: -2.35, z: 0.15, radius: 0.28, seed: 11 }),
-  Object.freeze({ x: 2.25, z: -0.85, radius: 0.24, seed: 37 }),
+  Object.freeze({ x: -1.01, z: 0.07, radius: 0.22, seed: 11 }),
+  Object.freeze({ x: 0.97, z: -0.37, radius: 0.19, seed: 37 }),
 ]);
 
+/**
+ * How close two plants may stand, as a fraction of their summed canopy
+ * diameters. Below 0.5 the canopies overlap.
+ *
+ * This is the number that decides whether the bed reads as a planting or as a
+ * mulch bed with plants standing in it, and it is worth the arithmetic. Random
+ * sequential packing jams at about 0.547 area fraction of the exclusion disks
+ * the fill tests against. Those disks have radius `footprint * factor`, while
+ * the canopy that actually hides the ground has radius `footprint / 2`, so the
+ * ground cover the fill can reach is
+ *
+ *   0.547 * (0.5 / factor)^2
+ *
+ * At the 0.58 this module shipped with, that is 41% -- a hard 59%-bare-mulch
+ * ceiling that no plant count could get past, which is exactly what the bed
+ * looked like. At 0.36 it is 105%: the canopies close over.
+ *
+ * Overlapping canopies is what the horticultural figure means too. Lavender is
+ * planted at 25-35 cm to make an unbroken ribbon, and a five-year-old plant is
+ * wider than that on its own.
+ */
+export const PACKING_FACTOR = 0.36;
+
+/**
+ * `footprint` is the canopy diameter the plant carries at the age this page
+ * grows it to -- narrower than its mature spread, and the figure `insideBed`,
+ * the boulder rejection and `PACKING_FACTOR` all measure against. There is no
+ * separate spacing: the centre distance is `PACKING_FACTOR` times the two
+ * footprints, so a species cannot have a spacing that disagrees with its own
+ * canopy.
+ *
+ * Heights, for the record: hydrangea 1.85 m, fountain grass 0.86 m,
+ * lavender 0.54 m. The bands above are ordered on that.
+ */
 export const BED_PLANTING = Object.freeze({
   hydrangea: Object.freeze({
-    spacing: 1.25,
     footprint: 0.85,
     scaleRange: Object.freeze([0.88, 1.1]),
   }),
   pennisetum: Object.freeze({
-    spacing: 0.52,
     footprint: 0.36,
     scaleRange: Object.freeze([0.9, 1.08]),
   }),
   lavender: Object.freeze({
-    spacing: 0.4,
     footprint: 0.3,
     scaleRange: Object.freeze([0.92, 1.06]),
   }),
 });
+
+/**
+ * The candidate lattice, as a fraction of the centre distance it is feeding.
+ *
+ * The lattice only supplies candidates; the rejection below is what sets the
+ * density. Step it at the packing distance and the lattice becomes the binding
+ * constraint instead -- the first attempt at a small bed did exactly that and
+ * filled 8 m2 with 22 plants, 2.7 per m2, against the 7-9 a closed planting
+ * wants.
+ */
+const CANDIDATE_PITCH = 0.55;
 
 /** Species from the middle outwards. The order the fields are built in. */
 export const BED_SPECIES_ORDER = Object.freeze([
@@ -333,7 +365,7 @@ export function createBedLayout({
     const planting = BED_PLANTING[band.id];
     if (!planting) throw new RangeError(`No planting rule for ${band.id}.`);
     const [minScale, maxScale] = planting.scaleRange;
-    const step = planting.spacing;
+    const step = planting.footprint * 2 * PACKING_FACTOR * CANDIDATE_PITCH;
     // A staggered lattice over the whole bed, filtered to the band. Offsetting
     // every other row by half a step is what makes a filled band look grown
     // rather than ruled, before any jitter is applied.
@@ -353,7 +385,7 @@ export function createBedLayout({
 
         let clear = true;
         for (const other of placed) {
-          const minimum = (planting.footprint + other.footprint) * 0.58;
+          const minimum = (planting.footprint + other.footprint) * PACKING_FACTOR;
           if ((x - other.x) ** 2 + (z - other.z) ** 2 < minimum ** 2) {
             clear = false;
             break;
