@@ -207,21 +207,55 @@ day an offline sweep found it worst on, which is nine builds rather than the
 sweep's 216. Its `PEAKS` record is therefore only as good as the last sweep:
 **re-run the sweep when a plant's phenology changes**, not only its geometry.
 
-Blackcurrant and hydrangea are the outstanding debts there, at roughly six
-times the band-0 target on their worst day -- and for both of them it is now a
-band-0 debt only.
+Blackcurrant and hydrangea are the outstanding debts there. For both, the
+debt is now **band 0 only**, and for both it is one organ modelled too
+heavily rather than a ladder that fails to thin.
 
-Blackcurrant's coarse bands used to cost 96% of its fine one. That was the
-raceme, the leaf stalks and the dormant buds never being dropped, so a bush
-three pixels wide still drew 856 pedicels and 856 berries in full; they are
-dropped past band 0 now and the ladder is 148,674 / 3,998 / 2,862 in 7 / 2 / 2
-draws. What is left is a modelling excess rather than a thinning fault:
-`buds`, `flowerBuds` and `berries` are all instanced from one 120-triangle
-sphere in `blackcurrant/geometry.js`, which is what makes band 0 six times its
-target -- 102,720 triangles of flower bud in spring, and 40,000 triangles of
-dormant bud on a bare bush in December.
+Blackcurrant's coarse bands used to cost 96% of its fine one, because the
+raceme, the leaf stalks and the dormant buds were never dropped: a bush three
+pixels wide still drew 856 pedicels and 856 berries in full. They are dropped
+past band 0 now and the coarse ladder is 3,998 / 2,862 in 2 / 2 draws, inside
+rule 9 for the plant's whole life rather than only on a recorded day.
 
-One caution on that file's `PEAKS` record: a full sweep of ages 1-8 puts
-blackcurrant's band-0 worst at 158,606 triangles on age 4, day 92, not at the
-age 3, day 100 the record names. The recorded day is the one held; the worse
-one is unheld.
+Both plants then had the same second fault -- a few thousand instances of a
+millimetre-scale organ turned at full mesh resolution:
+
+- Blackcurrant's `buds` and `flowerBuds` were instanced from
+  `createBerryGeometry`, a 10x7 sphere at 120 triangles, borrowed for its
+  shape and not even its colour. `createBudGeometry` is a 24-triangle spindle
+  in the same unit frame, and it took the December bush from 46,912 to 15,040
+  and the spring flush from 148,674 to 52,866.
+- Hydrangea's 2,029 vegetative buds were turned at the generator's 8x5
+  default, 64 triangles each: 129,856 triangles, 86% of a bare winter shrub.
+  `BUD_RESOLUTION` is 6x3, and day 325 went from 150,396 to 69,236.
+
+What remains at band 0 is not reachable by turning a mesh down, and both
+remainders need a visual decision rather than a measurement:
+
+- Blackcurrant in fruit is about 144,000 on the recorded seed and 208,366 at
+  its cross-seed worst -- 856 berries at 120 triangles and 856 pedicels at 20.
+  856 berries do not fit a 25,000 budget at any resolution that is still a
+  sphere, so closing it means a card or a clustered impostor. The pedicel is
+  the quieter offender: 17,120 triangles of 0.5 mm stalk, two thirds of the
+  whole band-0 budget on its own.
+- Hydrangea out of leaf is 69,236, of which 48,696 is still buds. Even free,
+  the panicles and wood on that day are 20,540 of the 25,000. A bud cheap
+  enough to close it is a card, which is what forsythia did.
+
+Two cautions on the `PEAKS` record, both found by sweeping rather than by
+trusting it:
+
+- A sweep of ages 1-8 puts blackcurrant's band-0 worst at 162,750 on age 4,
+  day 118 -- in fruit -- not the age 3, day 100 the record names, which is now
+  a 52,866 spring-flush day. The recorded day is the one held, and it is no
+  longer anywhere near the worst one.
+- Hydrangea's band 1 ran **over** its 10,000 budget from age six onwards,
+  peaking at 11,576 at age nine, and neither ratchet saw it: `geometry-budget`
+  builds age 5, and `PEAKS` builds age 8 on day 325, when the leaves are down
+  and the band falls back inside. It is fixed (twig framework at 3 / 0.6 / 7,
+  the head's middle rung at 22 cards) and swept over seven seeds, ages 1-12
+  and the whole year, where it now peaks at 9,037.
+
+That second one is the general lesson: **a ratchet that samples one (age, day)
+cannot see a curve.** When a budget question matters, sweep it. Band 2 of
+hydrangea sits at 4,890 of 5,000 and is the next thing likely to tip.

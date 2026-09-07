@@ -95,27 +95,46 @@ const PEAKS = Object.freeze({
    * full. Dropping them past band 0 leaves wood and leaves, which is what rule
    * 9 allows a coarse band, and takes the ladder to 148,674 / 3,998 / 2,862.
    *
-   * Band 0 is unchanged and is the outstanding debt. It is not a ladder fault
-   * -- it is that `buds`, `flowerBuds` and `berries` are all instanced from
-   * one 120-triangle sphere, so 856 flower buds are 102,720 triangles of
-   * organ smaller than a leaf card. That is a modelling excess and a separate
-   * commit; see `src/lib/plants/blackcurrant/geometry.js`.
+   * Band 0 came down from 148,674 with the buds. `buds` and `flowerBuds` were
+   * instanced from the berry's own 120-triangle sphere; on their own spindle
+   * at 24 they cost a quarter of that, which takes the spring flush this day
+   * measures to 52,866 and the bare December bush to 15,040 -- inside band
+   * 0's target, where it was at six times it.
+   *
+   * What is left at band 0 is the fruit, and this day does not see it. In
+   * fruit the plant is about 144,000: 856 berries at 120 triangles and 856
+   * pedicels at 20. Neither is a ladder fault and neither is reachable by
+   * turning a mesh down -- 856 berries cannot fit a 25,000 budget at any
+   * resolution that is still a sphere, so closing that gap means a card or a
+   * clustered impostor, and a visual verdict rather than a measurement.
    */
   blackcurrant: {
     age: 3,
     day: 100,
-    triangles: [148674, 3998, 2862],
+    triangles: [52866, 3998, 2862],
     draws: [7, 2, 2],
   },
   /**
-   * Debt, and a strange shape: band 0 is six times its target on day 325 while
-   * bands 1 and 2 are inside theirs. Something the coarse bands drop is very
-   * large and very late in the year.
+   * Band 0 debt, and the coarse bands are comfortably inside theirs.
+   *
+   * The thing that was very large and very late in the year turned out to be
+   * the buds: 2,029 of them on a bare December shrub, each turned at the
+   * generator's 8x5 default for 64 triangles, which was 129,856 triangles and
+   * 86% of the plant. At 6x3 they are 24 and the day costs 69,236.
+   *
+   * What is left is 2,029 buds at 48,696, and that is the whole remaining
+   * gap: even free, the panicles and wood this day carries are 20,540 of a
+   * 25,000 budget. A bud cheap enough to close it is a card, which is what
+   * forsythia did -- and is a modelling decision rather than a measurement.
+   *
+   * Band 1 is 6,342 here, but this day is the reason it needed fixing rather
+   * than evidence it was fine: out of leaf the band falls back inside a
+   * budget it broke all summer. See the sibling file.
    */
   hydrangea: {
     age: 8,
     day: 325,
-    triangles: [150396, 9432, 3490],
+    triangles: [69236, 6342, 3490],
     draws: [4, 2, 2],
   },
   /** Debt at band 0 and band 2; inside the ladder elsewhere. */

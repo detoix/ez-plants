@@ -9,6 +9,7 @@ import {
 } from './model.js';
 import {
   createBerryGeometry,
+  createBudGeometry,
   createCalyxStarGeometry,
   createFlowerGeometry,
 } from './geometry.js';
@@ -382,6 +383,14 @@ export class Blackcurrant extends PlantRenderer {
       {},
       createBerryGeometry,
     );
+    // Dormant buds and unopened flower buds are the same object at two sizes:
+    // a scale-frame spindle, tinted by its own material. They shared the berry
+    // sphere until it was measured -- see `createBudGeometry`.
+    const budGeometry = this._sharedGeometry(
+      'blackcurrant/bud',
+      {},
+      createBudGeometry,
+    );
 
     this._addInstancedOrgan('leaves', {
       name: 'Blackcurrant_Leaves',
@@ -401,7 +410,7 @@ export class Blackcurrant extends PlantRenderer {
     });
     this._addInstancedOrgan('buds', {
       name: 'Blackcurrant_DormantBuds',
-      geometry: berryGeometry,
+      geometry: budGeometry,
       material: this._materials.bud,
       group: this._woodyGroup,
     });
@@ -419,7 +428,7 @@ export class Blackcurrant extends PlantRenderer {
     });
     this._addInstancedOrgan('flowerBuds', {
       name: 'Blackcurrant_InflorescenceBuds',
-      geometry: berryGeometry,
+      geometry: budGeometry,
       material: this._materials.flowerBud,
       group: this._flowerGroup,
     });

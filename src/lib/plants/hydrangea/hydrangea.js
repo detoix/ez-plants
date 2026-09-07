@@ -67,7 +67,12 @@ const INSTANCE_KINDS = Object.freeze(['leaves', 'buds', 'stems', 'panicles']);
  */
 const PANICLE_LADDER = Object.freeze([
   Object.freeze({ cards: 68, cardSize: 0.36, rachis: false }),
-  Object.freeze({ cards: 30, cardSize: 0.5, rachis: false }),
+  // 22 rather than 30, at the size that rule gives back: 30/22 more area a
+  // card is 1.17 more edge, and 0.5 x 1.17 is 0.58. It lands where the ladder
+  // was already heading -- 68 / 22 / 14 at 0.36 / 0.58 / 0.62 -- and takes
+  // 1,216 triangles a plant out of band 1, which is most of what that band
+  // needed to stop running over its budget on a mature shrub.
+  Object.freeze({ cards: 22, cardSize: 0.58, rachis: false }),
   Object.freeze({ cards: 14, cardSize: 0.62, rachis: false }),
 ]);
 
@@ -81,6 +86,22 @@ const PANICLE_LADDER = Object.freeze([
  */
 const PETIOLE_CARD_FRACTION = 0.162;
 
+/**
+ * How finely a 4 mm bud is turned.
+ *
+ * The generator's 8x5 default is 64 triangles, and this plant carries 2,029
+ * buds at eight years old. Out of leaf that was 129,856 triangles -- 86% of a
+ * bare winter shrub, spent on the one organ nobody is looking at, and the
+ * whole reason band 0 sat at six times its budget on day 325 while bands 1
+ * and 2 were comfortably inside theirs.
+ *
+ * 6x3 is 24 triangles and keeps what the bud is for: it still narrows to a
+ * point, and the two-fold groove that reads as paired scales survives, because
+ * that groove is a function of the angle rather than of the segment count.
+ * Buds are dropped past band 0, so this rung is the only one that ever draws.
+ */
+const BUD_RESOLUTION = Object.freeze({ segments: 6, rings: 3 });
+
 const DEFAULT_LOD_LEVELS = Object.freeze([
   // `landmarkStride` is the band's biggest single lever on this plant. Wood
   // rings are pinned by leaf attachments, not by the curve, so a shrub with
@@ -91,13 +112,25 @@ const DEFAULT_LOD_LEVELS = Object.freeze([
     distance: 0,
     detail: Object.freeze({ landmarkStride: 6, organLevel: 0 }),
   }),
+  // The wood is thinned harder here than the 2 / 0.75 / 6 this band used to
+  // ask for. That ladder was tuned on a five-year plant and stopped fitting
+  // when the shrub kept growing: from age six onwards band 1 ran over its
+  // 10,000-triangle budget, peaking at 11,576 at age nine, and neither ratchet
+  // saw it -- `geometry-budget` builds age 5 and `geometry-budget-peak` builds
+  // age 8 on day 325, when the leaves are down and the band falls back inside.
+  //
+  // 3 / 0.6 / 7 puts it at 9,702 at its worst across ages 1-12 and the whole
+  // year, and makes `landmarkStride` a clean 6 / 7 / 8 across the three bands.
+  // It buys that from the twig framework alone: the panicles and the leaves
+  // are untouched, because at seven metres the heads are what a Limelight is
+  // and the branch rings are what nobody can resolve.
   Object.freeze({
     distance: 7,
     hysteresis: 0.1,
     detail: Object.freeze({
-      sectionStride: 2,
-      segmentFactor: 0.75,
-      landmarkStride: 6,
+      sectionStride: 3,
+      segmentFactor: 0.6,
+      landmarkStride: 7,
       leafStride: 2,
       leafScale: 1.16,
       organLevel: 1,
@@ -269,7 +302,7 @@ export class Hydrangea extends PlantRenderer {
       name: 'Hydrangea_VegetativeBuds',
       geometry: this._sharedGeometry(
         'hydrangea/vegetative-bud',
-        {},
+        BUD_RESOLUTION,
         createVegetativeBudGeometry,
       ),
       material: this._materials.bud,

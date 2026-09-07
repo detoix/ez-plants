@@ -52,6 +52,88 @@ export function createFlowerGeometry() {
   return geometry;
 }
 
+/**
+ * A dormant or unopened bud: a small pointed spindle.
+ *
+ * This is not a berry, and until now it was one. `buds` and `flowerBuds` were
+ * both instanced from `createBerryGeometry`, which is a 10x7 sphere at 120
+ * triangles -- borrowed for its shape and not even for its colour, since both
+ * bud materials are flat and ignore the vertex colours it carries. On a
+ * three-year bush that was 39,840 triangles of dormant bud on bare wood in
+ * December and 102,720 triangles of flower bud at the spring flush, for organs
+ * two and three millimetres long.
+ *
+ * At 6x3 this is 24 triangles and a better likeness: a currant bud is an
+ * ovoid that narrows to a point, not a sphere.
+ *
+ * Authored in the same frame as the berry it replaces -- origin-centred, one
+ * unit tall, half a unit across -- because the placements are already written
+ * against that frame and a bud must land exactly where the sphere did.
+ */
+export function createBudGeometry({ segments = 6, rings = 3 } = {}) {
+  if (!Number.isInteger(segments) || segments < 3) {
+    throw new RangeError('A bud needs at least 3 segments.');
+  }
+  if (!Number.isInteger(rings) || rings < 2) {
+    throw new RangeError('A bud needs at least 2 rings.');
+  }
+
+  const positions = [];
+  const indices = [];
+  const pushVertex = (x, y, z) => {
+    positions.push(x, y, z);
+    return positions.length / 3 - 1;
+  };
+
+  const base = pushVertex(0, -0.5, 0);
+  const rows = [];
+  for (let ring = 1; ring < rings; ring += 1) {
+    const t = ring / rings;
+    // Fullest below the middle and drawn out to the tip, which is the profile
+    // of a currant bud; a plain sine would give a symmetric rugby ball.
+    const radius = 0.5 * Math.pow(Math.sin(Math.PI * t), 0.62) * (1 - 0.3 * t);
+    const row = [];
+    for (let segment = 0; segment < segments; segment += 1) {
+      const angle = (segment / segments) * Math.PI * 2;
+      row.push(
+        pushVertex(Math.cos(angle) * radius, t - 0.5, Math.sin(angle) * radius),
+      );
+    }
+    rows.push(row);
+  }
+  const tip = pushVertex(0, 0.5, 0);
+
+  for (let segment = 0; segment < segments; segment += 1) {
+    const next = (segment + 1) % segments;
+    indices.push(base, rows[0][next], rows[0][segment]);
+  }
+  for (let ring = 0; ring < rows.length - 1; ring += 1) {
+    for (let segment = 0; segment < segments; segment += 1) {
+      const next = (segment + 1) % segments;
+      const a = rows[ring][segment];
+      const b = rows[ring][next];
+      const c = rows[ring + 1][segment];
+      const d = rows[ring + 1][next];
+      indices.push(a, b, c, b, d, c);
+    }
+  }
+  const last = rows[rows.length - 1];
+  for (let segment = 0; segment < segments; segment += 1) {
+    const next = (segment + 1) % segments;
+    indices.push(last[segment], last[next], tip);
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute(positions, 3),
+  );
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
 export function createBerryGeometry() {
   const geometry = new THREE.SphereGeometry(0.5, 10, 7);
   const position = geometry.getAttribute('position');

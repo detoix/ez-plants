@@ -125,7 +125,15 @@ const RECORDED = Object.freeze({
   // UVs per instance so heads and leaves can share one mesh — the geometry it
   // would save is 40 and 14 triangles a head, so this is now a structural debt
   // rather than a cost one.
-  hydrangea: { triangles: [23841, 9498, 4145], draws: [4, 3, 3] },
+  //
+  // Band 1 came down from 9,498 with the twig framework at 3 / 0.6 / 7 and the
+  // head's middle rung at 22 cards. That was not tuning for its own sake:
+  // this entry is a five-year plant, and past age six the same band ran over
+  // its 10,000 budget outright -- 11,576 at age nine -- in a gap neither this
+  // file nor the peak file was looking at, because one builds age 5 and the
+  // other builds day 325, when the leaves are down. Swept over seven seeds,
+  // ages 1-12 and the whole year, band 1 now peaks at 9,037.
+  hydrangea: { triangles: [23841, 6933, 4145], draws: [4, 3, 3] },
   // Inside the triangle budget at every band as of the raceme cards, and
   // inside the draw budget at band 0. The head went from three meshes and
   // 3,620 triangles to one mesh and 136, 72 or 28; the three blade kinds
