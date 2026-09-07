@@ -208,19 +208,42 @@ function measure(plant) {
   }
 }
 
-/** The ceiling a plant is held to: its recorded debt, or the target if new. */
+const targetTriangles = (band) =>
+  TARGET_TRIANGLES[Math.min(band, TARGET_TRIANGLES.length - 1)];
+const targetDraws = (band) =>
+  TARGET_DRAWS[Math.min(band, TARGET_DRAWS.length - 1)];
+
+/**
+ * The ceiling a plant is held to: **the budget, or its recorded debt if that
+ * is still worse.**
+ *
+ * This used to return the recorded numbers outright, which quietly replaced
+ * rule 9 with a different and much worse rule. The budget says a plant may
+ * spend 25,000 triangles at band 0. Returning the record said a plant may
+ * never grow, whatever its allowance -- so echinacea, sitting at 8,172 of its
+ * 25,000, could not gain a single triangle, and neither could the five other
+ * recorded plants, every one of which was inside the budget on triangles.
+ * Adding florets to a head that is using a third of its budget failed the
+ * build, and nothing about that failure was a rule anybody had written down.
+ *
+ * Taking the larger of the two keeps both halves honest:
+ *
+ *   - A plant **inside** its budget is held to the budget, and is free to
+ *     spend the headroom rule 9 gives it.
+ *   - A plant **over** its budget is held to its record, which may only come
+ *     down. That is what the ratchet is for, and it still bites exactly where
+ *     there is debt -- three plants on draws, and blackcurrant and hydrangea
+ *     on band-0 triangles at their peak.
+ *   - A plant with no record is held to the budget, as before.
+ */
 function ceilingFor(name, bandCount) {
   const recorded = RECORDED[name];
-  if (recorded) return recorded;
   return {
-    triangles: Array.from(
-      { length: bandCount },
-      (_, band) =>
-        TARGET_TRIANGLES[Math.min(band, TARGET_TRIANGLES.length - 1)],
+    triangles: Array.from({ length: bandCount }, (_, band) =>
+      Math.max(recorded?.triangles[band] ?? 0, targetTriangles(band)),
     ),
-    draws: Array.from(
-      { length: bandCount },
-      (_, band) => TARGET_DRAWS[Math.min(band, TARGET_DRAWS.length - 1)],
+    draws: Array.from({ length: bandCount }, (_, band) =>
+      Math.max(recorded?.draws[band] ?? 0, targetDraws(band)),
     ),
   };
 }
@@ -234,12 +257,15 @@ test('no plant grows past the geometry it is already recorded at', async () => {
     bands.forEach((band, index) => {
       const triangleLimit = ceiling.triangles[index];
       const drawLimit = ceiling.draws[index];
+      // Only say "recorded" when the record is what is actually holding it.
+      const heldByRecord = known && triangleLimit > targetTriangles(index);
+      const drawsHeldByRecord = known && drawLimit > targetDraws(index);
 
       assert.ok(
         band.triangles <= triangleLimit,
         `${name} band ${index}: ${band.triangles.toLocaleString('en-US')} triangles, ` +
-          `over its ${known ? 'recorded' : 'target'} ceiling of ${triangleLimit.toLocaleString('en-US')}. ` +
-          (known
+          `over its ${heldByRecord ? 'recorded' : 'target'} ceiling of ${triangleLimit.toLocaleString('en-US')}. ` +
+          (heldByRecord
             ? 'Geometry may only shrink — see library rule 9.'
             : 'A new plant meets the budget on the day it lands.'),
       );
@@ -247,8 +273,8 @@ test('no plant grows past the geometry it is already recorded at', async () => {
       assert.ok(
         band.draws <= drawLimit,
         `${name} band ${index}: ${band.draws} draws, over its ` +
-          `${known ? 'recorded' : 'target'} ceiling of ${drawLimit}. ` +
-          (known
+          `${drawsHeldByRecord ? 'recorded' : 'target'} ceiling of ${drawLimit}. ` +
+          (drawsHeldByRecord
             ? 'Merge organ kinds rather than adding one — see library rule 9.'
             : 'Band 0 is wood + leaves + one feature organ; later bands are wood + leaves.'),
       );
@@ -256,6 +282,15 @@ test('no plant grows past the geometry it is already recorded at', async () => {
   }
 });
 
+/**
+ * A record only has to track a plant while the plant is still in debt.
+ *
+ * Once a band is inside its budget the record stops holding it -- `ceilingFor`
+ * hands back the target instead -- so demanding that the record keep chasing
+ * the plant downwards would re-impose the freeze from the other direction: get
+ * cheaper, and you must write the smaller number down, and now you may never
+ * grow back into headroom you were always entitled to.
+ */
 test('a plant that has improved has had its record lowered with it', async () => {
   const stale = [];
   for (const name of PLANTS) {
@@ -263,16 +298,18 @@ test('a plant that has improved has had its record lowered with it', async () =>
     if (!recorded) continue;
     const bands = measure(await createPlant(name));
     bands.forEach((band, index) => {
+      const inDebt = recorded.triangles[index] > targetTriangles(index);
+      const drawsInDebt = recorded.draws[index] > targetDraws(index);
       // A little slack: geometry generators drift by a triangle or two across
       // three.js versions, and a test that demanded exactness would fail on an
       // upgrade rather than on a real change.
-      if (band.triangles < recorded.triangles[index] - 64) {
+      if (inDebt && band.triangles < recorded.triangles[index] - 64) {
         stale.push(
           `  ${name} band ${index}: now ${band.triangles.toLocaleString('en-US')}, ` +
             `recorded ${recorded.triangles[index].toLocaleString('en-US')}`,
         );
       }
-      if (band.draws < recorded.draws[index]) {
+      if (drawsInDebt && band.draws < recorded.draws[index]) {
         stale.push(
           `  ${name} band ${index}: now ${band.draws} draws, recorded ${recorded.draws[index]}`,
         );

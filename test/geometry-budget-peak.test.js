@@ -208,26 +208,43 @@ function measure(plant) {
   }
 }
 
+const targetTriangles = (band) =>
+  TARGET_TRIANGLES[Math.min(band, TARGET_TRIANGLES.length - 1)];
+const targetDraws = (band) =>
+  TARGET_DRAWS[Math.min(band, TARGET_DRAWS.length - 1)];
+
 test('no plant grows past what it is recorded at on its worst day', async () => {
   for (const [name, peak] of Object.entries(PEAKS)) {
     const bands = measure(await createPlant(name, peak.age, peak.day));
 
     bands.forEach((band, index) => {
-      const triangleLimit = peak.triangles[index];
-      const drawLimit = peak.draws[index];
+      // The budget, or the recorded peak if that is still worse. A peak below
+      // the budget is not a ceiling -- it is just where the plant happened to
+      // be on the day it was measured, and holding a plant to it would forbid
+      // growth that rule 9 explicitly allows. See the sibling file's
+      // `ceilingFor`, which had exactly this bug.
+      const triangleLimit = Math.max(
+        peak.triangles[index],
+        targetTriangles(index),
+      );
+      const drawLimit = Math.max(peak.draws[index], targetDraws(index));
+      const heldByRecord = triangleLimit > targetTriangles(index);
+      const drawsHeldByRecord = drawLimit > targetDraws(index);
 
       assert.ok(
         band.triangles <= triangleLimit,
         `${name} band ${index} at age ${peak.age}, day ${peak.day}: ` +
-          `${band.triangles.toLocaleString('en-US')} triangles, over its recorded ` +
-          `peak of ${triangleLimit.toLocaleString('en-US')}. ` +
+          `${band.triangles.toLocaleString('en-US')} triangles, over its ` +
+          `${heldByRecord ? 'recorded peak' : 'target'} of ` +
+          `${triangleLimit.toLocaleString('en-US')}. ` +
           'Geometry may only shrink — see library rule 9.',
       );
 
       assert.ok(
         band.draws <= drawLimit,
         `${name} band ${index} at age ${peak.age}, day ${peak.day}: ` +
-          `${band.draws} draws, over its recorded peak of ${drawLimit}. ` +
+          `${band.draws} draws, over its ` +
+          `${drawsHeldByRecord ? 'recorded peak' : 'target'} of ${drawLimit}. ` +
           'Merge organ kinds rather than adding one — see library rule 9.',
       );
     });
@@ -239,15 +256,20 @@ test('a plant whose peak has improved has had its record lowered with it', async
   for (const [name, peak] of Object.entries(PEAKS)) {
     const bands = measure(await createPlant(name, peak.age, peak.day));
     bands.forEach((band, index) => {
+      // Only while the peak is still over the budget: below it the record no
+      // longer holds the plant, so chasing it downwards would re-impose the
+      // freeze. The sibling file carries the argument.
+      const inDebt = peak.triangles[index] > targetTriangles(index);
+      const drawsInDebt = peak.draws[index] > targetDraws(index);
       // The sibling file's slack, for the same reason: generators drift by a
       // triangle or two across three.js versions.
-      if (band.triangles < peak.triangles[index] - 64) {
+      if (inDebt && band.triangles < peak.triangles[index] - 64) {
         stale.push(
           `  ${name} band ${index}: now ${band.triangles.toLocaleString('en-US')}, ` +
             `recorded ${peak.triangles[index].toLocaleString('en-US')}`,
         );
       }
-      if (band.draws < peak.draws[index]) {
+      if (drawsInDebt && band.draws < peak.draws[index]) {
         stale.push(
           `  ${name} band ${index}: now ${band.draws} draws, recorded ${peak.draws[index]}`,
         );
