@@ -41,6 +41,15 @@ it reconstructs the same lawn.
 | mid  | 8–24 m   | 7.5 cm            | 412,164     | 2              | 177.78 → 25 /m²     |
 | far  | 24–52 m  | 20 cm             | 272,484     | 1              | 25 → 0 /m²          |
 
+A candidate is a **crown**, not a blade. Each one grows `LAWN.tillers` blades,
+so the blade densities are that multiple of the table's, while slots, records,
+placement work and culling work are all per crown and unchanged by it. The
+multiplier is deliberately the same on every ring: the bands hand over at
+matched densities, and tillering one harder than its neighbour would put a
+visible step at 8 m or 24 m. A tiller stands off the crown centre, fans off its
+facing and may be shorter than it, all from the crown's own hash, so the tuft
+is as reproducible as the crown.
+
 The three rings contain 1,096,812 fixed candidate slots. Their packed 24-byte
 placement records and 4-byte compacted visible IDs use about 29.3 MiB of
 typed-array data on the CPU and the same amount of storage on the GPU, before
