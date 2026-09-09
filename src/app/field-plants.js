@@ -79,6 +79,7 @@ export async function createMixedPlantField({
     plants: count,
     queued: 0,
     applied: 0,
+    spent: 0,
     pending: 0,
     ms: 0,
   };

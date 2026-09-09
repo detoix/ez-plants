@@ -251,6 +251,10 @@ export class PlantFieldCore extends THREE.Group {
     // found by lookup instead of by re-deriving every offset from the counts of
     // every placement before it, which is what forced the old full rebuild.
     this._slots = this._placements.map(() => new Map());
+    // What one level change costs, per prototype rather than per placement:
+    // the walk is over the prototype's capacity, so every placement of one
+    // prototype costs the same. Filled on first ask; see `levelChangeCost`.
+    this._levelChangeCosts = new Map();
     // Every placement starts drawn. Hiding is the caller's call, exactly as
     // choosing a level is -- the field still reads no camera.
     this._visible = new Uint8Array(this._placements.length).fill(1);
@@ -654,6 +658,37 @@ export class PlantFieldCore extends THREE.Group {
     if (this._levels[index] === level) return this;
     this._writePlacement(index, level);
     return this;
+  }
+
+  /**
+   * Organ instances one `setLevelAt` on this placement rewrites.
+   *
+   * `_writeComposedOrgans` walks the whole finest-band capacity of every kind
+   * -- the survivor mask decides which of them are *drawn*, not which are
+   * visited -- so this is fixed by the placement's prototype and does not
+   * move with the band it is going to or coming from.
+   *
+   * A caller that throttles level changes should spend this rather than a
+   * plant count. Prototypes in one field differ several-fold (2,666 for a
+   * cherrylaurel against 234 for an echinacea), so "n plants per frame" is
+   * not a bounded amount of work and its worst frame is n times its best.
+   *
+   * @param {number} index
+   * @returns {number}
+   */
+  levelChangeCost(index) {
+    const placement = this._placements[index];
+    if (!placement) throw new RangeError(`No placement at index ${index}.`);
+
+    let cost = this._levelChangeCosts.get(placement.prototype);
+    if (cost === undefined) {
+      cost = 0;
+      for (const entry of this._organMeshes.values()) {
+        cost += entry.compositions.get(placement.prototype)?.capacity ?? 0;
+      }
+      this._levelChangeCosts.set(placement.prototype, cost);
+    }
+    return cost;
   }
 
   _validateLevel(index, level) {

@@ -21,6 +21,9 @@ test('on-screen tests use the WebGPU near-plane convention, and hide nothing', (
       hidden += 1;
     },
     setLevelAt() {},
+    levelChangeCost() {
+      return 1;
+    },
   };
   const driver = new FieldViewDriver([
     {

@@ -35,12 +35,28 @@ export class FieldViewDriver {
    * @param {object[]} fields Mixed-field entries with `field`, `levels` and
    *   `chosen` members.
    * @param {object} [options]
-   * @param {number} [options.budgetPerFrame] Level changes applied per frame.
-   *   Walking produces a trickle of them; turning on the spot can re-band a
-   *   whole quadrant at once, and this is what stops that landing in one frame.
+   * @param {number} [options.instancesPerFrame] Organ instances rewritten per
+   *   frame. Walking produces a trickle of level changes; turning on the spot
+   *   can re-band a whole quadrant at once, and this is what stops that
+   *   landing in one frame.
+   *
+   *   Counted in instances rather than in plants because a plant is not a unit
+   *   of work: `levelChangeCost` runs from 234 to 3,980 across the nine species
+   *   this page mixes, so the budget of six *plants* this used to be was a
+   *   budget of anywhere between 1,400 and 23,900 instance rewrites. Measured
+   *   over a 420-frame walk and a 300-frame spin of the shipped field, its
+   *   busiest frame rewrote 10,348 and 15,899 instances against means of 2,951
+   *   and 3,917 -- a peak three to four times the mean, landing wherever the
+   *   expensive species happened to come due.
+   *
+   *   At 3,000 those peaks are 6,821 and 6,398, and the whole cost of that is
+   *   one deferred level change out of 220 and a queue that grows from 5.8
+   *   plants to 6.7. The peak lands above the budget rather than at it because
+   *   the drain below lets one change overrun; 3,980 of the headroom is the
+   *   largest single plant, and no smaller budget can remove it.
    */
-  constructor(fields, { budgetPerFrame = 6 } = {}) {
-    this.budgetPerFrame = budgetPerFrame;
+  constructor(fields, { instancesPerFrame = 3_000 } = {}) {
+    this.instancesPerFrame = instancesPerFrame;
     this.entries = fields.map((entry) => {
       const count = entry.chosen.length;
       return {
@@ -48,6 +64,11 @@ export class FieldViewDriver {
         // Placements never move, so their bounds are worth computing once.
         spheres: Array.from({ length: count }, (_, index) =>
           entry.field.placementSphere(index),
+        ),
+        // Neither does what a level change costs: it is a property of the
+        // placement's prototype, so it is read once rather than per frame.
+        costs: Int32Array.from({ length: count }, (_, index) =>
+          entry.field.levelChangeCost(index),
         ),
         visible: new Uint8Array(count).fill(1),
         // Which placements want a level they have not been given yet. A flag
@@ -65,6 +86,7 @@ export class FieldViewDriver {
       plants: 0,
       queued: 0,
       applied: 0,
+      spent: 0,
       pending: 0,
       ms: 0,
     };
@@ -123,15 +145,21 @@ export class FieldViewDriver {
 
     // Drain round-robin across species, so one crowded field cannot starve the
     // others, and never spend the budget on a plant nobody can see.
-    let remaining = this.budgetPerFrame;
+    // The budget is spent, not counted down to zero: a plant costing more than
+    // the whole budget still has to be applied or it would never come due
+    // again, so the loop condition is "there is budget left", which lets the
+    // first change of a frame overrun. That makes the worst frame one plant's
+    // cost above the budget instead of unbounded.
+    let remaining = this.instancesPerFrame;
     let applied = 0;
+    let spent = 0;
     while (remaining > 0) {
       let progressed = false;
       for (const record of this.entries) {
-        if (remaining === 0) break;
+        if (remaining <= 0) break;
         if (record.pending === 0) continue;
 
-        const { entry, dirty, visible } = record;
+        const { entry, dirty, visible, costs } = record;
         const count = dirty.length;
         for (let step = 0; step < count; step += 1) {
           const index = (record.cursor + step) % count;
@@ -140,7 +168,8 @@ export class FieldViewDriver {
           dirty[index] = 0;
           record.pending -= 1;
           record.cursor = (index + 1) % count;
-          remaining -= 1;
+          remaining -= costs[index];
+          spent += costs[index];
           applied += 1;
           progressed = true;
           break;
@@ -157,6 +186,7 @@ export class FieldViewDriver {
       plants: total,
       queued,
       applied,
+      spent,
       pending,
       ms: performance.now() - started,
     };
