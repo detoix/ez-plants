@@ -61,12 +61,19 @@ export async function createMixedPlantField({
     speciesCount: FIELD_SPECIES.length,
     groundAt,
   });
-  const startZ = layout.extent + 6;
-  camera.position.set(0, groundAt(0, startZ) + 1.7, startZ);
-  camera.lookAt(0, groundAt(0, 0) + 1.2, 0);
-  camera.far = layout.extent * 6;
-  camera.updateProjectionMatrix();
-  camera.updateMatrixWorld(true);
+  // Framing is derived from the garden, so an empty one frames nothing: with
+  // no plants this leaves the camera exactly as the page built it, and the
+  // page positions itself against the lawn instead. Overriding `far` from a
+  // zero extent is the trap -- it would set a 7.2 m far plane over 52 m of
+  // grass rings.
+  if (count > 0) {
+    const startZ = layout.extent + 6;
+    camera.position.set(0, groundAt(0, startZ) + 1.7, startZ);
+    camera.lookAt(0, groundAt(0, 0) + 1.2, 0);
+    camera.far = layout.extent * 6;
+    camera.updateProjectionMatrix();
+    camera.updateMatrixWorld(true);
+  }
 
   const group = new THREE.Group();
   group.name = 'Mixed EZ-Plants field';
@@ -101,7 +108,12 @@ export async function createMixedPlantField({
   }
 
   try {
-    for (const [speciesIndex, species] of FIELD_SPECIES.entries()) {
+    // `count: 0` skips the bakes, not just the placements. Nine species times
+    // `prototypeCount` CPU geometry builds is the slow part of opening this
+    // page, and none of it would ever be drawn.
+    for (const [speciesIndex, species] of count > 0
+      ? FIELD_SPECIES.entries()
+      : []) {
       const descriptor = getPlantDescriptor(species.id);
       onProgress(`Growing ${descriptor.label.toLowerCase()}…`);
       await new Promise((resolve) => setTimeout(resolve, 0));

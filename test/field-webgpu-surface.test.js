@@ -18,6 +18,7 @@ import {
   createLawnSurface,
   loadLawnPBRTextures,
 } from '../src/app/grass-webgpu/surface.js';
+import { LAWN } from '../src/app/grass-webgpu/preset.js';
 import { webGPUBackdropHeight } from '../src/app/grass-webgpu/terrain.js';
 
 function createTestTexture(size) {
@@ -178,4 +179,25 @@ test('the horizon backdrop stays below every sampled terrain hollow', () => {
       );
     }
   }
+});
+
+test('the field count accepts zero so the lawn can be inspected alone', () => {
+  assert.equal(readFieldOptions('?count=0', 1).count, 0);
+  assert.equal(readFieldOptions('?count=1', 1).count, 1);
+  assert.equal(readFieldOptions('', 1).count, 400);
+  // Still clamped at both ends, and still a number.
+  assert.equal(readFieldOptions('?count=-5', 1).count, 0);
+  assert.equal(readFieldOptions('?count=99999', 1).count, 4000);
+  assert.equal(readFieldOptions('?count=abc', 1).count, 400);
+});
+
+test('tillering is a dial, and it is the cheap density lever', () => {
+  assert.equal(readFieldOptions('', 1).tillers, LAWN.tillers);
+  assert.equal(readFieldOptions('?tillers=3', 1).tillers, 3);
+  assert.equal(readFieldOptions('?tillers=1', 1).tillers, 1);
+  // Whole blades only, and clamped at both ends.
+  assert.equal(readFieldOptions('?tillers=4.6', 1).tillers, 5);
+  assert.equal(readFieldOptions('?tillers=0', 1).tillers, 1);
+  assert.equal(readFieldOptions('?tillers=99', 1).tillers, 12);
+  assert.equal(readFieldOptions('?tillers=abc', 1).tillers, LAWN.tillers);
 });

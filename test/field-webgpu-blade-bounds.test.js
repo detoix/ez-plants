@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import {
+  BLADE_CULL_CENTRE,
+  bladeCullRadiusFactor,
+} from '../src/app/grass-webgpu/blade-arc.js';
 import { LAWN } from '../src/app/grass-webgpu/preset.js';
 
 /**
@@ -39,7 +43,8 @@ function cullRadius(height, width) {
 
 function range(from, to, steps) {
   const out = [];
-  for (let i = 0; i <= steps; i += 1) out.push(from + (to - from) * (i / steps));
+  for (let i = 0; i <= steps; i += 1)
+    out.push(from + (to - from) * (i / steps));
   return out;
 }
 
@@ -216,4 +221,116 @@ test('a clump heading can never cancel to nothing', () => {
 test('clumps are a lawn scale, not a meadow one', () => {
   assert.ok(LAWN.clumpSize > LAWN.tillerSpread, 'a clump holds many crowns');
   assert.ok(LAWN.clumpSize <= 2, 'past a couple of metres this is terrain');
+});
+
+test('root occlusion darkens a blade without extinguishing it', () => {
+  assert.ok(
+    LAWN.rootOcclusion > 0,
+    'a root multiplier of zero is a black band',
+  );
+  assert.ok(
+    LAWN.rootOcclusion < 1,
+    'at 1 this asserts no occlusion at all and the lawn reads flat',
+  );
+  assert.ok(
+    LAWN.rootOcclusionHeight > 0 && LAWN.rootOcclusionHeight < 1,
+    'occlusion has to end below the tip, or the whole blade is shaded by it',
+  );
+  // It compounds with the bottom-to-top colour gradient, which already darkens
+  // a root. Both at once is what turns depth into mud.
+  assert.ok(
+    LAWN.rootOcclusion >= 0.5,
+    `${LAWN.rootOcclusion} on top of the colour gradient is a blade with a ` +
+      'black foot rather than an occluded one',
+  );
+  assert.ok(
+    LAWN.rootOcclusionHeight <= 0.5,
+    'occlusion past half a blade is a gradient, not a contact shadow',
+  );
+});
+
+test('dry patches are a patch signal, and a blade only modulates it', () => {
+  assert.ok(LAWN.dryOnset < LAWN.dryFull, 'the dry window is ordered');
+  assert.ok(LAWN.dryOnset >= 0 && LAWN.dryFull <= 1, 'it is a unit signal');
+  assert.ok(
+    LAWN.dryStrength > 0 && LAWN.dryStrength < 1,
+    'a maintained lawn browns; it does not turn to hay',
+  );
+  assert.ok(
+    LAWN.groundDryStrength <= LAWN.dryStrength,
+    'ground drier than the blades standing in it is a two-tone horizon',
+  );
+  // The one that matters. The scatter is a multiplier on the patch and never a
+  // signal of its own, so a blade in green turf multiplies zero -- which is
+  // what separates correlated dry patches from independently yellow blades.
+  assert.ok(LAWN.dryScatter >= 0, 'a negative scatter mirrors the patch');
+  assert.ok(
+    LAWN.dryScatter < 1,
+    `a scatter of ${LAWN.dryScatter} lets a blade fall to zero dryness inside ` +
+      'a fully dry patch, which reads as noise rather than as ground',
+  );
+});
+
+test('transmitted light is a rim, and it never lights the root', () => {
+  assert.ok(LAWN.backscatter > 0, 'zero transmission is a reflective blade');
+  assert.ok(
+    LAWN.backscatter < 1,
+    'a backlit tip brightens; past 1 the blade is a light source',
+  );
+  assert.ok(
+    LAWN.backscatterPower >= 2,
+    `an exponent of ${LAWN.backscatterPower} washes the term over everything ` +
+      'facing away from the sun instead of banding it where the sun is behind',
+  );
+
+  // The one that is arithmetic rather than taste. Root occlusion darkens the
+  // bottom `rootOcclusionHeight` of a blade because it is buried in its
+  // neighbours; transmission must not start until above that, or the blade
+  // lights up brightest exactly where the other term just said no light
+  // reaches it.
+  assert.ok(
+    LAWN.backscatterTip >= LAWN.rootOcclusionHeight,
+    `transmission starts at ${LAWN.backscatterTip} of a blade but occlusion ` +
+      `runs to ${LAWN.rootOcclusionHeight}, so the two overlap and the base ` +
+      'glows where it was just darkened',
+  );
+  assert.ok(
+    LAWN.backscatterTip < 1,
+    'transmission confined to the last point of a blade is invisible',
+  );
+});
+
+test('the culling sphere is derived from the bend, not from a lucky constant', () => {
+  // `bladeCullRadiusFactor` replaced a literal 0.58 in the cull pass. It has
+  // to reproduce it at the shipped bend, or this is a behaviour change wearing
+  // a refactor's clothes.
+  assert.ok(Math.abs(bladeCullRadiusFactor(LAWN.maxBend) - 0.58) < 0.001);
+  assert.equal(BLADE_CULL_CENTRE, CULL_CENTRE);
+
+  // And it has to keep holding as the bend dial moves, which is the whole
+  // point: the literal was correct for one `maxBend` and silently wrong for
+  // every other, and the failure it produces -- blades culled while still on
+  // screen -- cannot be seen in a still frame.
+  for (const maxBend of [0.2, LAWN.maxBend, 0.825, 1.1, 1.6, 2.2]) {
+    const radius = bladeCullRadiusFactor(maxBend);
+    for (const bend of range(LAWN.minBend, maxBend, 24)) {
+      for (const along of range(0, 1, 128)) {
+        const { rise, reach } = bladeArc(bend, along);
+        const distance = Math.hypot(reach, rise - CULL_CENTRE);
+        assert.ok(
+          distance <= radius,
+          `at maxBend ${maxBend}, a blade bent ${bend.toFixed(3)} reaches ` +
+            `${distance.toFixed(4)} against the ${radius.toFixed(4)} allowed`,
+        );
+      }
+    }
+  }
+
+  // Monotonic, or the dial could shrink the sphere while lengthening the blade.
+  let previous = 0;
+  for (const maxBend of [0.1, 0.4, 0.55, 0.9, 1.4, 2]) {
+    const radius = bladeCullRadiusFactor(maxBend);
+    assert.ok(radius > previous, 'a harder bend cannot want a smaller sphere');
+    previous = radius;
+  }
 });

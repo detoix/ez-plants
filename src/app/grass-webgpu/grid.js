@@ -63,6 +63,41 @@ export const TOTAL_GRASS_CANDIDATES = GRASS_RINGS.reduce(
   0,
 );
 
+/**
+ * Vertices one blade submits, which is what the indirect command carries.
+ *
+ * The tip closes to a point, so the topmost segment is a triangle and not a
+ * quad: a quad there spends a second triangle whose two upper vertices
+ * coincide, and a zero-area triangle rasterises nothing at any distance.
+ */
+export function bladeVertexCount(segments) {
+  return segments * 6 - 3;
+}
+
+/** The same count as triangles, which is what the draw actually rasterises. */
+export function bladeTriangleCount(segments) {
+  return segments * 2 - 1;
+}
+
+/**
+ * Triangles the three indirect draws submit for a frame's visible crowns.
+ *
+ * One place, because the HUD used to derive its own and got two things wrong:
+ * it multiplied by `segments * 2`, which counts the degenerate tip quad that
+ * `bladeVertexCount` drops, and it counted one blade per crown when a crown
+ * grows `LAWN.tillers` of them. At three tillers a near crown reports 6
+ * triangles where the draw submits 15, so the lawn read as 2.5x cheaper than
+ * it is -- which is exactly the number a density experiment is judged on.
+ */
+export function grassTriangleCount(visible, tillers) {
+  return GRASS_RINGS.reduce(
+    (total, ring) =>
+      total +
+      (visible[ring.index] ?? 0) * bladeTriangleCount(ring.segments) * tillers,
+    0,
+  );
+}
+
 export function gridCellAt(value, spacing) {
   return Math.floor(value / spacing);
 }

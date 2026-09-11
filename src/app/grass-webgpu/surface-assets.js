@@ -8,6 +8,23 @@ export const LAWN_PBR_SECONDARY_UV_SCALE = 0.931;
 export const LAWN_MACRO_WORLD_SIZE = 31.7;
 export const LAWN_MACRO_SAMPLE_LEVEL = 5;
 
+/**
+ * The health signal: the same channel of the same map at the same mip, over a
+ * much larger world tile.
+ *
+ * Same channel and same level on purpose. Mip 5 of a 1,024 map is 32 texels,
+ * and the 0.045-0.32 window `macroAt` maps is tuned to what the green channel
+ * actually does at that level -- a coarser mip regresses towards the tile mean
+ * and the window would have to be re-measured against the asset. Changing only
+ * the tile changes the *scale* of the signal and nothing about its
+ * distribution: 161.3 m over 32 texels is a patch about 5 m across, so a 52 m
+ * view holds a handful of them rather than the metre-scale mottling `macroAt`
+ * supplies. The offset is non-harmonic with the macro one so the two signals
+ * do not line up and double a patch's contrast.
+ */
+export const LAWN_HEALTH_WORLD_SIZE = 161.3;
+export const LAWN_HEALTH_SAMPLE_LEVEL = LAWN_MACRO_SAMPLE_LEVEL;
+
 export const LAWN_PBR_ASSET = Object.freeze({
   id: 'Grass004',
   title: 'Grass 004',

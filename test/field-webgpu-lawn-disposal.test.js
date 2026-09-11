@@ -19,8 +19,11 @@ function buildLawn() {
   };
   const surface = {
     macroAt: Fn(([worldXZ]) => worldXZ.x.mul(0).add(0.5)),
+    healthAt: Fn(([worldXZ]) => worldXZ.x.mul(0).add(0.6)),
     tintFrom: Fn(([macro]) => vec3(macro, macro, macro)),
     densityFrom: Fn(([macro]) => mix(0.78, 1, macro)),
+    dryAt: Fn(([health]) => health.oneMinus()),
+    dryTintFrom: Fn(([dry]) => vec3(dry, dry, dry)),
   };
   const grass = createGPUDrivenGrass({
     renderer,

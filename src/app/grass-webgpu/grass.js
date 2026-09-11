@@ -35,12 +35,16 @@ const {
   vertexIndex,
 } = THREE.TSL;
 
+import { BLADE_CULL_CENTRE, bladeCullRadiusFactor } from './blade-arc.js';
+import { GrassLightingModel } from './blade-lighting.js';
 import { LAWN, LAWN_COLORS } from './preset.js';
 import {
   GRASS_RINGS,
   TOTAL_GRASS_CANDIDATES,
   WORLD_CELL_BIAS,
+  bladeVertexCount,
   createRingState,
+  grassTriangleCount,
   snapRingState,
 } from './grid.js';
 import { GRASS_RECORD_WORDS, grassStorageFootprint } from './record-layout.js';
@@ -52,17 +56,30 @@ const DRAW_BYTES = DRAW_UINTS * Uint32Array.BYTES_PER_ELEMENT;
 const GrassRecord = struct(
   {
     // X/Z retain their exact f32 bits. The remaining bounded values use
-    // normalized integers, giving this struct a 24-byte array stride.
-    worldXZBits: 'uvec2',
+    // normalized integers, giving this struct a 28-byte array stride.
+    //
+    // X and Z are two scalar words and not the `uvec2` they read as, and that
+    // is the whole reason this struct fits in seven. A `uvec2` aligns to eight
+    // bytes, and WGSL rounds an array's stride up to its element's alignment:
+    // with the pair in it, six words of fields occupy six words but *seven*
+    // occupy eight. The padding word is invisible -- `getLength()` reports it
+    // and nothing else does -- so the clump word would have cost 8.4 MiB
+    // across the three rings rather than 4.2. Two `uint`s align to four, and
+    // seven words stride at seven.
+    worldXBits: 'uint',
+    worldZBits: 'uint',
     groundBlade: 'uint',
     normalXZ: 'uint',
     yawWidth: 'uint',
     appearance: 'uint',
+    clumpHealth: 'uint',
   },
   'EzPackedGrassRecord',
 );
 if (GrassRecord.getLength() !== GRASS_RECORD_WORDS) {
-  throw new Error('Packed grass record layout must remain exactly six words.');
+  throw new Error(
+    'Packed grass record layout must remain exactly seven words.',
+  );
 }
 
 const DrawIndirect = struct(
@@ -114,6 +131,32 @@ function unpackAppearance(packed) {
   return vec3(tint, retention, macro);
 }
 
+/**
+ * The crown's clump and the health of the ground it stands in.
+ *
+ * Sixteen bits of clump heading, eight of clump shortening, eight of health.
+ * The heading gets the wide field because it is an angle every crown in a
+ * clump shares: quantize it to a byte and the lawn's headings fall into 256
+ * directions, which at this clump size is a visible grain across open ground.
+ * The other two are a fraction of a 4-8 cm blade and a signal that is fed
+ * straight into a smoothstep, and neither can spend more than a byte usefully.
+ */
+function packClumpHealth(angleUnit, shortenUnit, health) {
+  const angleWord = uint(angleUnit.clamp(0, 1).mul(65_535).add(0.5));
+  const shortenByte = uint(shortenUnit.clamp(0, 1).mul(255).add(0.5));
+  const healthByte = uint(health.clamp(0, 1).mul(255).add(0.5));
+  return angleWord
+    .bitOr(shortenByte.shiftLeft(uint(16)))
+    .bitOr(healthByte.shiftLeft(uint(24)));
+}
+
+function unpackClumpHealth(packed) {
+  const angle = float(packed.bitAnd(uint(65_535))).div(65_535);
+  const shorten = float(packed.shiftRight(uint(16)).bitAnd(uint(255))).div(255);
+  const health = float(packed.shiftRight(uint(24))).div(255);
+  return vec3(angle, shorten, health);
+}
+
 function unpackGroundNormal(packed) {
   const xz = unpackSnorm2x16(packed).toVar('packedNormalXZ');
   const y = float(1).sub(xz.dot(xz)).max(0).sqrt();
@@ -123,17 +166,6 @@ function unpackGroundNormal(packed) {
 /** A blade's half-width at height `y`, as a fraction of its base width. */
 function bladeHalfWidth(y) {
   return (1 - y) ** LAWN.taper * 0.5;
-}
-
-/**
- * Vertices one blade submits, which is what the indirect command carries.
- *
- * The tip closes to a point, so the topmost segment is a triangle and not a
- * quad: a quad there spends a second triangle whose two upper vertices
- * coincide, and a zero-area triangle rasterises nothing at any distance.
- */
-function bladeVertexCount(segments) {
-  return segments * 6 - 3;
 }
 
 /**
@@ -147,9 +179,16 @@ function bladeVertexCount(segments) {
  * corner can be in any of the eight cells around it, and a cheaper 2x2 search
  * picks the wrong clump along two of the four edges.
  *
- * It runs per vertex, because a crown's clump depends only on where the crown
- * is and there is nowhere left in the six-word record to keep it. That is
- * nine hashes of redundancy per blade; it is also one block to delete.
+ * It runs once per crown, in placement, and the result is packed into the
+ * record's seventh word. It used to run in `material.positionNode`, which put
+ * a nine-cell search on every vertex of every blade for a value that is the
+ * same at all of them: 45 vertices a near crown, nine neighbours each, 405
+ * repeated hash-and-compare sequences to learn one angle and one scale. The
+ * four bytes that hold it instead are the cheapest trade in this file.
+ *
+ * Placement is the right stage for it and not merely a cheaper one: a crown's
+ * clump depends on nothing but where the crown is, and where the crown is, is
+ * decided here and then never changes.
  *
  * Note what this seed does *not* carry, against the habit of every other seed
  * in this file: a ring salt. It must not. A crown either side of the 8 m
@@ -223,6 +262,9 @@ function createRingResources({
   shadows,
   surface,
   keepAt,
+  tillers,
+  backlight,
+  bend,
 }) {
   const state = createRingState(ring);
   const originCell = uniform(new THREE.Vector2());
@@ -311,8 +353,19 @@ function createRingResources({
     const tint = hash(seed.add(79));
     const retention = hash(seed.add(97));
     const macro = surface.macroAt(worldXZ);
+    // The two scales of world signal this crown answers to: the metre-scale
+    // macro that varies its density and tint, and the patch-scale health that
+    // decides whether it is standing in a dry part of the lawn. The ground
+    // under it reads that second one through the same `healthAt`.
+    const health = surface.healthAt(worldXZ);
+    const clump = clumpAt(worldXZ).toVar('crownClump');
+    const clumpSeed = uint(clump.x.add(WORLD_CELL_BIAS))
+      .mul(uint(1_664_525))
+      .add(uint(clump.y.add(WORLD_CELL_BIAS)).mul(uint(1_013_904_223)))
+      .toVar('clumpSeed');
     const record = recordsWrite.element(instanceIndex);
-    record.get('worldXZBits').assign(floatBitsToUint(worldXZ));
+    record.get('worldXBits').assign(floatBitsToUint(worldXZ.x));
+    record.get('worldZBits').assign(floatBitsToUint(worldXZ.y));
     record
       .get('groundBlade')
       .assign(
@@ -326,13 +379,25 @@ function createRingResources({
     record.get('normalXZ').assign(packSnorm2x16(normal.xz));
     record.get('yawWidth').assign(packUnorm2x16(vec2(yawUnit, bladeWidthUnit)));
     record.get('appearance').assign(packAppearance(tint, retention, macro));
+    record
+      .get('clumpHealth')
+      .assign(
+        packClumpHealth(
+          hash(clumpSeed.add(uint(59))),
+          hash(clumpSeed.add(uint(43))),
+          health,
+        ),
+      );
   })()
     .compute(ring.capacity, [64])
     .setName(`Place ${ring.id} grass`);
 
   const cullCompute = Fn(() => {
     const record = recordsRead.element(instanceIndex);
-    const worldXZ = uintBitsToFloat(record.get('worldXZBits'));
+    const worldXZ = vec2(
+      uintBitsToFloat(record.get('worldXBits')),
+      uintBitsToFloat(record.get('worldZBits')),
+    );
     const groundBlade = unpackUnorm2x16(record.get('groundBlade')).toVar(
       'packedGroundBlade',
     );
@@ -371,9 +436,11 @@ function createRingResources({
     // so the margin is real but finite. The width term covers the widest pair
     // of vertices at their most thickened, because the vertex stage widens a
     // sub-pixel blade and this pass never learns by how much.
-    const sphereCentre = base.add(normal.mul(bladeHeight.mul(0.5)));
+    const sphereCentre = base.add(
+      normal.mul(bladeHeight.mul(BLADE_CULL_CENTRE)),
+    );
     const sphereRadius = bladeHeight
-      .mul(0.58)
+      .mul(bladeCullRadiusFactor(bend.max))
       .add(bladeWidth.mul(0.5 * LAWN.maxThicken))
       .add(LAWN.tillerSpread * 0.5);
     let inFrustum = frustumPlanes[0].xyz
@@ -407,7 +474,7 @@ function createRingResources({
     .compute(ring.capacity, [64])
     .setName(`Cull ${ring.id} grass`);
 
-  const geometry = createBladeGeometry(ring.segments, LAWN.tillers);
+  const geometry = createBladeGeometry(ring.segments, tillers);
   geometry.instanceCount = ring.capacity;
   geometry.setIndirect(drawAttribute, ring.index * DRAW_BYTES);
 
@@ -418,6 +485,7 @@ function createRingResources({
     `vEzGrassGradient${ring.index}`,
   );
   const bladeMacro = varyingProperty('float', `vEzGrassMacro${ring.index}`);
+  const bladeDry = varyingProperty('float', `vEzGrassDry${ring.index}`);
   const material = new THREE.MeshStandardNodeMaterial({
     side: THREE.DoubleSide,
     forceSinglePass: true,
@@ -427,7 +495,10 @@ function createRingResources({
   material.positionNode = Fn(() => {
     const candidate = visibleRead.element(instanceIndex);
     const record = recordsRead.element(candidate);
-    const worldXZ = uintBitsToFloat(record.get('worldXZBits'));
+    const worldXZ = vec2(
+      uintBitsToFloat(record.get('worldXBits')),
+      uintBitsToFloat(record.get('worldZBits')),
+    );
     const groundBlade = unpackUnorm2x16(record.get('groundBlade')).toVar(
       'packedGroundBlade',
     );
@@ -449,22 +520,24 @@ function createRingResources({
     // pass composes cells. The record's six words are full, and a tiller is
     // cheaper to re-derive here than a packing contract is to change.
     const tillerSeed = record
-      .get('worldXZBits')
-      .x.mul(uint(1_664_525))
-      .add(record.get('worldXZBits').y.mul(uint(1_013_904_223)))
+      .get('worldXBits')
+      .mul(uint(1_664_525))
+      .add(record.get('worldZBits').mul(uint(1_013_904_223)))
       .add(tiller.mul(uint(2_654_435_761)))
       .toVar('tillerSeed');
-    const clump = clumpAt(worldXZ).toVar('crownClump');
-    const clumpSeed = uint(clump.x.add(WORLD_CELL_BIAS))
-      .mul(uint(1_664_525))
-      .add(uint(clump.y.add(WORLD_CELL_BIAS)).mul(uint(1_013_904_223)))
-      .toVar('clumpSeed');
+    // Read, not searched for. Placement did the nine-cell Voronoi once for
+    // this crown and packed the answer; all that is left here is the range
+    // mapping, which stays beside `LAWN` for the same reason the blade's
+    // height and width do.
+    const clumpHealth = unpackClumpHealth(record.get('clumpHealth')).toVar(
+      'packedClumpHealth',
+    );
+    const clumpAngle = clumpHealth.x.mul(Math.PI * 2);
     const clumpShorten = mix(
       float(LAWN.clumpShortest),
       float(1),
-      hash(clumpSeed.add(uint(43))),
+      clumpHealth.y,
     );
-    const clumpAngle = hash(clumpSeed.add(uint(59))).mul(Math.PI * 2);
 
     const crownYaw = yawWidth.x.mul(Math.PI * 2);
     const bladeWidth = mix(LAWN.minWidth, LAWN.maxWidth, yawWidth.y);
@@ -499,7 +572,7 @@ function createRingResources({
       .sub(crownForward.mul(sin(fan)))
       .toVar('bladeSide');
     const crownAngle = float(tiller)
-      .mul((2 * Math.PI) / LAWN.tillers)
+      .mul((2 * Math.PI) / tillers)
       .add(crownYaw);
     const crownOffset = crownSide
       .mul(cos(crownAngle))
@@ -508,6 +581,24 @@ function createRingResources({
     bladeTint.assign(appearance.x);
     bladeGradient.assign(positionLocal.y);
     bladeMacro.assign(appearance.z);
+    // How dry this blade is: its patch, modulated by its own hash. The patch
+    // is what makes the variation read as ground rather than as noise, and
+    // the modulation is what stops the patch being a flat wash -- it is a
+    // multiplier on the patch and not a signal of its own, so a blade in
+    // green turf multiplies zero and stays green however its hash fell.
+    bladeDry.assign(
+      surface
+        .dryAt(clumpHealth.z)
+        .mul(
+          mix(
+            float(1 - LAWN.dryScatter),
+            float(1 + LAWN.dryScatter),
+            hash(tillerSeed.add(uint(193))),
+          ),
+        )
+        .clamp(0, 1)
+        .mul(LAWN.dryStrength),
+    );
 
     // Tillers of one crown are not all the same age. Equal heights read as a
     // mown bristle; this only ever shortens a blade, so the crown's culling
@@ -523,27 +614,27 @@ function createRingResources({
       )
       .toVar('bladeHeight');
     const bendUnit = hash(tillerSeed.add(uint(131)));
-    const bend = mix(
-      float(LAWN.minBend),
-      float(LAWN.maxBend),
-      bendUnit,
-    ).toVar('bladeBend');
+    const bladeBend = mix(float(bend.min), float(bend.max), bendUnit).toVar(
+      'bladeBend',
+    );
     // A constant-curvature arc to second order: the tip reaches forward by
     // bend/2 of the blade's length and the blade loses the height it spends
     // doing it, so leaning bends a blade over rather than stretching it.
     const along = positionLocal.y.toVar('bladeAlong');
     const rise = along.sub(
-      bend.mul(bend).mul(along).mul(along).mul(along).div(6),
+      bladeBend.mul(bladeBend).mul(along).mul(along).mul(along).div(6),
     );
-    const reach = bend.mul(along).mul(along).mul(0.5);
+    const reach = bladeBend.mul(along).mul(along).mul(0.5);
 
     // Two normals over flat geometry. Along the blade, the arc's own tangent:
     // a blade tipped forward by `lean` faces that much further down, which is
     // what makes the resting bend visible in light rather than in silhouette
     // alone. Across it, a splay toward each edge, interpolated between the two
     // sides to shade a two-vertex strip as the curved section it stands for.
-    const lean = bend.mul(along).toVar('bladeLean');
-    const splay = positionLocal.x.mul(2 * LAWN.normalSpread).toVar('bladeSplay');
+    const lean = bladeBend.mul(along).toVar('bladeLean');
+    const splay = positionLocal.x
+      .mul(2 * LAWN.normalSpread)
+      .toVar('bladeSplay');
     bladeNormal.assign(
       forward
         .mul(cos(lean))
@@ -577,13 +668,39 @@ function createRingResources({
   material.normalNode = negateOnBackSide(
     transformNormalToView(bladeNormal).normalize(),
   );
+  // The light that comes *through* a blade. It is a lighting model rather than
+  // an emissive term because only the lighting model is handed a `lightColor`
+  // the shadow has already been applied to -- an emissive rim would glow in
+  // shade, which is the mistake this is avoiding. One per ring, because it
+  // reads that ring's own blade-height varying.
+  // `?backlight=off` leaves the stock `PhysicalLightingModel` in place, which
+  // is the A/B control: same geometry, same records, same draws, one term
+  // gone. It is also the only way to see what the term contributes, because
+  // both pages open looking away from their own sun.
+  if (backlight) {
+    const lightingModel = new GrassLightingModel(bladeGradient);
+    material.setupLightingModel = () => lightingModel;
+  }
+  // A blade stands in a few centimetres of its neighbours and its root sees
+  // very little of the sky. Nothing here draws that -- these blades cast no
+  // shadow-map silhouette on purpose -- so the occlusion is asserted: darken
+  // the bottom `rootOcclusionHeight` of every blade towards `rootOcclusion`.
+  // It is the cheapest thing in this material that gives a plane of lit
+  // strips a floor to sit on.
+  const rootOcclusion = mix(
+    float(LAWN.rootOcclusion),
+    float(1),
+    bladeGradient.clamp(0, 1).smoothstep(0, LAWN.rootOcclusionHeight),
+  );
   material.colorNode = mix(
     color(LAWN_COLORS.bottom),
     color(LAWN_COLORS.top),
     bladeGradient.clamp(0, 1),
   )
     .mul(bladeTint.mul(0.18).add(0.91))
-    .mul(surface.tintFrom(bladeMacro));
+    .mul(surface.tintFrom(bladeMacro))
+    .mul(surface.dryTintFrom(bladeDry))
+    .mul(rootOcclusion);
 
   const mesh = new THREE.Mesh(geometry, material);
   mesh.name = `GPU lawn · ${ring.id}`;
@@ -609,6 +726,18 @@ function createRingResources({
 
 /**
  * @param {object} options
+ * @param {number} [options.tillers] Blades grown from each crown. Per crown,
+ *   so slots, placement, culling and storage are all unchanged by it and only
+ *   the vertex stage and fill grow. Uniform across the three rings on purpose:
+ *   the bands hand over at matched densities, and tillering one harder than
+ *   its neighbour puts a step at 8 m or 24 m.
+ * @param {{min: number, max: number}} [options.bend] Radians the tip leans
+ *   from upright at rest, drawn per blade across this range. The culling
+ *   sphere is sized from `max` rather than from a constant, so widening it
+ *   cannot quietly push blades outside the bound that decides whether to draw
+ *   them -- it grows the sphere, and more blades survive the cull.
+ * @param {boolean} [options.backlight] Light transmitted through a blade.
+ *   False restores the stock physical lighting model as an A/B control.
  * @param {Function} [options.keepAt] Optional world-space mask,
  *   `(worldXZ) => booleanNode`, returning false where no blade may stand. Used
  *   by `/bed` to cut the lawn out of the planting; `/field` passes none.
@@ -619,8 +748,17 @@ export function createGPUDrivenGrass({
   surface,
   shadows = true,
   keepAt = null,
+  tillers = LAWN.tillers,
+  backlight = true,
+  bend = { min: LAWN.minBend, max: LAWN.maxBend },
 }) {
   if (!surface) throw new TypeError('GPU grass needs the shared lawn surface.');
+  if (!Number.isInteger(tillers) || tillers < 1) {
+    throw new RangeError('A crown grows a whole number of blades, at least 1.');
+  }
+  if (!(bend.min >= 0) || !(bend.max >= bend.min)) {
+    throw new RangeError('Blade bend needs an ordered, non-negative range.');
+  }
   const cameraWorld = uniform(new THREE.Vector3());
   // Metres one physical pixel covers per metre of distance, so a blade can be
   // measured in pixels without the shader knowing the projection.
@@ -634,7 +772,7 @@ export function createGPUDrivenGrass({
   const drawData = new Uint32Array(GRASS_RINGS.length * DRAW_UINTS);
   for (const ring of GRASS_RINGS) {
     drawData[ring.index * DRAW_UINTS] =
-      bladeVertexCount(ring.segments) * LAWN.tillers;
+      bladeVertexCount(ring.segments) * tillers;
   }
 
   const drawAttribute = new THREE.IndirectStorageBufferAttribute(
@@ -664,6 +802,9 @@ export function createGPUDrivenGrass({
       shadows,
       surface,
       keepAt,
+      tillers,
+      backlight,
+      bend,
     }),
   );
   const group = new THREE.Group();
@@ -677,8 +818,12 @@ export function createGPUDrivenGrass({
   let readPending = false;
   const grassStats = {
     candidates: TOTAL_GRASS_CANDIDATES,
+    tillers,
     storage: grassStorageFootprint(TOTAL_GRASS_CANDIDATES),
     visible,
+    // Reported here rather than re-derived by the HUD, because the HUD's own
+    // arithmetic drifted from the draw command it was meant to describe.
+    triangles: 0,
     placements: 0,
     drawCalls: GRASS_RINGS.length,
     computeCalls: GRASS_RINGS.length + 1,
@@ -741,6 +886,7 @@ export function createGPUDrivenGrass({
       for (const ring of GRASS_RINGS) {
         visible[ring.index] = commands[ring.index * DRAW_UINTS + 1] ?? 0;
       }
+      grassStats.triangles = grassTriangleCount(visible, tillers);
       result.release();
       return true;
     } catch (error) {

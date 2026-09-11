@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import * as THREE from 'three/webgpu';
+
 import {
   terrainHeightAt,
   terrainHeightBounds,
@@ -43,19 +45,19 @@ function degreesBetween(a, b) {
 }
 
 test('packed grass records have the promised fixed storage budget', () => {
-  assert.equal(GRASS_RECORD_WORDS, 6);
-  assert.equal(GRASS_RECORD_BYTES, 24);
+  assert.equal(GRASS_RECORD_WORDS, 7);
+  assert.equal(GRASS_RECORD_BYTES, 28);
   assert.equal(GRASS_VISIBLE_ID_BYTES, 4);
 
   const total = grassStorageFootprint(TOTAL_GRASS_CANDIDATES);
   assert.deepEqual(total, {
-    recordBytes: 26_323_488,
+    recordBytes: 30_710_736,
     visibleIdBytes: 4_387_248,
-    totalBytes: 30_710_736,
+    totalBytes: 35_097_984,
   });
   assert.deepEqual(
     GRASS_RINGS.map((ring) => grassStorageFootprint(ring.capacity).totalBytes),
-    [11_540_592, 11_540_592, 7_629_552],
+    [13_189_248, 13_189_248, 8_719_488],
   );
   assert.throws(() => grassStorageFootprint(-1), RangeError);
   assert.throws(() => grassStorageFootprint(1.5), RangeError);
@@ -130,5 +132,62 @@ test('the analytic height packing bounds contain the complete field function', (
         assert.ok(height >= bounds.minimum && height <= bounds.maximum);
       }
     }
+  }
+});
+
+test('the record struct strides at seven words, not the eight a uvec2 costs', () => {
+  // The trap this holds shut. WGSL rounds an array's stride up to its
+  // element's alignment, and a `uvec2` aligns to eight bytes: the same seven
+  // words of fields occupy seven words as scalars and eight with the pair in
+  // them. The padding word is silent -- it costs 4.2 MiB across the three
+  // rings and reads nowhere -- so the only thing that ever reports it is this.
+  const { struct } = THREE.TSL;
+  const fields = {
+    groundBlade: 'uint',
+    normalXZ: 'uint',
+    yawWidth: 'uint',
+    appearance: 'uint',
+    clumpHealth: 'uint',
+  };
+  const scalarXZ = struct(
+    { worldXBits: 'uint', worldZBits: 'uint', ...fields },
+    'EzGrassRecordScalarXZ',
+  );
+  const pairedXZ = struct(
+    { worldXZBits: 'uvec2', ...fields },
+    'EzGrassRecordPairedXZ',
+  );
+
+  assert.equal(scalarXZ.getLength(), GRASS_RECORD_WORDS);
+  assert.equal(pairedXZ.getLength(), GRASS_RECORD_WORDS + 1);
+  assert.equal(
+    (pairedXZ.getLength() - scalarXZ.getLength()) * 4 * TOTAL_GRASS_CANDIDATES,
+    4_387_248,
+  );
+});
+
+test('the clump word keeps a heading finer than the eye and a patch to a byte', () => {
+  // Sixteen bits of clump heading, eight of clump shortening, eight of health.
+  // The heading is the one that cannot be a byte: every crown in a clump takes
+  // it, so quantizing it lands whole patches of lawn on the same step and the
+  // open field grows a grain.
+  const headingUnit = 0.318_271;
+  const headingError =
+    Math.abs(unormRoundTrip(headingUnit, UNORM16_MAX) - headingUnit) * 360;
+  assert.ok(headingError <= 0.002_75);
+  assert.ok(
+    360 / UNORM8_MAX > 1,
+    'a byte of heading steps more than a degree, which a clump makes visible',
+  );
+
+  // Shortening is a fraction of a 4-8 cm blade and health is fed straight into
+  // a smoothstep. Neither can spend more than a byte usefully.
+  const shortenError = ((1 - LAWN.clumpShortest) / UNORM8_MAX) * LAWN.maxHeight;
+  assert.ok(
+    shortenError <= 0.000_08,
+    `a byte of clump shortening moves a tip by ${(shortenError * 1000).toFixed(3)} mm`,
+  );
+  for (const value of [0, 0.137, 0.5, 0.918, 1]) {
+    assert.ok(Math.abs(unormRoundTrip(value, UNORM8_MAX) - value) <= 1 / 510);
   }
 });

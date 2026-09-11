@@ -12,7 +12,11 @@ import {
   targetDensityAt,
   worldCellForSlot,
   worldCellRandom,
+  bladeTriangleCount,
+  bladeVertexCount,
+  grassTriangleCount,
 } from '../src/app/grass-webgpu/grid.js';
+import { LAWN } from '../src/app/grass-webgpu/preset.js';
 
 test('the three persistent grids have fixed capacities', () => {
   assert.deepEqual(
@@ -115,4 +119,46 @@ test('capability gate explains HTTPS and WebGPU failures separately', () => {
     describeWebGPUSupport({ secureContext: true, gpu: {} }).supported,
     true,
   );
+});
+
+test('a blade is counted as the triangles it actually submits', () => {
+  // The tip segment closes to a point, so it is one triangle and not a quad:
+  // `bladeVertexCount` drops the second, whose two upper vertices would
+  // coincide. The two counts have to agree about that, because one builds the
+  // indirect draw command and the other is what the HUD reports.
+  for (const segments of [1, 2, 3, 8]) {
+    assert.equal(bladeVertexCount(segments), bladeTriangleCount(segments) * 3);
+  }
+  assert.deepEqual(
+    GRASS_RINGS.map((ring) => bladeTriangleCount(ring.segments)),
+    [5, 3, 1],
+  );
+});
+
+test('the reported triangle count is per tiller, not per crown', () => {
+  // The regression. The HUD used to compute `visible * segments * 2`: it
+  // counted the dropped tip quad and it counted one blade where a crown grows
+  // `LAWN.tillers`. A near crown reported 6 triangles against the 15 it
+  // submits, so every density experiment was judged on a lawn that looked
+  // 2.5x cheaper than it is.
+  const visible = [1, 1, 1];
+  const wrong = GRASS_RINGS.reduce(
+    (sum, ring) => sum + visible[ring.index] * ring.segments * 2,
+    0,
+  );
+  assert.equal(wrong, 12);
+  assert.equal(grassTriangleCount(visible, 1), 9);
+  assert.equal(grassTriangleCount(visible, 3), 27);
+
+  // One crown of each ring, at whatever tillering is shipped: 5 / 3 / 1
+  // triangles a blade, times the blades a crown grows. Written against
+  // `LAWN.tillers` rather than a literal because the tiller count is a dial
+  // now -- pinning the literal here would make raising it look like a
+  // regression in the one test that exists to describe it.
+  assert.equal(grassTriangleCount([1, 0, 0], LAWN.tillers), 5 * LAWN.tillers);
+  assert.equal(grassTriangleCount([0, 1, 0], LAWN.tillers), 3 * LAWN.tillers);
+  assert.equal(grassTriangleCount([0, 0, 1], LAWN.tillers), 1 * LAWN.tillers);
+
+  assert.equal(grassTriangleCount([0, 0, 0], LAWN.tillers), 0);
+  assert.equal(grassTriangleCount(new Uint32Array(3), LAWN.tillers), 0);
 });

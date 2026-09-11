@@ -67,8 +67,12 @@ test('the 400-plant nine-species scatter remains deterministic and terrain-confo
 test('mixed scatter rejects invalid allocation and terrain data', () => {
   assert.throws(() => createFieldLayout(), /terrain height function/);
   assert.throws(
-    () => createFieldLayout({ count: 0, groundAt: () => 0 }),
-    /positive finite number/,
+    () => createFieldLayout({ count: -1, groundAt: () => 0 }),
+    /non-negative finite number/,
+  );
+  assert.throws(
+    () => createFieldLayout({ count: Number.NaN, groundAt: () => 0 }),
+    /non-negative finite number/,
   );
   assert.throws(
     () => createFieldLayout({ speciesCount: 0, groundAt: () => 0 }),
@@ -133,4 +137,38 @@ test('mixed field statistics aggregate every species field', () => {
     slotsByKind: { leaves: 1600, stems: 200, panicles: 400 },
     culling,
   });
+});
+
+test('an empty garden is a legal field, and it frames nothing', () => {
+  // `?count=0` exists so the lawn can be inspected on its own.
+  const layout = createFieldLayout({ count: 0, groundAt: () => 0 });
+
+  assert.equal(layout.perSpecies.length, FIELD_SPECIES_COUNT);
+  assert.deepEqual(
+    layout.perSpecies.map((placements) => placements.length),
+    Array.from({ length: FIELD_SPECIES_COUNT }, () => 0),
+  );
+
+  // The number this test exists for. `createMixedPlantField` derives the
+  // camera's far plane as `extent * 6` and the walk limit as `extent + 14`, so
+  // an extent that merely *looked* small would clip 52 m of grass rings to a
+  // 7 m puddle and fence the walker into 15 m. The jittered grid produces
+  // exactly that if it is allowed to run: at count 0 `perSide` is 0, which
+  // makes `gridExtent` negative and `extent` 1.2.
+  assert.equal(layout.extent, 0);
+  assert.notEqual(layout.extent, 1.2);
+
+  // An empty field still folds into the HUD contract without a special case.
+  const stats = aggregateFieldStats([], {
+    visible: 0,
+    plants: 0,
+    queued: 0,
+    applied: 0,
+    spent: 0,
+    pending: 0,
+    ms: 0,
+  });
+  assert.equal(stats.plants, 0);
+  assert.equal(stats.drawCalls, 0);
+  assert.deepEqual(stats.levelCounts, []);
 });

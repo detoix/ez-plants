@@ -18,6 +18,8 @@ three persistent camera-centred grids (near / mid / far)
                 ↓ only after a grid crosses its own cell boundary
 snapped integer world cells → deterministic placement + terrain sampling
                            + one shared lawn-macro sample per candidate
+                           + one patch-scale health sample per candidate
+                           + one 3x3 Voronoi clump search per candidate
                 ↓ every frame
 reset three indirect instance counts
                 ↓
@@ -50,11 +52,11 @@ visible step at 8 m or 24 m. A tiller stands off the crown centre, fans off its
 facing and may be shorter than it, all from the crown's own hash, so the tuft
 is as reproducible as the crown.
 
-The three rings contain 1,096,812 fixed candidate slots. Their packed 24-byte
-placement records and 4-byte compacted visible IDs use about 29.3 MiB of
+The three rings contain 1,096,812 fixed candidate slots. Their packed 28-byte
+placement records and 4-byte compacted visible IDs use about 33.5 MiB of
 typed-array data on the CPU and the same amount of storage on the GPU, before
 renderer overhead. The original 48-byte float record used 54.4 MiB together
-with those IDs, so packing removes 25.1 MiB (46.2%) from each side.
+with those IDs, so packing removes 20.9 MiB (38.5%) from each side.
 Density falls continuously inside every band. A world-space lawn signal scales
 that base density by 0.78–1.0, using the same value that tints the terrain and
 blades. Ring ownership is exclusive, the boundary densities match, and the far
@@ -109,7 +111,7 @@ terrain and blade materials use it for tint. No map is sampled in grass
 fragments, no storage buffer grows, and no grass resource is allocated or
 discarded as the camera moves.
 
-Each candidate record is six `u32` words. World X/Z keep their exact `f32` bit
+Each candidate record is seven `u32` words. World X/Z keep their exact `f32` bit
 patterns. Ground/blade height, upper-hemisphere terrain normal X/Z, yaw/width,
 tint and macro variation use normalized 16- or 8-bit fields. The 16-bit
 retention value uses midpoint decoding, so quantization cannot create a blade
@@ -125,6 +127,87 @@ isolates the terrain surface. Use
 parameter both select the default. Reload each URL before timing so one-time
 pipeline compilation is outside the comparison.
 
+## What placement computes, and why it is not the vertex stage
+
+A crown's clump, its patch health, its terrain normal and its macro sample are
+all functions of one thing: where the crown stands. Placement decides that and
+then never changes it, so all four are computed there, once, and packed into
+the record.
+
+The clump is the one that was not. `clumpAt()` is a 3x3 Voronoi search -- a
+clump point is jittered anywhere inside its own cell, so the nearest one to a
+crown near a corner can be in any of the eight cells around it, and a 2x2
+search picks the wrong clump along two of the four edges. That search used to
+run in `material.positionNode`, which is per *vertex*: a near crown draws three
+tillers of three segments, 15 vertices each, and every one of those 45 vertices
+searched nine cells for the same angle and the same scale. 405 hash-and-compare
+sequences per visible near crown, 243 in the mid ring, 81 in the far one.
+
+It now runs once per crown and costs four bytes of record, which is the whole
+trade. Two things make those four bytes cost exactly four:
+
+- The word is full: 16 bits of clump heading, 8 of clump shortening, 8 of
+  health. The heading gets the wide field because every crown in a clump takes
+  it, and a byte of angle steps 1.4 degrees -- enough to land whole patches of
+  lawn on the same heading and grow a visible grain across open ground.
+- World X and Z are two scalar `u32` fields and not the `uvec2` they read as.
+  WGSL rounds an array's stride up to its element's alignment, and a `uvec2`
+  aligns to eight bytes: with the pair in it, six words of fields stride at six
+  but seven stride at **eight**. The padding word is silent -- nothing reports
+  it but `getLength()` -- so the seventh word would have cost 8.4 MiB across
+  the three rings rather than 4.2.
+  `test/field-webgpu-record.test.js` holds both layouts side by side.
+
+Placement runs only when a ring's snapped origin changes, so this moved work
+off every frame and onto a cell crossing. It did not make placement free: a
+near-ring snap now runs the Voronoi search and a second texture sample across
+all 412,164 candidates, and the near ring snaps every 2.5 cm of movement.
+Reducing that is a separate change -- the grid would have to update the
+incoming row and column rather than its whole area -- and it is not done here.
+
+## Grounding and variation
+
+Two shading terms exist to stop the lawn reading as a plane of evenly lit
+strips.
+
+`LAWN.rootOcclusion` darkens the bottom `rootOcclusionHeight` of every blade.
+Nothing in this lawn draws that occlusion -- blades cast no shadow-map
+silhouette on purpose -- so it is asserted rather than computed. It multiplies
+albedo rather than arriving through `aoNode`, which in a standard material
+attenuates only indirect light: the occlusion being faked here takes the sun
+out too.
+
+Dry patches come from a second world-space signal, `surface.healthAt()`. It is
+the same channel of the same map at the same mip as the macro signal, over a
+161.3 m tile instead of a 31.7 m one -- so it is the same distribution at a
+different scale, about 5 m a patch, and the 0.045-0.32 window stays valid
+without re-measuring it against the asset. Placement stores it in the clump
+word; the blade shades from it and **the terrain underneath reads the same
+function**, through the same `dryAt`/`dryTintFrom` pair, so a dry patch is dry
+all the way down rather than green turf standing on straw.
+
+A blade's own hash only ever *modulates* its patch -- `dryScatter` is a
+multiplier on the patch value, never a signal of its own -- so a blade in
+green turf multiplies zero and stays green however its hash fell. That is the
+difference between correlated patches and independently yellow blades, and
+`test/field-webgpu-blade-bounds.test.js` holds it.
+
+A blade also passes light *through* itself. `blade-lighting.js` adds that as a
+real directional term in a `PhysicalLightingModel` subclass rather than as an
+emissive rim, for one reason: the `lightColor` handed to `LightingModel.direct()`
+has already been multiplied by the light's shadow node, so the term is
+suppressed inside shadow for free. An emissive version would glow under a
+tree, at night and on the shadowed side of a hill. It is strongest at the tip,
+where the tissue is thin, and `LAWN.backscatterTip` is held above
+`LAWN.rootOcclusionHeight` so the blade never lights up at the same height the
+occlusion term just darkened.
+
+`?backlight=off` is the A/B control. Note that both pages open looking away
+from their own sun, where the term is correctly zero -- an A/B in the default
+framing shows nothing and proves nothing. Measured facing the sun on `/field`,
+it changed 10.7% of the frame, 72,926 pixels brighter against 27 darker, none
+of them above the horizon.
+
 There is no wind input, animation node or time-dependent blade deformation.
 These are short maintained-lawn blades. They receive the directional light's
 terrain shadow but do not cast individual blade shadows: at 4–8 cm, that extra
@@ -133,7 +216,9 @@ receives shadows. Use `?shadows=off` to isolate the cost.
 
 Other query controls are `?terrain=flat` (or a numeric amplitude),
 `?shadows=off`, `?pixelratio=1`, plus the mixed plant field's `count`, `day`,
-`prototypes`, `budget`, `lod`, and `wind`. The HUD reports the
+`prototypes`, `budget`, `lod`, and `wind`. `?count=0` removes the plants
+entirely, which is the control URL for timing or inspecting the lawn on its
+own. The HUD reports the
 asynchronously read-back visible counts, fixed candidate count, three indirect
 grass draws, this-frame versus steady compute count, placements, aggregate
 plant statistics, PBR transfer/GPU footprint, and the renderer's memory
@@ -156,7 +241,7 @@ memory accounting and throws for an attribute that was never uploaded.
 
 Today the lawn is built once per page and torn down with the renderer, so the
 buffers would be reclaimed with the device regardless. The cost of getting this
-wrong appears the first time something rebuilds the lawn mid-session: 29.3 MiB
+wrong appears the first time something rebuilds the lawn mid-session: 33.5 MiB
 of storage per rebuild, held until the page closes, with the HUD's memory
 estimate reporting the sum of every generation.
 
@@ -194,10 +279,34 @@ field's near-dense/far-sparse lawn requirement.
 stable state identity, snapping, deterministic return-to-place placement,
 exclusive ring ownership, monotonic density and capability messages.
 `test/field-webgpu-record.test.js` verifies the packed stride, exact storage
-budget, height bounds, float-bit preservation and quantization error limits.
+budget, height bounds, float-bit preservation, quantization error limits and
+the `uvec2` alignment trap that would make the seven-word record stride at
+eight. `test/field-webgpu-grid.test.js` also holds the blade vertex and
+triangle counts the indirect draw commands and the HUD are both built from.
 Those tests do not execute WebGPU. `test/field-webgpu-surface.test.js` verifies
 the checked-in map hashes, byte/GPU budgets, texture configuration, failed-load
 cleanup, resource-preserving mode switches, query parsing and backdrop
 clearance. A production build checks bundling, not GPU shader execution.
 Compute, indirect draws, node-material texture sampling, culling counts and
 frame time still require inspection in a hardware-WebGPU browser.
+
+Headless Chromium will do it, but **check which adapter you got before you
+believe a number**. The default headless launch reports
+`google · swiftshader` and renders the field at about 400 ms a frame, which is
+a CPU rasteriser and not a measurement of anything. On this project's Linux
+box, `--use-gl=angle --use-angle=vulkan` alongside `--enable-unsafe-webgpu` is
+what produces `intel · gen-12lp`; `--use-angle=swiftshader` or omitting the
+pair produces the software device. The HUD's `gpu` row is the check, and it is
+worth reading on every run.
+
+Two more cautions, both learned by getting them wrong:
+
+- Frame time on an integrated GPU, on a machine in use, may not be resolvable
+  at all. Repeated runs of one configuration here spread 42 to 56 fps, and in
+  some of them a heavier setting beat a lighter one -- with the frame rate
+  unlocked *and* against vsync. Counts are exact and time is not: prefer the
+  HUD's triangle, visible-crown and memory rows for any claim you intend to
+  write down, and treat an fps figure from this box as a direction rather than
+  a magnitude.
+- Use `?count=0` to price the lawn on its own. With the plants in, the plant
+  field's per-frame LOD budget adds variance of its own on top.

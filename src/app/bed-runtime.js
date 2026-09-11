@@ -48,6 +48,7 @@ export function readBedOptions(search = '', devicePixelRatio = 1) {
     budget: number('budget', 900_000, 10_000, 8_000_000),
     wind: params.get('wind') !== 'off',
     shadows: params.get('shadows') !== 'off',
+    backlight: params.get('backlight') !== 'off',
     orbit: params.get('orbit') !== 'off',
     ui: params.get('ui') !== '0',
     pixelRatio: number(
@@ -172,7 +173,8 @@ export async function startBed({ adapter }) {
     disposed = true;
     renderer.setAnimationLoop(null);
     if (resize) window.removeEventListener('resize', resize);
-    if (beforeUnloadInstalled) window.removeEventListener('beforeunload', dispose);
+    if (beforeUnloadInstalled)
+      window.removeEventListener('beforeunload', dispose);
     controls?.dispose();
     orbit?.dispose();
     if (planting) stage?.scene.remove(planting.group);
@@ -216,6 +218,7 @@ export async function startBed({ adapter }) {
       heightMap,
       surface,
       shadows: options.shadows,
+      backlight: options.backlight,
       // Without this the blades are placed from a world-space hash that knows
       // nothing about the planting, and grow straight up through the mulch and
       // the cobbles.

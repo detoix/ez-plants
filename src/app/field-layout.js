@@ -26,14 +26,27 @@ export function createFieldLayout({
   seed = FIELD_LAYOUT_SEED,
   groundAt,
 } = {}) {
-  if (!Number.isFinite(count) || count < 1) {
-    throw new RangeError('Field count must be a positive finite number.');
+  if (!Number.isFinite(count) || count < 0) {
+    throw new RangeError('Field count must be a non-negative finite number.');
   }
   if (!Number.isInteger(speciesCount) || speciesCount < 1) {
     throw new RangeError('Species count must be a positive integer.');
   }
   if (typeof groundAt !== 'function') {
     throw new TypeError('Field layout needs a terrain height function.');
+  }
+
+  // An empty garden, for looking at the lawn on its own. It returns extent 0
+  // rather than a small number on purpose: there is no garden here to frame a
+  // camera around, and a caller that divides or multiplies by this has to say
+  // what it wants instead. The jittered grid below cannot produce it -- at
+  // count 0 `perSide` is 0 and `gridExtent` goes *negative*, which would put
+  // the camera's far plane at 7.2 m and clip the lawn to a puddle.
+  if (count === 0) {
+    return {
+      perSpecies: Array.from({ length: speciesCount }, () => []),
+      extent: 0,
+    };
   }
 
   const random = mulberry32(seed);

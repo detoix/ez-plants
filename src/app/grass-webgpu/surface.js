@@ -1,7 +1,9 @@
 import * as THREE from 'three/webgpu';
 
-import { LAWN_COLORS } from './preset.js';
+import { LAWN, LAWN_COLORS } from './preset.js';
 import {
+  LAWN_HEALTH_SAMPLE_LEVEL,
+  LAWN_HEALTH_WORLD_SIZE,
   LAWN_MACRO_SAMPLE_LEVEL,
   LAWN_MACRO_WORLD_SIZE,
   LAWN_PBR_ASSET,
@@ -28,6 +30,18 @@ const {
 
 const SECONDARY_UV_OFFSET = new THREE.Vector2(0.37, 0.19);
 const MACRO_UV_OFFSET = new THREE.Vector2(0.23, 0.61);
+const HEALTH_UV_OFFSET = new THREE.Vector2(0.71, 0.13);
+
+/**
+ * What a fully dry patch multiplies its colour by.
+ *
+ * A multiplier rather than a colour to mix towards, because the two things it
+ * has to tint -- the blade's own green ramp and the Grass004 albedo under it --
+ * are different colours that have to end up the same shade of straw. Red up,
+ * green held, blue down is what browning does to both: it is a loss of
+ * chlorophyll, not a wash of yellow paint over the top.
+ */
+const DRY_TINT = new THREE.Vector3(1.34, 1.06, 0.62);
 
 function configureLawnTexture(texture, { colorSpace, anisotropy, name }) {
   texture.name = name;
@@ -110,10 +124,42 @@ export async function createLawnSurface({ renderer, underlay, textures } = {}) {
     return smoothstep(float(0.045), float(0.32), macroGreen);
   });
 
+  // The patch signal, at a scale a lawn actually varies on. Same sample as
+  // `macroAt` with the tile opened out, so the two disagree about scale and
+  // about nothing else. Explicit level, for the same reason: placement reads
+  // it in compute, where there are no fragment derivatives to pick a mip from.
+  const healthAt = Fn(([worldXZ]) => {
+    const healthUV = vec2(worldXZ.x, worldXZ.y.negate())
+      .div(LAWN_HEALTH_WORLD_SIZE)
+      .add(HEALTH_UV_OFFSET);
+    const healthGreen = textureLevel(
+      albedoRoughnessTexture,
+      healthUV,
+      float(LAWN_HEALTH_SAMPLE_LEVEL),
+    ).g;
+    return smoothstep(float(0.045), float(0.32), healthGreen);
+  });
+
   const tintFrom = Fn(([macro]) =>
     vec3(mix(0.9, 1.06, macro), mix(0.94, 1.05, macro), mix(0.88, 0.99, macro)),
   );
   const densityFrom = Fn(([macro]) => mix(0.78, 1, macro));
+
+  // How dry a place is, from its health. One function, called by the blades
+  // and by the ground they stand in: that shared call is the whole point of
+  // the signal. Variation the grass has and the terrain does not reads as
+  // green grass growing out of unrelated soil, which is the failure this
+  // lawn's macro tint already avoids at the metre scale.
+  const dryAt = Fn(([health]) =>
+    smoothstep(float(LAWN.dryOnset), float(LAWN.dryFull), health.oneMinus()),
+  );
+  const dryTintFrom = Fn(([dry]) =>
+    mix(
+      vec3(1, 1, 1),
+      vec3(DRY_TINT.x, DRY_TINT.y, DRY_TINT.z),
+      dry.clamp(0, 1),
+    ),
+  );
 
   // Grass is visually isotropic, so blending a rotated, non-harmonic repeat is
   // an inexpensive way to break the obvious 1.4 m tile without extra assets.
@@ -160,7 +206,10 @@ export async function createLawnSurface({ renderer, underlay, textures } = {}) {
   const normalStrength = smoothstep(8, 24, horizontalDistance)
     .oneMinus()
     .mul(0.58);
-  lawnMaterial.colorNode = pbr.rgb.mul(tintFrom(macro));
+  const health = healthAt(worldXZ).toVar('lawnSurfaceHealth');
+  lawnMaterial.colorNode = pbr.rgb
+    .mul(tintFrom(macro))
+    .mul(dryTintFrom(dryAt(health).mul(LAWN.groundDryStrength)));
   lawnMaterial.roughnessNode = pbr.a.mul(0.22).add(0.76);
   lawnMaterial.normalNode = normalMap(packedNormal, vec2(normalStrength));
 
@@ -176,8 +225,11 @@ export async function createLawnSurface({ renderer, underlay, textures } = {}) {
     albedoRoughnessTexture,
     normalTexture,
     macroAt,
+    healthAt,
     tintFrom,
     densityFrom,
+    dryAt,
+    dryTintFrom,
     solidMaterial,
     lawnMaterial,
     get mode() {

@@ -4,6 +4,7 @@ import { terrainHeightAt } from './field-terrain-height.js';
 import { createWebGPUWalkControls } from './grass-webgpu/controls.js';
 import { createGPUDrivenGrass } from './grass-webgpu/grass.js';
 import { GRASS_RINGS } from './grass-webgpu/grid.js';
+import { LAWN } from './grass-webgpu/preset.js';
 import {
   LAWN_UNDERLAY,
   createLawnSurface,
@@ -28,7 +29,10 @@ export function readFieldOptions(search = '', devicePixelRatio = 1) {
       : fallback;
   };
   return {
-    count: number('count', 400, 4, 4000),
+    // Zero is legal and means "no plants at all", so the lawn can be looked
+    // at on its own. The page frames itself against the grass rings when it
+    // gets one, because an empty garden has no extent to frame against.
+    count: number('count', 400, 0, 4000),
     day: number('day', 230, 1, 365),
     prototypes: number('prototypes', 3, 1, 8),
     budget: number('budget', 1_600_000, 10_000, 20_000_000),
@@ -36,6 +40,20 @@ export function readFieldOptions(search = '', devicePixelRatio = 1) {
     wind: params.get('wind') !== 'off',
     terrain:
       params.get('terrain') === 'flat' ? 0 : number('terrain', 1.15, 0, 4),
+    // Blades per crown. The one lever that buys near-ground density without
+    // touching a candidate slot, a placement, a cull or a byte of storage --
+    // and the one whose cost has to be measured rather than argued about,
+    // which is why it is a dial. `?tillers=3` is the control.
+    tillers: Math.round(number('tillers', LAWN.tillers, 1, 12)),
+    // Multipliers on the preset's resting-bend range, for testing shape
+    // against density. They are separate ends because they answer different
+    // questions: `bendmin` raises the *floor*, and the floor is 5.7 degrees,
+    // so a good share of blades stand to attention however high the ceiling
+    // goes -- that is the likelier cause of a lawn reading as spikes. Only
+    // `bendmax` moves the culling sphere.
+    bendMin: number('bendmin', 1, 0, 8),
+    bendMax: number('bendmax', 1, 0.1, 8),
+    backlight: params.get('backlight') !== 'off',
     shadows: params.get('shadows') !== 'off',
     underlay: normalizeLawnUnderlay(params.get('underlay')),
     pixelRatio: number(
@@ -108,7 +126,10 @@ function createHUD(renderer, adapter, surface) {
         'frame',
         `${(mean * 1000).toFixed(1)} ms · worst ${(worst * 1000).toFixed(0)}`,
       );
-      set('candidates', formatInteger(grassStats.candidates));
+      set(
+        'candidates',
+        `${formatInteger(grassStats.candidates)} × ${grassStats.tillers}`,
+      );
       set(
         'visible',
         formatInteger(grassStats.visible.reduce((a, b) => a + b, 0)),
@@ -119,11 +140,12 @@ function createHUD(renderer, adapter, surface) {
           formatInteger(grassStats.visible[ring.index]),
         );
       }
-      const triangles = GRASS_RINGS.reduce(
-        (sum, ring) => sum + grassStats.visible[ring.index] * ring.segments * 2,
-        0,
-      );
-      set('triangles', formatInteger(triangles));
+      // Counted by the lawn, from the same blade arithmetic the indirect draw
+      // commands are built with. This used to be derived here as
+      // `visible * segments * 2`, which both counted the degenerate tip quad
+      // the geometry drops and ignored tillering entirely -- a near crown
+      // reported 6 triangles against the 15 it submits.
+      set('triangles', formatInteger(grassStats.triangles));
       set('grass-draws', String(grassStats.drawCalls));
       set('scene-draws', String(renderer.info.render.drawCalls));
       set(
@@ -143,7 +165,7 @@ function createHUD(renderer, adapter, surface) {
       set('plant-draws', formatInteger(plantStats.drawCalls));
       set(
         'plant-levels',
-        plantStats.levelCounts.map(formatInteger).join(' / '),
+        plantStats.levelCounts.map(formatInteger).join(' / ') || '—',
       );
       set(
         'plant-view',
@@ -337,6 +359,15 @@ export async function startField({ adapter }) {
       heightMap,
       surface,
       shadows: options.shadows,
+      tillers: options.tillers,
+      backlight: options.backlight,
+      bend: {
+        min: LAWN.minBend * options.bendMin,
+        max: Math.max(
+          LAWN.minBend * options.bendMin,
+          LAWN.maxBend * options.bendMax,
+        ),
+      },
     });
     stage.scene.add(grass.group);
     underlayControl = bindUnderlayControl(stage, options);
@@ -361,9 +392,23 @@ export async function startField({ adapter }) {
     });
     stage.scene.add(plantPlot.group);
 
+    // With no garden there is nothing to stand back from: stand in the lawn
+    // and look along it. The camera keeps the far plane it was built with,
+    // which already covers the outermost grass ring.
+    if (plantPlot.layout.extent === 0) {
+      camera.position.set(0, groundAt(0, 0) + 1.7, 0);
+      camera.lookAt(0, groundAt(0, -10) + 1.4, -10);
+      camera.updateProjectionMatrix();
+      camera.updateMatrixWorld(true);
+    }
+
     controls = createWebGPUWalkControls(camera, renderer.domElement, {
       groundAt,
-      limit: plantPlot.layout.extent + 14,
+      // The garden's fence, or the lawn's when there is no garden: the far
+      // ring is what there is to walk around in that case.
+      limit:
+        (plantPlot.layout.extent || GRASS_RINGS[GRASS_RINGS.length - 1].outer) +
+        14,
     });
     controls.setOnEngaged(() => hint?.setAttribute('hidden', ''));
 

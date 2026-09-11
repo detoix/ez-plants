@@ -16,8 +16,14 @@ phones; the bed uses one-finger orbit and two-finger pinch. A desktop
 screenshot does not exercise either path.
 
 The field HUD reports frame time, adapter, GPU memory, persistent lawn counts,
-and aggregate plant-field culling/LOD statistics. CPU tests do not measure any
-of those GPU costs.
+and aggregate plant-field culling/LOD statistics. Its blade-triangle figure
+comes from `grassTriangleCount()` in `grass-webgpu/grid.js`, which is the same
+arithmetic the indirect draw commands are built from -- the HUD used to derive
+its own and reported a near crown at 6 triangles against the 15 it submits,
+because it counted the dropped tip quad and ignored tillering. Do not re-derive
+it at the call site.
+
+CPU tests do not measure any of those GPU costs.
 
 ## Field architecture
 
@@ -42,6 +48,21 @@ per-instance state (`setLODOverrideAt`), so branches and organs cross an LOD
 boundary together without a per-instance JavaScript callback. Query dials are `count`,
 `day`, `prototypes`, `budget`, `lod`, `wind`, `shadows`, `pixelratio`,
 `terrain`, and `underlay`.
+
+`?backlight=off` restores the stock `PhysicalLightingModel` on the blades, as
+the A/B control for the light transmitted through them. Both pages open
+looking *away* from their own sun, so the term is correctly zero in the
+default framing -- an A/B there shows no difference and proves nothing. Turn
+toward the sun before judging it.
+
+`?count=0` is legal and means no plants at all, for looking at the lawn on its
+own. It skips the nine species' CPU bakes, not just their placements. It also
+takes the page off the plant field for its framing: `createFieldLayout` returns
+`extent: 0`, `createMixedPlantField` leaves the camera alone, and the page
+stands itself in the grass and falls back to the far ring's 52 m for the walk
+limit. Do not let a zero extent reach `extent * 6` -- that is a 7.2 m far plane
+over 52 m of grass rings, and the jittered grid produces it by itself if the
+early return is removed, because `perSide` is 0 and `gridExtent` goes negative.
 
 `src/lib/field/plant-material-webgpu.js` is the authoritative conversion
 boundary for known plant shader behavior. It ports leaf wind and authored
@@ -120,10 +141,19 @@ knows nothing about the planting, so without that mask they grow straight up
 through the mulch and the cobbles.
 
 `keepAt` is optional and tested in the culling pass, not baked into a placement
-record: the six record words are full, and stealing precision from the blade
+record: every word of the record is full, and stealing precision from the blade
 width channel to store one bit would change a packing contract the whole field
 depends on. A caller that passes none builds no node, so `/field` generates the
 shader it always did.
+
+The record is seven words, not the six it shipped as. The seventh holds the
+crown's Voronoi clump and its patch health, both computed once in placement --
+the clump search used to run per *vertex*, nine cells for a value identical at
+all 45 vertices of a near crown. Growing it is a trap worth knowing: world X/Z
+are two scalar `u32` fields rather than the `uvec2` they read as, because WGSL
+rounds an array's stride up to its element's alignment and a `uvec2` aligns to
+eight bytes. Six words of fields stride at six with the pair in them; seven
+stride at **eight**. The padding word is silent, and it is 4.2 MiB.
 
 `bed-lawn-mask.js` holds the TSL form and evaluates the kidney with no trig at
 all -- normalizing the vector gives sin and cos, and the angle-sum identities
