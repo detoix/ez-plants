@@ -36,8 +36,12 @@ const {
 } = THREE.TSL;
 
 import { BLADE_CULL_CENTRE, bladeCullRadiusFactor } from './blade-arc.js';
-import { GrassLightingModel } from './blade-lighting.js';
-import { LAWN, LAWN_COLORS } from './preset.js';
+import {
+  GRASS_BACKLIGHT,
+  GrassLightingModel,
+  normalizeBacklight,
+} from './blade-lighting.js';
+import { CLUMP_PULL_MARGIN, LAWN, LAWN_COLORS } from './preset.js';
 import {
   GRASS_RINGS,
   TOTAL_GRASS_CANDIDATES,
@@ -265,6 +269,8 @@ function createRingResources({
   tillers,
   backlight,
   bend,
+  posture,
+  greens,
 }) {
   const state = createRingState(ring);
   const originCell = uniform(new THREE.Vector2());
@@ -548,7 +554,7 @@ function createRingResources({
     // mixed: a mix of two opposed headings cancels to a vector with no
     // direction, and this sum cannot fall below `clumpPull - 1`.
     const crownHeading = vec3(cos(crownYaw), 0, sin(crownYaw)).add(
-      vec3(cos(clumpAngle), 0, sin(clumpAngle)).mul(LAWN.clumpPull),
+      vec3(cos(clumpAngle), 0, sin(clumpAngle)).mul(posture.clumpPull),
     );
     // The crown's tangent frame. Both the tuft's spread and each blade's fan
     // are rotations inside it, so a slope tilts the whole crown once.
@@ -561,7 +567,7 @@ function createRingResources({
     // one fat blade rather than several thin ones.
     const fan = hash(tillerSeed.add(uint(149)))
       .sub(0.5)
-      .mul(LAWN.tillerFan)
+      .mul(posture.tillerFan)
       .toVar('tillerFan');
     const forward = crownForward
       .mul(cos(fan))
@@ -677,8 +683,11 @@ function createRingResources({
   // is the A/B control: same geometry, same records, same draws, one term
   // gone. It is also the only way to see what the term contributes, because
   // both pages open looking away from their own sun.
-  if (backlight) {
-    const lightingModel = new GrassLightingModel(bladeGradient);
+  if (backlight !== GRASS_BACKLIGHT.off) {
+    const lightingModel = new GrassLightingModel(bladeGradient, {
+      mode: backlight,
+      backlightColor: greens.backlight,
+    });
     material.setupLightingModel = () => lightingModel;
   }
   // A blade stands in a few centimetres of its neighbours and its root sees
@@ -693,8 +702,8 @@ function createRingResources({
     bladeGradient.clamp(0, 1).smoothstep(0, LAWN.rootOcclusionHeight),
   );
   material.colorNode = mix(
-    color(LAWN_COLORS.bottom),
-    color(LAWN_COLORS.top),
+    color(greens.bottom),
+    color(greens.top),
     bladeGradient.clamp(0, 1),
   )
     .mul(bladeTint.mul(0.18).add(0.91))
@@ -736,8 +745,18 @@ function createRingResources({
  *   sphere is sized from `max` rather than from a constant, so widening it
  *   cannot quietly push blades outside the bound that decides whether to draw
  *   them -- it grows the sphere, and more blades survive the cull.
- * @param {boolean} [options.backlight] Light transmitted through a blade.
- *   False restores the stock physical lighting model as an A/B control.
+ * @param {boolean|'blade'|'view'|'off'} [options.backlight] Light transmitted
+ *   through a blade. `blade` gates it on the blade's own normal; `view` is the
+ *   shipped view-only lobe and `off` the stock physical lighting model, both
+ *   kept as A/B controls.
+ * @param {object} [options.greens] The lawn palette, from `lawnColorsFor()`.
+ *   Drawn around `LAWN_TARGET_HUE`; `/field` rotates it with `?lawnhue=`.
+ * @param {{clumpPull: number, tillerFan: number}} [options.posture] How much
+ *   of a crown's facing its clump dictates, and the radians of yaw its blades
+ *   are fanned across. Both are how correlated neighbouring blades are, which
+ *   is what decides whether a patch of lawn shades as a sheet or as a canopy,
+ *   so they are dialled together. Neither moves the culling sphere: the pull
+ *   normalizes a heading and the fan is yaw inside the crown's own frame.
  * @param {Function} [options.keepAt] Optional world-space mask,
  *   `(worldXZ) => booleanNode`, returning false where no blade may stand. Used
  *   by `/bed` to cut the lawn out of the planting; `/field` passes none.
@@ -749,8 +768,10 @@ export function createGPUDrivenGrass({
   shadows = true,
   keepAt = null,
   tillers = LAWN.tillers,
-  backlight = true,
+  backlight = GRASS_BACKLIGHT.blade,
   bend = { min: LAWN.minBend, max: LAWN.maxBend },
+  posture = { clumpPull: LAWN.clumpPull, tillerFan: LAWN.tillerFan },
+  greens = LAWN_COLORS,
 }) {
   if (!surface) throw new TypeError('GPU grass needs the shared lawn surface.');
   if (!Number.isInteger(tillers) || tillers < 1) {
@@ -759,6 +780,23 @@ export function createGPUDrivenGrass({
   if (!(bend.min >= 0) || !(bend.max >= bend.min)) {
     throw new RangeError('Blade bend needs an ordered, non-negative range.');
   }
+  // A crown's heading is its own unit vector plus the clump's times the pull,
+  // so a pull of exactly 1 can cancel two opposed headings to a zero vector
+  // and hand `normalize()` no direction at all. The same bound is asserted on
+  // the preset in `test/field-webgpu-blade-bounds.test.js`.
+  if (
+    !(posture.clumpPull >= 0) ||
+    Math.abs(posture.clumpPull - 1) < CLUMP_PULL_MARGIN
+  ) {
+    throw new RangeError(
+      'A clump pull must be non-negative and a tenth clear of 1, where an ' +
+        'opposed crown and clump heading cancel to nothing to normalize.',
+    );
+  }
+  if (!(posture.tillerFan >= 0)) {
+    throw new RangeError('A negative tiller fan is a mirrored blade.');
+  }
+  const backlightMode = normalizeBacklight(backlight);
   const cameraWorld = uniform(new THREE.Vector3());
   // Metres one physical pixel covers per metre of distance, so a blade can be
   // measured in pixels without the shader knowing the projection.
@@ -803,8 +841,10 @@ export function createGPUDrivenGrass({
       surface,
       keepAt,
       tillers,
-      backlight,
+      backlight: backlightMode,
       bend,
+      posture,
+      greens,
     }),
   );
   const group = new THREE.Group();

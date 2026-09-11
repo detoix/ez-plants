@@ -73,7 +73,22 @@ export async function loadLawnPBRTextures({ loader } = {}) {
   return { albedoRoughness, normal };
 }
 
-export async function createLawnSurface({ renderer, underlay, textures } = {}) {
+/**
+ * @param {object} [options]
+ * @param {THREE.Renderer} options.renderer Initialized, for its anisotropy.
+ * @param {string} [options.underlay] `lawn` or the `solid` control.
+ * @param {{albedoRoughness: Texture, normal: Texture}} [options.textures]
+ * @param {object} [options.greens] The lawn palette, from `lawnColorsFor()`.
+ *   Its `groundTint` is what carries the Grass004 albedo from its own hue of
+ *   72 degrees onto the palette's, at unchanged luminance -- the asset is a
+ *   photograph, so it cannot be recoloured, only multiplied.
+ */
+export async function createLawnSurface({
+  renderer,
+  underlay,
+  textures,
+  greens = LAWN_COLORS,
+} = {}) {
   if (!renderer || typeof renderer.getMaxAnisotropy !== 'function') {
     throw new TypeError('The lawn surface needs an initialized renderer.');
   }
@@ -173,7 +188,7 @@ export async function createLawnSurface({ renderer, underlay, textures } = {}) {
   });
 
   const solidMaterial = new THREE.MeshStandardMaterial({
-    color: LAWN_COLORS.ground,
+    color: greens.ground,
     roughness: 1,
     metalness: 0,
   });
@@ -207,7 +222,12 @@ export async function createLawnSurface({ renderer, underlay, textures } = {}) {
     .oneMinus()
     .mul(0.58);
   const health = healthAt(worldXZ).toVar('lawnSurfaceHealth');
+  // The hue correction. Grass004 is a photograph of a lawn at hue 72, which is
+  // olive beside the 105 the blades are drawn at, and it is the ground seen
+  // through every gap between them. This carries its mean onto the palette's
+  // hue at unchanged luminance: a hue fix, not a brightness one.
   lawnMaterial.colorNode = pbr.rgb
+    .mul(vec3(...greens.groundTint))
     .mul(tintFrom(macro))
     .mul(dryTintFrom(dryAt(health).mul(LAWN.groundDryStrength)));
   lawnMaterial.roughnessNode = pbr.a.mul(0.22).add(0.76);

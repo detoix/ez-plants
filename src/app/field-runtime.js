@@ -1,10 +1,16 @@
 import * as THREE from 'three/webgpu';
 
 import { terrainHeightAt } from './field-terrain-height.js';
+import { normalizeBacklight } from './grass-webgpu/blade-lighting.js';
 import { createWebGPUWalkControls } from './grass-webgpu/controls.js';
 import { createGPUDrivenGrass } from './grass-webgpu/grass.js';
 import { GRASS_RINGS } from './grass-webgpu/grid.js';
-import { LAWN } from './grass-webgpu/preset.js';
+import {
+  CLUMP_PULL_MARGIN,
+  LAWN,
+  LAWN_TARGET_HUE,
+  lawnColorsFor,
+} from './grass-webgpu/preset.js';
 import {
   LAWN_UNDERLAY,
   createLawnSurface,
@@ -27,6 +33,17 @@ export function readFieldOptions(search = '', devicePixelRatio = 1) {
     return Number.isFinite(value)
       ? Math.min(maximum, Math.max(minimum, value))
       : fallback;
+  };
+  // `createGPUDrivenGrass` rejects a clump pull within a tenth of 1, where a
+  // crown heading opposed to its clump's cancels to a vector with no direction
+  // to normalize. Step over that band to the side it was asked from rather
+  // than clamping into it, so a typo in the URL is a look and not a throw.
+  const awayFromOne = (value) => {
+    if (Math.abs(value - 1) >= CLUMP_PULL_MARGIN) return value;
+    // Over the margin rather than onto it: 1 - 0.1 is 0.09999999999999998
+    // away from 1 in a float64, which the guard reads as inside the band.
+    const step = CLUMP_PULL_MARGIN * 1.1;
+    return value < 1 ? 1 - step : 1 + step;
   };
   return {
     // Zero is legal and means "no plants at all", so the lawn can be looked
@@ -53,7 +70,25 @@ export function readFieldOptions(search = '', devicePixelRatio = 1) {
     // `bendmax` moves the culling sphere.
     bendMin: number('bendmin', 1, 0, 8),
     bendMax: number('bendmax', 1, 0.1, 8),
-    backlight: params.get('backlight') !== 'off',
+    // How correlated neighbouring blades are. `clumppull` is how much of a
+    // crown's facing its 45 cm clump dictates and `tillerfan` is the yaw its
+    // own blades spread over; between them they decide whether a patch of
+    // lawn presents one normal to the sun or a spread of them. `?clumppull=1.2
+    // &tillerfan=0.7` restores the meadow-grained pair the page shipped with.
+    // A pull within a tenth of 1 can cancel a crown's heading to a zero
+    // vector, so the dial steps over that band rather than clamping into it.
+    clumpPull: awayFromOne(number('clumppull', LAWN.clumpPull, 0, 4)),
+    tillerFan: number('tillerfan', LAWN.tillerFan, 0, 3),
+    // `blade` gates transmission on the blade's own normal, `view` is the
+    // shipped view-only lobe and `off` removes it. The middle one is the
+    // control that matters: `off` can only say whether the term exists.
+    backlight: normalizeBacklight(params.get('backlight')),
+    // Hue the whole lawn palette is drawn around, in degrees -- blades, the
+    // transmitted green and the tint on the Grass004 underlay together. See
+    // `LAWN_TARGET_HUE`: turfgrass research puts healthy lawn between 60 and
+    // 120, a reference photograph sits at 99, and this page rendered at 75.
+    // `?lawnhue=86.7` is the palette as it was authored.
+    lawnHue: number('lawnhue', LAWN_TARGET_HUE, 60, 140),
     shadows: params.get('shadows') !== 'off',
     underlay: normalizeLawnUnderlay(params.get('underlay')),
     pixelRatio: number(
@@ -341,10 +376,15 @@ export async function startField({ adapter }) {
     heightMap = createWebGPUHeightTexture({
       amplitude: options.terrain,
     });
+    // One palette for the blades, the transmitted green and the underlay tint,
+    // so a hue change cannot move the grass without moving the ground it
+    // stands in.
+    const greens = lawnColorsFor(options.lawnHue);
     if (loadingText) loadingText.textContent = 'Loading the CC0 lawn PBR maps…';
     surface = await createLawnSurface({
       renderer,
       underlay: options.underlay,
+      greens,
     });
     stage = createScene({
       terrainAmplitude: options.terrain,
@@ -368,6 +408,11 @@ export async function startField({ adapter }) {
           LAWN.maxBend * options.bendMax,
         ),
       },
+      posture: {
+        clumpPull: options.clumpPull,
+        tillerFan: options.tillerFan,
+      },
+      greens,
     });
     stage.scene.add(grass.group);
     underlayControl = bindUnderlayControl(stage, options);

@@ -90,8 +90,21 @@ export const LAWN = Object.freeze({
    *  A weight on the clump's heading against each crown's own, so 0 leaves
    *  every crown independent and large values march them in lockstep. It is
    *  added rather than interpolated so the sum can never cancel to a zero
-   *  vector, which has no direction to normalize. */
-  clumpPull: 1.2,
+   *  vector, which has no direction to normalize -- which is also why
+   *  `test/field-webgpu-blade-bounds.test.js` keeps it a tenth clear of 1.
+   *
+   *  It was 1.2, where the clump outvoted the crown: every crown in a 45 cm
+   *  patch faced within a few degrees of one heading, so a patch presented one
+   *  shared normal to the sun and lit or darkened as a single sheet. That
+   *  grain is right for a meadow and wrong for turf -- a mown lawn is cut from
+   *  every direction and is close to azimuthally isotropic. At 0.3 the crown's
+   *  own yaw wins and the clump biases it, so a patch still leans without
+   *  every blade in it agreeing.
+   *
+   *  The clump keeps its other jobs whatever this is: `clumpShortest` and the
+   *  health signal are what make patches read as ground, and they are not
+   *  routed through the heading. `?clumppull=1.2` on `/field` is the A/B. */
+  clumpPull: 0.3,
   /** Blades grown from each placed crown. See the block comment above.
    *
    *  The near ring places 1,600 crowns a square metre, so this is 6,400
@@ -122,10 +135,18 @@ export const LAWN = Object.freeze({
    *  Folded into the culling sphere, which is centred on the crown and must
    *  still contain the blade furthest from it. */
   tillerSpread: 0.012,
-  /** Radians of yaw a tiller may fan from the crown's own facing, either way.
+  /** Radians of yaw a tiller is fanned across, centred on the crown's facing:
+   *  a blade is drawn from +/- half of this, so 1 is +/- 29 degrees.
+   *
    *  Zero makes each crown a stack of parallel blades, which reads as one fat
-   *  blade rather than several thin ones. */
-  tillerFan: 0.7,
+   *  blade rather than several thin ones. Raised from 0.7 with `clumpPull`,
+   *  and for the same reason: with the clump no longer supplying the variety,
+   *  the four blades of a crown have to. It is yaw only -- it moves no blade
+   *  further from the crown centre than `tillerSpread` already allows, so it
+   *  is outside the culling sphere's arithmetic.
+   *
+   *  `?tillerfan=0.7` on `/field` is the A/B. */
+  tillerFan: 1,
   /** Shortest a tiller may be as a fraction of its crown's blade height.
    *  Real tillers are not all the same age; equal heights read as a mown
    *  bristle rather than a growing tuft. Never above 1, or a tiller outgrows
@@ -221,15 +242,42 @@ export const LAWN = Object.freeze({
    *  into a light source. `LAWN_COLORS.backlight` is the colour it carries,
    *  which is the green the blade has taken out of the light on the way
    *  through. */
-  backscatter: 0.55,
-  /** Exponent on the light-through-blade alignment.
+  backscatter: 0.7,
+  /** Exponent on the forward-scatter lobe -- `dot(-light, view)`.
    *
-   *  This is what keeps it a *rim*. At 1 the term is a wash over everything
-   *  facing vaguely away from the sun; high values pull it into the narrow
-   *  band where the sun is genuinely behind the blade, which is where you see
-   *  it in a photograph. It is the dial to reach for first if the lawn looks
-   *  hazy rather than backlit. */
-  backscatterPower: 4,
+   *  Only a modifier now. It used to be the whole term: transmission was
+   *  `pow(dot(-L, V), 4)`, which asks whether the *camera* is pointing into
+   *  the sun and never asks whether the light is behind this particular
+   *  blade. For a directional sun both those vectors are shared by the whole
+   *  lawn, so the answer was shared too -- turning the head lit or unlit every
+   *  tip on screen together, as one sheet, which is not what grass does.
+   *
+   *  `backscatterAbsorb` carries the physics now and this shapes how much
+   *  brighter a backlit blade gets when you also look towards the sun. Low,
+   *  because a narrow lobe on top of a per-blade gate bands twice. */
+  backscatterPower: 2,
+  /** Beer-Lambert absorption through the thickness of a blade.
+   *
+   *  Light entering the far face at a slant crosses more tissue than light
+   *  entering square on -- the path is the thickness over the cosine -- so the
+   *  term falls as `exp(-absorb / cos)`. That is what makes a blade edge-on to
+   *  the sun dark rather than merely dim, and it is the reason this reads as a
+   *  material rather than as a wrap-around light.
+   *
+   *  At 0.25 a blade square to the sun passes 0.78 of the coefficient and one
+   *  at 60 degrees passes 0.30. Multiplied by `backscatter`, the best-oriented
+   *  blade sees the 0.55 the *whole lawn* used to see, and the average one
+   *  sees about a third of it. */
+  backscatterAbsorb: 0.25,
+  /** How much of the transmission the forward lobe carries, 0 to 1.
+   *
+   *  Tissue scatters forward, so a backlit blade is brightest looking towards
+   *  the light -- but it is still lit from behind when you are not, and a real
+   *  lawn does not switch off because you turned. This splits the difference:
+   *  `1 - backscatterView` of the term survives at any view angle and the lobe
+   *  adds the rest. Set to 1 and the old whole-lawn coupling to camera yaw
+   *  comes back, on top of the per-blade gate. */
+  backscatterView: 0.4,
   /** Where along a blade transmission starts, as a fraction of its length.
    *
    *  Load-bearing against `rootOcclusion`, not taste. A blade thickens toward
@@ -257,8 +305,25 @@ export const LAWN = Object.freeze({
   shadows: true,
 });
 
-/** Lawn green, shared so the candidates are compared on shading, not on hue. */
-export const LAWN_COLORS = Object.freeze({
+/**
+ * How far a clump pull must stay clear of 1, either side.
+ *
+ * A crown's heading is its own unit vector plus its clump's times the pull, so
+ * at exactly 1 an opposed pair cancels to a vector with no direction to
+ * normalize. The preset, the `?clumppull=` dial and `createGPUDrivenGrass`'s
+ * guard all measure that band against this one number, because two of them
+ * disagreeing by a float is a NaN blade nobody can find.
+ */
+export const CLUMP_PULL_MARGIN = 0.1;
+
+/**
+ * The greens as they were first authored, before any hue correction.
+ *
+ * Kept separately from `LAWN_COLORS` because the correction is computed from
+ * them rather than baked into them: the target is a dial, and a palette that
+ * had already been rotated once could not be rotated again without drifting.
+ */
+const AUTHORED_COLORS = Object.freeze({
   bottom: '#2f4a15',
   top: '#6d9a35',
   backlight: '#9ec756',
@@ -266,6 +331,152 @@ export const LAWN_COLORS = Object.freeze({
    *  seen edge-on rather than as bare earth. */
   ground: '#3c5a1d',
 });
+
+/** Mean sRGB of `assets/grass004/lawn-albedo-roughness.webp`, hue 72.0.
+ *
+ *  Measured off the asset, and the reason the underlay needs a tint at all: it
+ *  is a photograph and cannot be repainted, only multiplied. Re-measure it if
+ *  the asset is ever replaced or re-optimized. */
+export const GRASS004_ALBEDO_MEAN = '#606c30';
+
+/**
+ * Hue the palette is drawn around, in degrees.
+ *
+ * Not taste, and not eyeballed. Turfgrass research scores lawn colour with the
+ * Dark Green Colour Index, whose hue transform is `(H - 60) / 60` -- scaled so
+ * 60 degrees is the yellow end of a lawn and 120 the deep-green end, with
+ * published thresholds for healthy turf running 60-120. A reference photograph
+ * of a well-fed lawn measures **99 degrees** and holds it at every depth, near
+ * the upper middle of that range.
+ *
+ * This page rendered at **75**, scoring 0.26 on that axis against the
+ * photograph's 0.65. Three things stacked the same way to get there: the blade
+ * greens were authored at 87-91, the Grass004 underlay is 72, and the sun is
+ * `#fff0cd` -- a warm light, which costs another 5 to 7 degrees on the way
+ * through. Nothing was as yellow as the result.
+ *
+ * So the albedo has to overshoot the target it is aiming the *image* at: 105
+ * here lands the render at 99. Change the sun's colour and this number moves
+ * with it. `?lawnhue=86.7` on `/field` is roughly the palette as it was.
+ */
+export const LAWN_TARGET_HUE = 105;
+
+/** The hue the palette was authored around -- the blade tip, at 86.7. Every
+ *  other colour is rotated by the same delta rather than snapped to the
+ *  target, so the few degrees that separate root from tip survive. */
+const AUTHORED_HUE = 86.7;
+
+const toLinear = (channel) =>
+  channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+
+/** Relative luminance of a 0-1 RGB triple. */
+function luminanceOf([red, green, blue]) {
+  return (
+    0.2126 * toLinear(red) + 0.7152 * toLinear(green) + 0.0722 * toLinear(blue)
+  );
+}
+
+function parseHex(hex) {
+  const digits = hex.replace('#', '');
+  return [0, 2, 4].map((at) => parseInt(digits.slice(at, at + 2), 16) / 255);
+}
+
+function formatHex(rgb) {
+  return `#${rgb
+    .map((channel) =>
+      Math.round(Math.max(0, Math.min(1, channel)) * 255)
+        .toString(16)
+        .padStart(2, '0'),
+    )
+    .join('')}`;
+}
+
+function hueSaturationOf([red, green, blue]) {
+  const high = Math.max(red, green, blue);
+  const low = Math.min(red, green, blue);
+  const span = high - low;
+  let sextant = 0;
+  if (span > 0) {
+    if (high === red) sextant = ((green - blue) / span) % 6;
+    else if (high === green) sextant = (blue - red) / span + 2;
+    else sextant = (red - green) / span + 4;
+  }
+  return {
+    hue: (((sextant * 60) % 360) + 360) % 360,
+    saturation: high === 0 ? 0 : span / high,
+  };
+}
+
+function fromHueSaturationValue(hue, saturation, value) {
+  const chroma = value * saturation;
+  const second = chroma * (1 - Math.abs(((hue / 60) % 2) - 1));
+  const base = value - chroma;
+  const wheel = [
+    [chroma, second, 0],
+    [second, chroma, 0],
+    [0, chroma, second],
+    [0, second, chroma],
+    [second, 0, chroma],
+    [chroma, 0, second],
+  ][Math.floor((((hue % 360) + 360) % 360) / 60)];
+  return wheel.map((channel) => channel + base);
+}
+
+/**
+ * The same colour at a different hue, holding its saturation *and its exact
+ * linear luminance*.
+ *
+ * Holding luminance is what makes this a hue correction rather than a repaint.
+ * Rotating a hue in HSV alone changes how bright the colour reads -- the eye
+ * weights green nearly four times red -- so a naive rotation would move two
+ * things at once and there would be no way to tell which one did the work.
+ * Solved rather than derived: value is bisected until the luminance matches.
+ */
+function atHue(hex, hue) {
+  const rgb = parseHex(hex);
+  const target = luminanceOf(rgb);
+  const { saturation } = hueSaturationOf(rgb);
+  let low = 0;
+  let high = 1;
+  for (let step = 0; step < 64; step += 1) {
+    const middle = (low + high) / 2;
+    if (luminanceOf(fromHueSaturationValue(hue, saturation, middle)) < target) {
+      low = middle;
+    } else {
+      high = middle;
+    }
+  }
+  return fromHueSaturationValue(hue, saturation, (low + high) / 2);
+}
+
+/**
+ * The lawn's greens, drawn around `hue`.
+ *
+ * `groundTint` is the odd one out and has to be: the underlay is a photograph,
+ * so it cannot be given a colour, only multiplied by one. It carries the
+ * asset's own mean from 72 degrees to the target at unchanged luminance, which
+ * is a per-channel multiplier the shader applies to every texel.
+ */
+export function lawnColorsFor(hue = LAWN_TARGET_HUE) {
+  const delta = hue - AUTHORED_HUE;
+  const shifted = Object.fromEntries(
+    Object.entries(AUTHORED_COLORS).map(([name, hex]) => [
+      name,
+      formatHex(atHue(hex, hueSaturationOf(parseHex(hex)).hue + delta)),
+    ]),
+  );
+  const mean = parseHex(GRASS004_ALBEDO_MEAN);
+  const tinted = atHue(GRASS004_ALBEDO_MEAN, hue);
+  return Object.freeze({
+    ...shifted,
+    groundTint: Object.freeze(
+      tinted.map((channel, index) => channel / mean[index]),
+    ),
+  });
+}
+
+/** Lawn green, shared so the candidates are compared on shading, not on hue. */
+export const LAWN_COLORS = lawnColorsFor(LAWN_TARGET_HUE);
 
 /**
  * How many blades a patch of this area wants, with a caller-selected ceiling.

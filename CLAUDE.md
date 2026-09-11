@@ -2,10 +2,6 @@
 
 ## Running the demos in a browser
 
-```bash
-npx vite --config vite.app.config.js --port 5177 --strictPort
-```
-
 `/` is the single-plant review page. `/field` is the mixed field page and
 `/bed` is the ornamental bed. Both use WebGPU and need a secure context: use
 localhost or HTTPS, not a plain HTTP LAN-IP URL.
@@ -47,13 +43,44 @@ on plants somebody can see. Wood consumes the field's already-applied band as
 per-instance state (`setLODOverrideAt`), so branches and organs cross an LOD
 boundary together without a per-instance JavaScript callback. Query dials are `count`,
 `day`, `prototypes`, `budget`, `lod`, `wind`, `shadows`, `pixelratio`,
-`terrain`, and `underlay`.
+`terrain`, and `underlay`, plus the lawn's `tillers`, `bendmin`, `bendmax`,
+`clumppull`, `tillerfan` and `lawnhue`.
+
+The lawn palette is drawn around `LAWN_TARGET_HUE`, and the number is measured
+rather than chosen. Turfgrass research scores lawn colour with the Dark Green
+Colour Index, whose hue transform is `(H - 60) / 60` -- 60 degrees is a lawn's
+yellow end, 120 its deep-green end. A reference photograph of a healthy lawn
+sits at 99 at every depth; this page rendered at **75**, because the blade
+greens were authored at 87-91, the Grass004 underlay is 72, and the warm sun
+`#fff0cd` takes another 5-7 off on the way through. The target is **105**, not
+99, because the albedo has to overshoot what the image is aimed at -- so it
+moves if the sun's colour does. `lawnColorsFor()` rotates every green by one
+delta and solves each back to its original linear luminance, and the underlay,
+being a photograph, gets a per-channel `groundTint` instead of a colour.
+`?lawnhue=86.7` restores the authored palette exactly.
 
 `?backlight=off` restores the stock `PhysicalLightingModel` on the blades, as
-the A/B control for the light transmitted through them. Both pages open
-looking *away* from their own sun, so the term is correctly zero in the
-default framing -- an A/B there shows no difference and proves nothing. Turn
-toward the sun before judging it.
+the A/B control for the light transmitted through them.
+
+That term is gated on the blade's own normal, not on the camera's heading. It
+was `pow(dot(-light, view), 4)` alone, which under a directional sun is one
+number for the whole lawn: turning the head lit or unlit every exposed tip
+together, as a sheet. `-dot(normalView, lightDirection)` asks instead whether
+the light reaches the face of *this* blade that the eye cannot see, with
+`backscatterAbsorb` carrying Beer-Lambert over the slant and `backscatterView`
+leaving the old lobe 0.4 of the term. So the old advice -- that both pages
+open looking away from their sun and an A/B there proves nothing -- no longer
+holds: the transmission is non-zero in the default framing now, and that it
+*stays* roughly put as you turn is the thing to check.
+
+How much neighbouring blades agree is the other half of the same symptom.
+`LAWN.clumpPull` shipped at 1.2, where a 45 cm clump outvoted each crown's own
+yaw and a whole patch presented one normal to the sun. It is 0.3, with
+`tillerFan` at 1 radian so a crown's own blades supply the variety.
+`?clumppull=1.2&tillerfan=0.7` restores the shipped pair. A pull within
+`CLUMP_PULL_MARGIN` of 1 lets an opposed crown and clump cancel to a vector
+with no direction to normalize, so `createGPUDrivenGrass` throws on it and the
+dial steps over the band.
 
 `?count=0` is legal and means no plants at all, for looking at the lawn on its
 own. It skips the nine species' CPU bakes, not just their placements. It also

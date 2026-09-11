@@ -5,7 +5,14 @@ import {
   BLADE_CULL_CENTRE,
   bladeCullRadiusFactor,
 } from '../src/app/grass-webgpu/blade-arc.js';
-import { LAWN } from '../src/app/grass-webgpu/preset.js';
+import { readFieldOptions } from '../src/app/field-runtime.js';
+import {
+  CLUMP_PULL_MARGIN,
+  GRASS004_ALBEDO_MEAN,
+  LAWN,
+  LAWN_TARGET_HUE,
+  lawnColorsFor,
+} from '../src/app/grass-webgpu/preset.js';
 
 /**
  * A blade's shape and its culling sphere are one contract.
@@ -212,10 +219,138 @@ test('a clump heading can never cancel to nothing', () => {
     'at a pull of exactly 1 an opposed clump cancels its crown to zero',
   );
   assert.ok(
-    Math.abs(LAWN.clumpPull - 1) >= 0.1,
+    Math.abs(LAWN.clumpPull - 1) >= CLUMP_PULL_MARGIN,
     `a pull of ${LAWN.clumpPull} leaves only ` +
       `${Math.abs(LAWN.clumpPull - 1).toFixed(3)} of heading to normalize`,
   );
+});
+
+test('the hue correction moves hue and nothing else', () => {
+  // Turfgrass research scores lawn colour with the Dark Green Colour Index,
+  // whose hue transform is `(H - 60) / 60` -- 60 degrees is the yellow end of
+  // a lawn and 120 the deep-green end. A reference photograph of a well-fed
+  // lawn sits at 99 and holds it at every depth. This page rendered at 75.
+  const toLinear = (channel) =>
+    channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  const parse = (hex) =>
+    [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255);
+  const luminance = (rgb) =>
+    0.2126 * toLinear(rgb[0]) +
+    0.7152 * toLinear(rgb[1]) +
+    0.0722 * toLinear(rgb[2]);
+  const hueOf = (rgb) => {
+    const high = Math.max(...rgb);
+    const span = high - Math.min(...rgb);
+    if (span === 0) return 0;
+    const sextant =
+      high === rgb[0]
+        ? ((rgb[1] - rgb[2]) / span) % 6
+        : high === rgb[1]
+          ? (rgb[2] - rgb[0]) / span + 2
+          : (rgb[0] - rgb[1]) / span + 4;
+    return (((sextant * 60) % 360) + 360) % 360;
+  };
+
+  // The target overshoots the 99 it aims the *image* at, because the sun is
+  // `#fff0cd` and a warm light costs 5 to 7 degrees on the way through.
+  assert.ok(
+    LAWN_TARGET_HUE > 99,
+    `a target of ${LAWN_TARGET_HUE} does not overshoot the 99 the render is ` +
+      'aimed at, and the warm sun takes the difference back out',
+  );
+  assert.ok(
+    LAWN_TARGET_HUE <= 120,
+    'past 120 the palette leaves the range turfgrass research calls lawn',
+  );
+
+  // Rotating a hue in HSV alone changes how bright a colour reads, because the
+  // eye weights green nearly four times red. Holding luminance is what makes
+  // this a correction rather than a repaint -- and what makes the A/B honest,
+  // since a brighter lawn would flatter itself for the wrong reason.
+  const authored = lawnColorsFor(86.7);
+  const corrected = lawnColorsFor(LAWN_TARGET_HUE);
+  for (const name of ['bottom', 'top', 'backlight', 'ground']) {
+    const before = parse(authored[name]);
+    const after = parse(corrected[name]);
+    assert.ok(
+      Math.abs(luminance(before) - luminance(after)) < 0.002,
+      `${name} changed luminance ${luminance(before).toFixed(4)} -> ` +
+        `${luminance(after).toFixed(4)}; the rotation must move hue only`,
+    );
+    assert.ok(
+      hueOf(after) - hueOf(before) > 0,
+      `${name} did not move towards green`,
+    );
+  }
+
+  // The dial is lossless: asking for the hue the palette was drawn at returns
+  // the palette as it was drawn, so `?lawnhue=86.7` is a true control.
+  assert.deepEqual(
+    { ...authored, groundTint: undefined },
+    {
+      bottom: '#2f4a15',
+      top: '#6d9a35',
+      backlight: '#9ec756',
+      ground: '#3c5a1d',
+      groundTint: undefined,
+    },
+  );
+
+  // The underlay is a photograph and cannot be recoloured, only multiplied.
+  // Its tint has to land the asset's own mean on the palette's hue.
+  const mean = parse(GRASS004_ALBEDO_MEAN);
+  assert.ok(
+    Math.abs(hueOf(mean) - 72) < 1,
+    `the measured Grass004 mean is hue ${hueOf(mean).toFixed(1)}, not the 72 ` +
+      'this correction was derived from -- re-measure the asset',
+  );
+  const tinted = mean.map(
+    (channel, index) => channel * corrected.groundTint[index],
+  );
+  assert.ok(
+    Math.abs(hueOf(tinted) - LAWN_TARGET_HUE) < 1,
+    `the tinted underlay lands at hue ${hueOf(tinted).toFixed(1)}, not the ` +
+      `palette's ${LAWN_TARGET_HUE}, so the ground disagrees with the grass`,
+  );
+  assert.ok(
+    Math.abs(luminance(mean) - luminance(tinted)) < 0.002,
+    'the ground tint must not brighten or darken the asset',
+  );
+});
+
+test('the posture dials cannot ask for a heading with no direction', () => {
+  // `?clumppull=` and `?tillerfan=` are the A/B for how correlated
+  // neighbouring blades are. The pull has the same forbidden band the preset
+  // does -- within a tenth of 1 an opposed crown and clump cancel -- and
+  // `createGPUDrivenGrass` throws on it, so the dial has to step over the band
+  // rather than clamp into it.
+  const posture = (search) => {
+    const { clumpPull, tillerFan } = readFieldOptions(search, 1);
+    return { clumpPull, tillerFan };
+  };
+  assert.deepEqual(posture(''), {
+    clumpPull: LAWN.clumpPull,
+    tillerFan: LAWN.tillerFan,
+  });
+  assert.deepEqual(posture('?clumppull=1.2&tillerfan=0.7'), {
+    clumpPull: 1.2,
+    tillerFan: 0.7,
+  });
+  for (const search of [
+    '?clumppull=1',
+    '?clumppull=0.95',
+    '?clumppull=1.05',
+    '?clumppull=1.09',
+  ]) {
+    const { clumpPull } = posture(search);
+    assert.ok(
+      Math.abs(clumpPull - 1) >= CLUMP_PULL_MARGIN,
+      `${search} reached the shader as ${clumpPull}, inside the band where a ` +
+        'crown heading opposed to its clump has nothing to normalize',
+    );
+  }
+  assert.equal(posture('?clumppull=0').clumpPull, 0, 'zero is independent');
+  assert.equal(posture('?tillerfan=0').tillerFan, 0, 'zero is a parallel tuft');
 });
 
 test('clumps are a lawn scale, not a meadow one', () => {
@@ -278,9 +413,42 @@ test('transmitted light is a rim, and it never lights the root', () => {
     'a backlit tip brightens; past 1 the blade is a light source',
   );
   assert.ok(
-    LAWN.backscatterPower >= 2,
-    `an exponent of ${LAWN.backscatterPower} washes the term over everything ` +
-      'facing away from the sun instead of banding it where the sun is behind',
+    LAWN.backscatterPower >= 1,
+    `an exponent of ${LAWN.backscatterPower} spreads the forward lobe wider ` +
+      'than the hemisphere it is meant to shape',
+  );
+
+  // The term is gated on the blade, not on the camera. `backscatterView` is
+  // how much of it the shared `dot(-light, view)` lobe carries: at 1 the whole
+  // term is that lobe again, which is the bug this replaced -- for a
+  // directional sun both vectors are the same across the lawn, so a yaw lit or
+  // unlit every tip on screen together rather than the blades the sun was
+  // actually behind.
+  assert.ok(
+    LAWN.backscatterView >= 0 && LAWN.backscatterView < 1,
+    `a view weight of ${LAWN.backscatterView} leaves nothing that survives ` +
+      'looking away from the sun, which is the whole-lawn coupling to camera ' +
+      'yaw this term was rewritten to remove',
+  );
+
+  // Beer-Lambert over thickness/cosine. Zero makes the crossing free, so a
+  // blade edge-on to the sun transmits as readily as one square to it and the
+  // term stops reading as tissue.
+  assert.ok(
+    LAWN.backscatterAbsorb > 0,
+    'a blade that absorbs nothing is not a blade of tissue',
+  );
+  const throughAt = (cosine) =>
+    cosine * Math.exp(-LAWN.backscatterAbsorb / cosine);
+  assert.ok(
+    throughAt(1) * LAWN.backscatter < 1,
+    'even square to the sun a blade may not become a light source',
+  );
+  assert.ok(
+    throughAt(0.5) < throughAt(1) * 0.6,
+    `a blade at 60 degrees passes ${throughAt(0.5).toFixed(3)} against ` +
+      `${throughAt(1).toFixed(3)} square on, which is not a slant worth ` +
+      'modelling',
   );
 
   // The one that is arithmetic rather than taste. Root occlusion darkens the

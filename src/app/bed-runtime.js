@@ -13,6 +13,7 @@ import {
   yearsLabel,
 } from './bed-state.js';
 import { createBedLawnMask } from './bed-lawn-mask.js';
+import { normalizeBacklight } from './grass-webgpu/blade-lighting.js';
 import { createGPUDrivenGrass } from './grass-webgpu/grass.js';
 import { createLawnSurface } from './grass-webgpu/surface.js';
 import { createWebGPUHeightTexture } from './grass-webgpu/terrain.js';
@@ -48,7 +49,7 @@ export function readBedOptions(search = '', devicePixelRatio = 1) {
     budget: number('budget', 900_000, 10_000, 8_000_000),
     wind: params.get('wind') !== 'off',
     shadows: params.get('shadows') !== 'off',
-    backlight: params.get('backlight') !== 'off',
+    backlight: normalizeBacklight(params.get('backlight')),
     orbit: params.get('orbit') !== 'off',
     ui: params.get('ui') !== '0',
     pixelRatio: number(

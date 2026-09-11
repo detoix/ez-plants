@@ -138,7 +138,7 @@ The clump is the one that was not. `clumpAt()` is a 3x3 Voronoi search -- a
 clump point is jittered anywhere inside its own cell, so the nearest one to a
 crown near a corner can be in any of the eight cells around it, and a 2x2
 search picks the wrong clump along two of the four edges. That search used to
-run in `material.positionNode`, which is per *vertex*: a near crown draws three
+run in `material.positionNode`, which is per _vertex_: a near crown draws three
 tillers of three segments, 15 vertices each, and every one of those 45 vertices
 searched nine cells for the same angle and the same scale. 405 hash-and-compare
 sequences per visible near crown, 243 in the mid ring, 81 in the far one.
@@ -147,9 +147,12 @@ It now runs once per crown and costs four bytes of record, which is the whole
 trade. Two things make those four bytes cost exactly four:
 
 - The word is full: 16 bits of clump heading, 8 of clump shortening, 8 of
-  health. The heading gets the wide field because every crown in a clump takes
+  health. The heading gets the wide field because every crown in a clump reads
   it, and a byte of angle steps 1.4 degrees -- enough to land whole patches of
-  lawn on the same heading and grow a visible grain across open ground.
+  lawn on the same heading and grow a visible grain across open ground. How
+  much of that grain survives is `LAWN.clumpPull`, which is a _weight_ on the
+  clump's heading against the crown's own and not a replacement for it: see
+  below.
 - World X and Z are two scalar `u32` fields and not the `uvec2` they read as.
   WGSL rounds an array's stride up to its element's alignment, and a `uvec2`
   aligns to eight bytes: with the pair in it, six words of fields stride at six
@@ -186,13 +189,13 @@ word; the blade shades from it and **the terrain underneath reads the same
 function**, through the same `dryAt`/`dryTintFrom` pair, so a dry patch is dry
 all the way down rather than green turf standing on straw.
 
-A blade's own hash only ever *modulates* its patch -- `dryScatter` is a
+A blade's own hash only ever _modulates_ its patch -- `dryScatter` is a
 multiplier on the patch value, never a signal of its own -- so a blade in
 green turf multiplies zero and stays green however its hash fell. That is the
 difference between correlated patches and independently yellow blades, and
 `test/field-webgpu-blade-bounds.test.js` holds it.
 
-A blade also passes light *through* itself. `blade-lighting.js` adds that as a
+A blade also passes light _through_ itself. `blade-lighting.js` adds that as a
 real directional term in a `PhysicalLightingModel` subclass rather than as an
 emissive rim, for one reason: the `lightColor` handed to `LightingModel.direct()`
 has already been multiplied by the light's shadow node, so the term is
@@ -202,11 +205,82 @@ where the tissue is thin, and `LAWN.backscatterTip` is held above
 `LAWN.rootOcclusionHeight` so the blade never lights up at the same height the
 occlusion term just darkened.
 
+**Ask the blade, not the camera.** The term shipped as
+`pow(dot(-lightDirection, viewDirection), 4)` and nothing else, which is a
+question about where the _camera_ is pointing. Under a directional sun both of
+those vectors are shared by the whole lawn, so the answer was shared too:
+turning the head lit or unlit every exposed tip on screen together, as one
+coherent sheet, and the lawn changed character with yaw rather than with the
+grass. It is gated on `-dot(normalView, lightDirection)` now -- is the light
+arriving at the face of _this_ blade that the eye cannot see -- so a hundred
+thousand headings average into a canopy instead of switching in step. Three
+constants shape what gets through:
+
+- `backscatterAbsorb` is Beer-Lambert over a path of thickness/cosine, which
+  is what makes a blade edge-on to the sun dark rather than merely dim. Square
+  on, a blade passes 0.78 of the coefficient; at 60 degrees, 0.30.
+- `backscatterView` is how much of the term the old forward lobe still
+  carries, at 0.4. Tissue does scatter forward, so a backlit blade really is
+  brighter seen towards the light; the other 0.6 survives at any view angle,
+  and that split is the whole difference between a material and a switch.
+- `backscatter` is 0.7, up from 0.55, because the gate costs the term most of
+  its range. The best-oriented blade now sees the 0.55 the _whole lawn_ used
+  to see and the average one about a third of it.
+
 `?backlight=off` is the A/B control. Note that both pages open looking away
-from their own sun, where the term is correctly zero -- an A/B in the default
-framing shows nothing and proves nothing. Measured facing the sun on `/field`,
-it changed 10.7% of the frame, 72,926 pixels brighter against 27 darker, none
-of them above the horizon.
+from their own sun, where the _lobe_ is zero -- but the transmission no longer
+is, which is the point of the change, so the A/B is worth running in both
+framings now. Measured facing the sun on `/field` under the old view-only
+term, it changed 10.7% of the frame, 72,926 pixels brighter against 27 darker,
+none of them above the horizon.
+
+**The palette is drawn around one hue, and that hue is measured.** Turfgrass
+research scores lawn colour with the Dark Green Colour Index, whose hue
+transform is `(H - 60) / 60` -- scaled so 60 degrees is the yellow end of a
+lawn and 120 the deep-green end, with published thresholds for healthy turf
+running 60-120. A reference photograph of a well-fed lawn measures **99
+degrees** and holds it at every depth.
+
+This page rendered at **75**, which scores 0.26 on that axis against the
+photograph's 0.65. Three things stacked the same direction to get there, and
+no single one of them was as yellow as the result:
+
+- the blade greens were authored at 87-91 degrees,
+- the Grass004 underlay is 72 -- olive, and it is the ground seen through
+  every gap between blades,
+- the sun is `#fff0cd`, and a warm light costs another 5 to 7 degrees on the
+  way through.
+
+`LAWN_TARGET_HUE` is therefore **105**, not 99: the albedo overshoots so the
+_image_ lands on the target. Move the sun's colour and that number moves with
+it. `lawnColorsFor()` rotates every green by the same delta -- so the few
+degrees between root and tip survive -- and solves each one back to its exact
+original linear luminance, because rotating a hue in HSV alone changes how
+bright a colour reads and a lawn that got brighter would flatter itself for
+the wrong reason. The underlay is a photograph and cannot be recoloured, so it
+gets `groundTint`, a per-channel multiplier carrying the asset's own mean from
+72 to the target at unchanged luminance.
+
+`?lawnhue=86.7` returns the palette exactly as it was authored -- the dial is
+lossless, and `test/field-webgpu-blade-bounds.test.js` holds it to that.
+
+**How much neighbouring blades agree is a dial.** `LAWN.clumpPull` weights a
+clump's heading against each crown's own, and it shipped at 1.2, where the
+clump outvoted the crown: every crown in a 45 cm patch faced within a few
+degrees of one heading, so the patch presented one shared normal and lit as a
+sheet even under the stock lighting model. That grain is right for a meadow
+and wrong for mown turf, which is cut from every direction and is close to
+azimuthally isotropic. It is 0.3 now, with `LAWN.tillerFan` raised from 0.7 to
+1 radian of spread so the crown's own four blades supply the variety the clump
+used to. The clump keeps its other jobs either way -- `clumpShortest` and the
+health signal are not routed through the heading.
+
+`?clumppull=1.2&tillerfan=0.7` on `/field` restores the shipped pair, and
+`?clumppull=0` makes every crown independent. A pull within
+`CLUMP_PULL_MARGIN` of 1 is refused: a crown heading opposed to its clump's
+sums to `|clumpPull - 1|`, and normalizing a zero vector has no answer, so
+`createGPUDrivenGrass` throws and the dial steps over the band rather than
+clamping into it.
 
 There is no wind input, animation node or time-dependent blade deformation.
 These are short maintained-lawn blades. They receive the directional light's
@@ -215,8 +289,10 @@ silhouette pass costs more than it contributes. The terrain itself casts and
 receives shadows. Use `?shadows=off` to isolate the cost.
 
 Other query controls are `?terrain=flat` (or a numeric amplitude),
-`?shadows=off`, `?pixelratio=1`, plus the mixed plant field's `count`, `day`,
-`prototypes`, `budget`, `lod`, and `wind`. `?count=0` removes the plants
+`?shadows=off`, `?pixelratio=1`, the lawn's own `tillers`, `bendmin`,
+`bendmax`, `clumppull`, `tillerfan` and `lawnhue`, plus the mixed plant
+field's `count`,
+`day`, `prototypes`, `budget`, `lod`, and `wind`. `?count=0` removes the plants
 entirely, which is the control URL for timing or inspecting the lawn on its
 own. The HUD reports the
 asynchronously read-back visible counts, fixed candidate count, three indirect
@@ -304,7 +380,7 @@ Two more cautions, both learned by getting them wrong:
 - Frame time on an integrated GPU, on a machine in use, may not be resolvable
   at all. Repeated runs of one configuration here spread 42 to 56 fps, and in
   some of them a heavier setting beat a lighter one -- with the frame rate
-  unlocked *and* against vsync. Counts are exact and time is not: prefer the
+  unlocked _and_ against vsync. Counts are exact and time is not: prefer the
   HUD's triangle, visible-crown and memory rows for any claim you intend to
   write down, and treat an fps figure from this box as a direction rather than
   a magnitude.
