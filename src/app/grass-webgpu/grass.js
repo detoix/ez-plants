@@ -271,6 +271,7 @@ function createRingResources({
   bend,
   posture,
   greens,
+  size,
 }) {
   const state = createRingState(ring);
   const originCell = uniform(new THREE.Vector2());
@@ -410,10 +411,10 @@ function createRingResources({
     const groundHeight = groundBlade.x
       .mul(heightMap.packingRange)
       .add(heightMap.packingMinimum);
-    const bladeHeight = mix(LAWN.minHeight, LAWN.maxHeight, groundBlade.y);
+    const bladeHeight = mix(size.minHeight, size.maxHeight, groundBlade.y);
     const normal = unpackGroundNormal(record.get('normalXZ'));
     const yawWidth = unpackUnorm2x16(record.get('yawWidth'));
-    const bladeWidth = mix(LAWN.minWidth, LAWN.maxWidth, yawWidth.y);
+    const bladeWidth = mix(size.minWidth, size.maxWidth, yawWidth.y);
     const appearance = unpackAppearance(record.get('appearance')).toVar(
       'packedAppearance',
     );
@@ -511,7 +512,7 @@ function createRingResources({
     const groundHeight = groundBlade.x
       .mul(heightMap.packingRange)
       .add(heightMap.packingMinimum);
-    const crownHeight = mix(LAWN.minHeight, LAWN.maxHeight, groundBlade.y);
+    const crownHeight = mix(size.minHeight, size.maxHeight, groundBlade.y);
     const groundNormal = unpackGroundNormal(record.get('normalXZ'));
     const yawWidth = unpackUnorm2x16(record.get('yawWidth')).toVar(
       'packedYawWidth',
@@ -546,7 +547,7 @@ function createRingResources({
     );
 
     const crownYaw = yawWidth.x.mul(Math.PI * 2);
-    const bladeWidth = mix(LAWN.minWidth, LAWN.maxWidth, yawWidth.y);
+    const bladeWidth = mix(size.minWidth, size.maxWidth, yawWidth.y);
     const appearance = unpackAppearance(record.get('appearance')).toVar(
       'packedAppearance',
     );
@@ -749,6 +750,11 @@ function createRingResources({
  *   through a blade. `blade` gates it on the blade's own normal; `view` is the
  *   shipped view-only lobe and `off` the stock physical lighting model, both
  *   kept as A/B controls.
+ * @param {object} [options.size] Blade dimensions in metres, as
+ *   `{minHeight, maxHeight, minWidth, maxWidth}`. Height is the coverage
+ *   lever -- 93-97% of what a blade covers at this camera's angles comes from
+ *   it. The culling sphere is derived from the height passed here, so it grows
+ *   with it rather than being outgrown by it.
  * @param {object} [options.greens] The lawn palette, from `lawnColorsFor()`.
  *   Drawn around `LAWN_TARGET_HUE`; `/field` rotates it with `?lawnhue=`.
  * @param {{clumpPull: number, tillerFan: number}} [options.posture] How much
@@ -772,6 +778,12 @@ export function createGPUDrivenGrass({
   bend = { min: LAWN.minBend, max: LAWN.maxBend },
   posture = { clumpPull: LAWN.clumpPull, tillerFan: LAWN.tillerFan },
   greens = LAWN_COLORS,
+  size = {
+    minHeight: LAWN.minHeight,
+    maxHeight: LAWN.maxHeight,
+    minWidth: LAWN.minWidth,
+    maxWidth: LAWN.maxWidth,
+  },
 }) {
   if (!surface) throw new TypeError('GPU grass needs the shared lawn surface.');
   if (!Number.isInteger(tillers) || tillers < 1) {
@@ -845,6 +857,7 @@ export function createGPUDrivenGrass({
       bend,
       posture,
       greens,
+      size,
     }),
   );
   const group = new THREE.Group();

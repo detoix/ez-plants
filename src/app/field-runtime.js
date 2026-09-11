@@ -89,6 +89,13 @@ export function readFieldOptions(search = '', devicePixelRatio = 1) {
     // 120, a reference photograph sits at 99, and this page rendered at 75.
     // `?lawnhue=86.7` is the palette as it was authored.
     lawnHue: number('lawnhue', LAWN_TARGET_HUE, 60, 140),
+    // Multipliers on the blade's modelled size. Height is the one that moves
+    // coverage: at a 1.7 m eye you see the ground at 12-23 degrees, where
+    // 93-97% of a blade's projected extent is its height and almost none is
+    // its width. `?height=0.73&width=0.77` is the 4-8 cm by 3-5 mm blade the
+    // page shipped with.
+    bladeHeight: number('height', 1, 0.3, 4),
+    bladeWidth: number('width', 1, 0.3, 4),
     shadows: params.get('shadows') !== 'off',
     underlay: normalizeLawnUnderlay(params.get('underlay')),
     pixelRatio: number(
@@ -413,6 +420,12 @@ export async function startField({ adapter }) {
         tillerFan: options.tillerFan,
       },
       greens,
+      size: {
+        minHeight: LAWN.minHeight * options.bladeHeight,
+        maxHeight: LAWN.maxHeight * options.bladeHeight,
+        minWidth: LAWN.minWidth * options.bladeWidth,
+        maxWidth: LAWN.maxWidth * options.bladeWidth,
+      },
     });
     stage.scene.add(grass.group);
     underlayControl = bindUnderlayControl(stage, options);

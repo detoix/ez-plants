@@ -20,9 +20,29 @@ export const LAWN = Object.freeze({
    *  ground you will never look closely at -- which is the case for a
    *  distance-graded density used by the persistent WebGPU rings. */
   density: 110,
-  /** Metres. A mown lawn is 4-8 cm; the spread is narrow on purpose. */
-  minHeight: 0.04,
-  maxHeight: 0.08,
+  /** Metres. A mown lawn is 4-8 cm, and these are deliberately above it.
+   *
+   *  Height is the coverage lever, and it is not close. You see this ground at
+   *  12 to 23 degrees from a 1.7 m eye, and a blade's projected extent there
+   *  is `reach + height / tan(angle)`: the reach term is 11 mm and fixed, the
+   *  height term runs 141 mm at 4 m to 424 mm at 12 m. So **93 to 97 per cent
+   *  of what a blade covers comes from how tall it is**, and none of it from
+   *  how wide -- width is pinned at `minBladePixels` on screen across most of
+   *  that range anyway, so growing it changes nothing you can see.
+   *
+   *  Measured bare ground at 8 m: 43% at a 4-8 cm blade, 31% at 6-11, 22% at
+   *  8-14. That hole is the worst thing in the frame and it closes here for
+   *  no triangles at all -- same geometry, same draws, same storage, one
+   *  scalar.
+   *
+   *  The honest cost is the culling sphere, which is derived from blade height
+   *  in `bladeCullRadiusFactor`, so taller blades grow every sphere and more
+   *  of them survive the cull. The honest risk is the look: past some height a
+   *  lawn reads as unmown rather than dense. That is a judgement to make on
+   *  screen, which is what `?height=` is for -- `?height=0.73` is the 4-8 cm
+   *  this shipped with. */
+  minHeight: 0.055,
+  maxHeight: 0.105,
   /** Metres across at the base. Real turf grass is 2-4 mm, and these are it.
    *
    *  They used to be 8-14 -- three to four times life size -- because a 3 mm
@@ -30,8 +50,8 @@ export const LAWN = Object.freeze({
    *  That bought stability with silhouette, and it is what made the lawn read
    *  as fat spikes. `minBladePixels` buys the same stability on screen
    *  instead, so the blade can be the width it actually is. */
-  minWidth: 0.003,
-  maxWidth: 0.005,
+  minWidth: 0.004,
+  maxWidth: 0.0065,
   /** Exponent of the blade's width falloff: `(1 - y) ** taper`.
    *
    *  Grass holds its width up the sheath and narrows over the last third. A
