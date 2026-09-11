@@ -44,7 +44,8 @@ per-instance state (`setLODOverrideAt`), so branches and organs cross an LOD
 boundary together without a per-instance JavaScript callback. Query dials are `count`,
 `day`, `prototypes`, `budget`, `lod`, `wind`, `shadows`, `pixelratio`,
 `terrain`, and `underlay`, plus the lawn's `tillers`, `bendmin`, `bendmax`,
-`clumppull`, `tillerfan` and `lawnhue`.
+`clumppull`, `tillerfan`, `lawnhue`, `bladeheight` and `bladewidth`. The last
+two are multipliers on the blade's modelled size, not lengths.
 
 The lawn palette is drawn around `LAWN_TARGET_HUE`, and the number is measured
 rather than chosen. Turfgrass research scores lawn colour with the Dark Green

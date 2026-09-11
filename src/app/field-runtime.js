@@ -92,10 +92,10 @@ export function readFieldOptions(search = '', devicePixelRatio = 1) {
     // Multipliers on the blade's modelled size. Height is the one that moves
     // coverage: at a 1.7 m eye you see the ground at 12-23 degrees, where
     // 93-97% of a blade's projected extent is its height and almost none is
-    // its width. `?height=0.73&width=0.77` is the 4-8 cm by 3-5 mm blade the
+    // its width. `?bladeheight=0.73&bladewidth=0.77` is the 4-8 cm by 3-5 mm blade the
     // page shipped with.
-    bladeHeight: number('height', 1, 0.3, 4),
-    bladeWidth: number('width', 1, 0.3, 4),
+    bladeHeight: number('bladeheight', 1, 0.3, 4),
+    bladeWidth: number('bladewidth', 1, 0.3, 4),
     shadows: params.get('shadows') !== 'off',
     underlay: normalizeLawnUnderlay(params.get('underlay')),
     pixelRatio: number(

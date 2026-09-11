@@ -290,8 +290,8 @@ receives shadows. Use `?shadows=off` to isolate the cost.
 
 Other query controls are `?terrain=flat` (or a numeric amplitude),
 `?shadows=off`, `?pixelratio=1`, the lawn's own `tillers`, `bendmin`,
-`bendmax`, `clumppull`, `tillerfan` and `lawnhue`, plus the mixed plant
-field's `count`,
+`bendmax`, `clumppull`, `tillerfan`, `lawnhue`, `bladeheight` and
+`bladewidth`, plus the mixed plant field's `count`,
 `day`, `prototypes`, `budget`, `lod`, and `wind`. `?count=0` removes the plants
 entirely, which is the control URL for timing or inspecting the lawn on its
 own. The HUD reports the

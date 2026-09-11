@@ -39,7 +39,7 @@ export const LAWN = Object.freeze({
    *  in `bladeCullRadiusFactor`, so taller blades grow every sphere and more
    *  of them survive the cull. The honest risk is the look: past some height a
    *  lawn reads as unmown rather than dense. That is a judgement to make on
-   *  screen, which is what `?height=` is for -- `?height=0.73` is the 4-8 cm
+   *  screen, which is what `?bladeheight=` is for -- 0.73 is the 4-8 cm
    *  this shipped with. */
   minHeight: 0.055,
   maxHeight: 0.105,
