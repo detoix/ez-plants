@@ -5,6 +5,81 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### The lawn pays per crown, and a blade passes light
+
+The GPU-driven lawn under `/field` stops re-deriving per-crown facts at every
+vertex, and gains the two shading terms that separate turf from green strips.
+
+- **The Voronoi clump moved into placement.** `clumpAt()` is a nine-cell
+  search whose answer is identical at every vertex of a crown, and it was
+  running in `material.positionNode`: 45 vertices a near crown, nine
+  neighbours each, **405 repeated hash-and-compare sequences** to learn one
+  angle and one scale. It runs once per crown now and packs into a seventh
+  record word with the crown's patch health.
+- **Growing that record cost four bytes, not eight, and only because world
+  X/Z stopped being a `uvec2`.** WGSL rounds an array's stride up to its
+  element's alignment and a `uvec2` aligns to eight bytes, so six words of
+  fields stride at six with the pair in them and seven stride at **eight**.
+  The padding word is silent — nothing reports it but `getLength()` — and it
+  is 4.2 MiB across the three rings. Two scalar `u32` fields align to four.
+  Storage went 30.7 → 35.1 MiB; `test/field-webgpu-record.test.js` holds both
+  layouts side by side so the trap cannot come back.
+- **The triangle counter was wrong by 2.5x and is now one function.** The HUD
+  derived `visible * segments * 2`, which counts the degenerate tip quad the
+  geometry drops and ignores tillering entirely: a near crown reported 6
+  triangles against the 15 it submits. That is the number a density
+  experiment is judged on. `grassTriangleCount()` now serves the HUD from the
+  arithmetic the indirect draw commands are built from, confirmed against
+  hardware.
+- **Root occlusion is asserted, not drawn.** Blades cast no shadow-map
+  silhouette on purpose — at 4–8 cm it costs more than it returns — so
+  without this the lawn is a plane of evenly lit strips, which is exactly the
+  angle a walking camera sees. It multiplies albedo rather than arriving
+  through `aoNode`, which attenuates only indirect light; the occlusion being
+  faked here takes the sun out too.
+- **Dry patches are ground, not noise.** A lawn is greener where the soil
+  holds water and straw-coloured where it does not, and those places are
+  metres across — a lawn with a tenth of its blades independently yellow is
+  television static. A second world-space signal at a 161.3 m tile supplies
+  the patch, and **the terrain under the blades reads the same signal through
+  the same function**, so a dry patch is dry all the way down instead of
+  green turf standing on straw. A blade's own hash only *modulates* its
+  patch, so a blade in green turf multiplies zero.
+- **Light now passes through a blade, and stops at a shadow.** A blade is a
+  fraction of a millimetre of translucent tissue: backlit it lights up, and
+  no roughness value produces that. It is a `PhysicalLightingModel` subclass
+  rather than an emissive rim for one reason — the `lightColor` handed to
+  `direct()` has already been multiplied by the light's shadow node, so the
+  term is suppressed in shade for free, where an emissive version would glow
+  under a tree and at night. `LAWN_COLORS.backlight` had been declared and
+  unused since it was written. Measured facing the sun, it changed 10.7% of
+  the frame: **72,926 pixels brighter against 27 darker**, none above the
+  horizon.
+- **The culling sphere stopped being a lucky constant.** It was the literal
+  `0.58`, correct for one `maxBend` and silently wrong for any other — and
+  the failure it produces, blades culled while still on screen, cannot be
+  seen in a still frame. `bladeCullRadiusFactor()` derives it and returns
+  0.5797 at the shipped bend, reproducing the constant rather than changing
+  behaviour, so the bend dial can no longer push a blade outside its own
+  bound.
+- **Two defaults moved, and only one of them is a measurement.** Tillers 3 →
+  4, so 6,400 blades/m² against 4,800; on hardware every tiller count culled
+  to the same 67,082 crowns and held the same 87.5 MiB while triangles scaled
+  exactly, which is the per-crown claim proved rather than asserted. Its
+  frame-time cost is **not** established: the same configuration spread 42 to
+  56 fps across runs on an integrated GPU under load, and a heavier setting
+  sometimes beat a lighter one. `minBend` 0.1 → 0.2 rad was set by eye, and a
+  pixel comparison could not see it — correctly, because leaning
+  redistributes a 3–5 mm sliver rather than adding one, so lean changes
+  character without closing a gap. Coverage is count × width × length.
+- **Five new query dials**, because neither of those numbers can be argued
+  about, only looked at: `?count=0` draws the lawn with no plants at all and
+  skips the nine species' CPU bakes, `?tillers=` sets blades per crown,
+  `?bendmin=` and `?bendmax=` scale the resting-bend range, and
+  `?backlight=off` is the A/B control for transmitted light. Both demo pages
+  open looking *away* from their own sun, where that last term is correctly
+  zero — an A/B in the default framing shows nothing and proves nothing.
+
 ### A sixth plant: lavender
 
 `Lavandula angustifolia` 'Hidcote', and it is the first **subshrub** in the
