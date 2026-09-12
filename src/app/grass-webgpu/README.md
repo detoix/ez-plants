@@ -211,10 +211,12 @@ question about where the _camera_ is pointing. Under a directional sun both of
 those vectors are shared by the whole lawn, so the answer was shared too:
 turning the head lit or unlit every exposed tip on screen together, as one
 coherent sheet, and the lawn changed character with yaw rather than with the
-grass. It is gated on `-dot(normalView, lightDirection)` now -- is the light
+grass. It is gated on `-dot(bladeNormal, lightDirection)` now -- is the light
 arriving at the face of _this_ blade that the eye cannot see -- so a hundred
-thousand headings average into a canopy instead of switching in step. Three
-constants shape what gets through:
+thousand headings average into a canopy instead of switching in step. That
+normal is handed to the lighting model rather than read off `normalView`, and
+the reason is the canopy pull below: `normalView` is no longer the blade's own
+facing. Three constants shape what gets through:
 
 - `backscatterAbsorb` is Beer-Lambert over a path of thickness/cosine, which
   is what makes a blade edge-on to the sun dark rather than merely dim. Square
@@ -234,6 +236,41 @@ framings now. Measured facing the sun on `/field` under the old view-only
 term, it changed 10.7% of the frame, 72,926 pixels brighter against 27 darker,
 none of them above the horizon.
 
+**The shading normal is not the blade's.** A blade is 3 mm wide, so within a
+few metres a pixel covers several of them and shading each by its own literal
+facing is the same lie across a patch that a flat two-vertex strip is across a
+blade -- the one `normalSpread` exists to fix. The clumps whose blades happen
+to present their faces to the sun go bright and the clumps beside them go
+dark, and the lawn reads as slabs rather than as one canopy. The vertex stage
+mixes each blade's normal toward the ground's instead, by
+`LAWN.canopyNormalNear` close up and `LAWN.canopyNormalFar` far off, ramped
+between 4 m and 28 m: near the camera a blade's own curvature is several
+pixels wide and worth drawing, and far off it is a facing nobody can resolve,
+so what it should contribute is the thing all of them average to -- the ground
+they stand on. AMD's 2024 procedural grass keeps a quarter of the blade normal
+for the same reason. `?canopy=0` is the A/B control and `?canopy=` scales the
+pair, up to `CANOPY_PULL_MAX`.
+
+Two things about it are load-bearing:
+
+- **Transmission keeps the blade's own normal.** It asks whether the sun is
+  behind _this_ blade, and a normal tipped up towards the sky answers no for
+  the whole lawn at once under a high sun. Gate it on the pulled normal and
+  the term above quietly disappears at exactly the distances the pull is
+  strongest. That is why `GrassLightingModel` takes a `bladeNormalView` rather
+  than reading the material's.
+- **The mix can cancel.** `mix(bladeNormal, groundNormal, pull)` shortens as
+  the two disagree, and a blade folded to face straight down -- `?bendmax=8`
+  reaches 4.4 radians, and a blade's taper leaves its tip no splay -- cancels
+  to nothing at a pull of a half. The vertex stage falls back to the blade's
+  own normal below `CANOPY_PULL_FLOOR`;
+  `test/field-webgpu-blade-bounds.test.js` holds the shipped range two orders
+  of magnitude clear of it and asserts the one blade that reaches it.
+
+The ramp's ends sit inside rings, not on ring boundaries, because a shading
+step at 8 m or 24 m would land exactly where the density contract promises
+there is none.
+
 **The palette is drawn around one hue, and that hue is measured.** Turfgrass
 research scores lawn colour with the Dark Green Colour Index, whose hue
 transform is `(H - 60) / 60` -- scaled so 60 degrees is the yellow end of a
@@ -251,9 +288,26 @@ no single one of them was as yellow as the result:
 - the sun is `#fff0cd`, and a warm light costs another 5 to 7 degrees on the
   way through.
 
-`LAWN_TARGET_HUE` is therefore **105**, not 99: the albedo overshoots so the
-_image_ lands on the target. Move the sun's colour and that number moves with
-it. `lawnColorsFor()` rotates every green by the same delta -- so the few
+`LAWN_TARGET_HUE` is therefore **107**, not 99: the albedo overshoots so the
+_image_ lands on the target, and how far it overshoots is measured rather than
+derived. Rendered mean hue against the number is a straight line -- 101 lands
+93.8, 105 lands 97.4, 109 lands 100.7, 113 lands 104.2 -- so 107 is the one
+that lands 99.
+
+It was 105, and it moved _up_ when the canopy proxy landed, which is the
+opposite of what the overshoot argument predicts. 105 was never landing 99: it
+landed 97.7 at 2-4 m and 84.7 at 24-40 m, because out there the lawn was
+almost entirely the hue-72 underlay, and the mean over depth was about 90. The
+proxy put the far field back on the palette -- 98.7 at 24-40 m -- which is most
+of the correction the overshoot was reaching for, and what was left was a flat
+two degrees. Move the sun's colour and that number moves with it; so does
+anything that changes what fills the gaps, and `?proxy=0` drops the rendered
+mean back to about 90.
+
+One thing it does not fix: the render is 99.5 at 2-4 m and 100.4 at 24-40 m
+but dips to 97.2 between 4 and 16 m, and that dip is there at every hue on the
+sweep. That band is where blades are still resolvable and thinning fastest,
+and it is a different fault from this one. `lawnColorsFor()` rotates every green by the same delta -- so the few
 degrees between root and tip survive -- and solves each one back to its exact
 original linear luminance, because rotating a hue in HSV alone changes how
 bright a colour reads and a lawn that got brighter would flatter itself for
@@ -299,6 +353,86 @@ asynchronously read-back visible counts, fixed candidate count, three indirect
 grass draws, this-frame versus steady compute count, placements, aggregate
 plant statistics, PBR transfer/GPU footprint, and the renderer's memory
 estimate.
+
+## The far field is the underlay, so the underlay is the far field
+
+Bare ground measures over 99% past 24 m (below). The far ring still draws
+blades out there and they cover nothing, so whatever the lawn looks like at
+distance is whatever the `lawn` material looks like -- and that material was a
+photograph of a different lawn at hue 72. The rendered hue slid from 97.7 at
+2-4 m to 84.7 at 24-40 m, which is the lawn going olive as the grass thins out
+from under it.
+
+`canopyProxy` fades the underlay from ground into the grass it is standing in
+for, over 8-26 m. Both ends of that ramp are measurements rather than taste:
+
+- **8 m is where a blade stops being resolvable.** One screen pixel covers
+  about 0.6 of a blade there and 2.7 by 16 m. Past that a pixel is an average
+  of grass, not a look at one blade, and what it should average to is grass.
+- **26 m is where there is nothing else left**, by the coverage curve below.
+
+Below the near end nothing changes. A gap at 2 m is centimetres across, you
+can see into it, and what belongs in it is ground -- so this does not touch how
+the ground reads close up, which is a separate fault.
+
+What fades in is the blade's own ramp read towards the tip (`canopyProxyTip`,
+because a distant pixel never sees the buried root half), the blades' own
+roughness, and the geometric ground normal -- the normal map fades out on this
+same ramp rather than on the separate 8-24 m one it used to have, which was
+two overlapping fades arguing about one thing. Both ends of the albedo mix
+then take `tintFrom` and `dryTintFrom`, so ground and canopy are lighter,
+darker and drier in the same places, and in the same places the blades are.
+
+Measured, `?proxy=0` against the default: hue holds 97.7 to 98.7 across every
+depth instead of sliding to 84.7, and side-to-side variation in the far bands
+goes _up_ 7-11% rather than flattening -- the ground behind the blades is
+lighter now, so the blades read against it instead of blending into a wash.
+
+There is no aggregate canopy _orientation_ yet, so the far field is
+correctly-coloured grass lit as a flat plane. That is the next thing this
+wants, and it needs a lawn-wide orientation field that does not exist.
+
+## Coverage, and how to measure it
+
+Bare ground is what blade height, blade width, tillering and ring density are
+all really arguing about, and none of it is visible to `npm test`: the CPU
+tests never run a draw. `scripts/measure-lawn-coverage.mjs` drives `/field` in
+headless Chromium on the real adapter, paints the `solid` underlay control
+emissive blue so every pixel of ground no blade covers is unmistakable, and
+counts them by screen row -- which, for a known camera over flat terrain, is a
+known ground distance. Re-run it when any of those dials move; the numbers
+behind `minHeight`/`maxHeight` were measured once by a sweep nobody kept, and
+could not be reproduced when the blade's width was later questioned.
+
+Measured at 1280x720, `?count=0&terrain=flat&underlay=solid`, on
+`intel · gen-12lp`, at the shipped dials:
+
+| distance | bare ground |     | distance | bare ground |
+| -------- | ----------- | --- | -------- | ----------- |
+| 1.5-2 m  | 57.0%       |     | 8-12 m   | 69.2%       |
+| 2-3 m    | 41.2%       |     | 12-16 m  | 78.7%       |
+| 3-4 m    | 39.9%       |     | 16-24 m  | 94.7%       |
+| 4-6 m    | 47.0%       |     | 24-32 m  | 99.5%       |
+| 6-8 m    | 65.0%       |     | 32-52 m  | 99.9%       |
+
+Three things fall out of that curve, and all three are about where work is
+worth spending:
+
+- **Coverage peaks at 3-4 m and falls away either side.** Close in it falls
+  because you look down more steeply, so a blade's `height / tan(angle)`
+  footprint shrinks -- geometry, not a fault.
+- **The far ring is not grass.** Past 24 m the lawn is over 99% underlay: the
+  blades are there, they are drawn, and they cover nothing. Whatever the far
+  field looks like is what the `lawn` material looks like, and no change to
+  the blades can reach it.
+- **The mid ring is where a coverage change still pays.** 6-16 m is both
+  heavily bare and still holding real blades. The blade-width measurement in
+  `preset.js` lands exactly there.
+
+A cross-check worth repeating when the mapping is in doubt: run it level and
+again pitched down, and the overlapping bands must agree. At 0 and 22 degrees
+they read 65.0/65.6, 69.2/69.0 and 78.7/78.1 -- which is the row-to-distance
+arithmetic checking itself.
 
 ## Disposal
 
@@ -367,7 +501,10 @@ Compute, indirect draws, node-material texture sampling, culling counts and
 frame time still require inspection in a hardware-WebGPU browser.
 
 Headless Chromium will do it, but **check which adapter you got before you
-believe a number**. The default headless launch reports
+believe a number** -- and launch the full browser, not the headless shell.
+Playwright's default `launch()` runs `chrome-headless-shell`, which has no GPU
+process and therefore no WebGPU at all; `channel: 'chromium'` (after
+`npx playwright install chromium`) is what gets a browser that can answer. The default headless launch reports
 `google · swiftshader` and renders the field at about 400 ms a frame, which is
 a CPU rasteriser and not a measurement of anything. On this project's Linux
 box, `--use-gl=angle --use-angle=vulkan` alongside `--enable-unsafe-webgpu` is

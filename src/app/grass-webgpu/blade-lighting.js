@@ -21,6 +21,16 @@ export const GRASS_BACKLIGHT = Object.freeze({
   view: 'view',
   /** No transmission at all: the stock `PhysicalLightingModel`. */
   off: 'off',
+  /** The far field's aggregate, for the underlay standing in for grass.
+   *
+   *  The same view lobe as `view`, and here it is the *correct* model rather
+   *  than the discarded one. A blade you can resolve has one normal, so the
+   *  honest question is whether the sun is behind that blade. A canopy you
+   *  cannot resolve has every normal at once, so some fraction of it is always
+   *  backlit and the only thing that decides how much of that reaches the eye
+   *  is where the eye is. The two disagree because they are at different
+   *  scales, not because one is wrong. */
+  canopy: 'canopy',
 });
 
 /**
@@ -56,9 +66,17 @@ export function normalizeBacklight(value) {
  *
  * - **It is gated on the blade, not on the camera.** The question asked first
  *   is `-dot(N, L)`: is the light arriving at the face of *this blade* that
- *   the eye cannot see? `normalView` is the blade's own splayed, leaned normal
- *   with `negateOnBackSide` already applied, so it faces the eye and a
- *   negative dot is a blade the sun is behind.
+ *   the eye cannot see? The normal it asks with is the blade's own splayed,
+ *   leaned facing with `negateOnBackSide` already applied, so it faces the eye
+ *   and a negative dot is a blade the sun is behind.
+ *
+ *   It is handed in rather than read off `normalView`, and that is
+ *   load-bearing. `normalView` is the *shading* normal, which `grass.js` pulls
+ *   toward the ground's with distance so that a patch of unresolved blades
+ *   averages into a canopy instead of a bright slab beside a dark one. A
+ *   normal tipped up towards the sky has no back face for a high sun to be
+ *   behind, so gating on it would answer "front-lit" for the whole lawn and
+ *   quietly delete this term at exactly the distances the pull is strongest.
  *
  *   This term used to be `pow(dot(-lightDirection, viewDirection), 4)` alone,
  *   and that is a different question: is the *camera* pointing into the sun.
@@ -100,12 +118,16 @@ export class GrassLightingModel extends THREE.PhysicalLightingModel {
    *   the light on the way through. Passed in rather than read from the
    *   preset, because `?lawnhue=` rotates the whole palette and a transmitted
    *   green that stayed put would drift off the blade carrying it.
+   * @param {Node} [options.bladeNormalView] The blade's own facing in view
+   *   space, flipped to the eye. Defaults to `normalView`, which is the same
+   *   vector only while nothing has pulled the shading normal off the blade.
    */
-  constructor(bladeGradient, { mode, backlightColor } = {}) {
+  constructor(bladeGradient, { mode, backlightColor, bladeNormalView } = {}) {
     super();
     this.bladeGradient = bladeGradient;
     this.mode = mode ?? GRASS_BACKLIGHT.blade;
     this.backlightColor = backlightColor ?? LAWN_COLORS.backlight;
+    this.bladeNormalView = bladeNormalView ?? normalView;
   }
 
   direct(lightData, builder) {
@@ -121,6 +143,20 @@ export class GrassLightingModel extends THREE.PhysicalLightingModel {
       .dot(positionViewDirection)
       .clamp(0, 1);
 
+    if (this.mode === GRASS_BACKLIGHT.canopy) {
+      // `weight` is the canopy proxy: 0 where the ground is ground and 1 where
+      // the underlay is the whole lawn. Without it the soil at your feet would
+      // transmit light, which is the one thing this term must never do.
+      reflectedLight.directDiffuse.addAssign(
+        lightColor
+          .mul(color(this.backlightColor))
+          .mul(forwardScatter.pow(float(LAWN.canopyBacklightPower)))
+          .mul(this.bladeGradient.clamp(0, 1))
+          .mul(float(LAWN.canopyBacklight)),
+      );
+      return;
+    }
+
     if (this.mode === GRASS_BACKLIGHT.view) {
       reflectedLight.directDiffuse.addAssign(
         lightColor
@@ -135,9 +171,9 @@ export class GrassLightingModel extends THREE.PhysicalLightingModel {
     }
 
     // Is this light behind this blade? `lightDirection` points from the
-    // surface towards the light and `normalView` faces the eye, so a negative
-    // dot is light entering the face the eye cannot see.
-    const backIncidence = normalView
+    // surface towards the light and the blade's own normal faces the eye, so a
+    // negative dot is light entering the face the eye cannot see.
+    const backIncidence = this.bladeNormalView
       .dot(lightDirection)
       .negate()
       .clamp(0, 1)

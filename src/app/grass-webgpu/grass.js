@@ -18,6 +18,7 @@ const {
   packSnorm2x16,
   packUnorm2x16,
   positionLocal,
+  select,
   sin,
   storage,
   struct,
@@ -41,7 +42,13 @@ import {
   GrassLightingModel,
   normalizeBacklight,
 } from './blade-lighting.js';
-import { CLUMP_PULL_MARGIN, LAWN, LAWN_COLORS } from './preset.js';
+import {
+  CANOPY_PULL_FLOOR,
+  CANOPY_PULL_MAX,
+  CLUMP_PULL_MARGIN,
+  LAWN,
+  LAWN_COLORS,
+} from './preset.js';
 import {
   GRASS_RINGS,
   TOTAL_GRASS_CANDIDATES,
@@ -270,6 +277,8 @@ function createRingResources({
   backlight,
   bend,
   posture,
+  canopy,
+  heightCorrelation,
   greens,
   size,
 }) {
@@ -354,7 +363,6 @@ function createRingResources({
       ),
     ).toVar('groundNormal');
 
-    const bladeHeightUnit = hash(seed.add(41));
     const bladeWidthUnit = hash(seed.add(53));
     const yawUnit = hash(seed.add(67));
     const tint = hash(seed.add(79));
@@ -365,6 +373,16 @@ function createRingResources({
     // decides whether it is standing in a dry part of the lawn. The ground
     // under it reads that second one through the same `healthAt`.
     const health = surface.healthAt(worldXZ);
+    // Vigour: ground that holds water grows taller as well as greener, so the
+    // crown's height is part its own hash and part the patch it stands in.
+    // See `LAWN.heightCorrelation` -- without this a dry patch was short-of-
+    // water grass at exactly the height of the lush grass beside it.
+    const vigour = macro.add(health).mul(0.5);
+    const bladeHeightUnit = mix(
+      hash(seed.add(41)),
+      vigour,
+      float(LAWN.heightCorrelation * heightCorrelation),
+    ).clamp(0, 1);
     const clump = clumpAt(worldXZ).toVar('crownClump');
     const clumpSeed = uint(clump.x.add(WORLD_CELL_BIAS))
       .mul(uint(1_664_525))
@@ -486,6 +504,7 @@ function createRingResources({
   geometry.setIndirect(drawAttribute, ring.index * DRAW_BYTES);
 
   const bladeNormal = varyingProperty('vec3', `vEzGrassNormal${ring.index}`);
+  const bladeShading = varyingProperty('vec3', `vEzGrassShading${ring.index}`);
   const bladeTint = varyingProperty('float', `vEzGrassTint${ring.index}`);
   const bladeGradient = varyingProperty(
     'float',
@@ -496,7 +515,7 @@ function createRingResources({
   const material = new THREE.MeshStandardNodeMaterial({
     side: THREE.DoubleSide,
     forceSinglePass: true,
-    roughness: 0.92,
+    roughness: LAWN.bladeRoughness,
     metalness: 0,
   });
   material.positionNode = Fn(() => {
@@ -642,13 +661,13 @@ function createRingResources({
     const splay = positionLocal.x
       .mul(2 * LAWN.normalSpread)
       .toVar('bladeSplay');
-    bladeNormal.assign(
-      forward
-        .mul(cos(lean))
-        .sub(groundNormal.mul(sin(lean)))
-        .mul(cos(splay))
-        .add(side.mul(sin(splay))),
-    );
+    const bladeFacing = forward
+      .mul(cos(lean))
+      .sub(groundNormal.mul(sin(lean)))
+      .mul(cos(splay))
+      .add(side.mul(sin(splay)))
+      .toVar('bladeFacing');
+    bladeNormal.assign(bladeFacing);
 
     // Widen a blade only as far as it falls under `minBladePixels` on screen.
     // `facing` is how much of the blade's width survives projection: 1 face-on,
@@ -667,12 +686,51 @@ function createRingResources({
     const wanted = viewDistance.mul(pixelScale).mul(LAWN.minBladePixels);
     const thicken = wanted.div(shown).clamp(1, LAWN.maxThicken);
 
+    // The shading normal, which is not the blade's own. See `canopyNormalNear`:
+    // a blade is 3 mm wide, a pixel covers several of them within a few metres,
+    // and shading each by its literal facing makes a clump that happens to face
+    // the sun a bright slab beside a dark one. Pull it toward the ground's --
+    // the thing a patch of unresolved blades averages to -- further with
+    // distance, and let the blade keep more of its own facing close up, where
+    // its curvature is several pixels wide and worth drawing.
+    //
+    // The transmission term does *not* read this one. It is handed the blade's
+    // own normal instead, because it asks whether the sun is behind this blade
+    // and a normal tipped up towards the sky answers no for the whole lawn.
+    const canopyPull = mix(
+      float(canopy.near),
+      float(canopy.far),
+      viewDistance.smoothstep(LAWN.canopyNormalFrom, LAWN.canopyNormalTo),
+    ).toVar('canopyPull');
+    const canopyNormal = mix(bladeFacing, groundNormal, canopyPull).toVar(
+      'canopyNormal',
+    );
+    // A blade folded past horizontal by `?bendmax=` can face almost exactly
+    // away from the sky, where a pull near a half cancels the mix to nothing.
+    // Keep that blade's own normal rather than normalizing a zero vector. The
+    // divisor is floored as well as tested, so the branch `select` does not
+    // take never divides by zero in the first place.
+    const canopyLength = canopyNormal.length().toVar('canopyLength');
+    bladeShading.assign(
+      select(
+        canopyLength.greaterThan(float(CANOPY_PULL_FLOOR)),
+        canopyNormal.div(canopyLength.max(float(CANOPY_PULL_FLOOR))),
+        bladeFacing,
+      ),
+    );
+
     return base
       .add(side.mul(positionLocal.x.mul(bladeWidth).mul(thicken)))
       .add(groundNormal.mul(rise.mul(bladeHeight)))
       .add(forward.mul(reach.mul(bladeHeight)));
   })();
   material.normalNode = negateOnBackSide(
+    transformNormalToView(bladeShading).normalize(),
+  );
+  // The blade's own facing, in the same view space and flipped to face the eye
+  // the same way -- the gate the transmission term needs, and the one thing
+  // the canopy pull above must not take away from it.
+  const bladeNormalView = negateOnBackSide(
     transformNormalToView(bladeNormal).normalize(),
   );
   // The light that comes *through* a blade. It is a lighting model rather than
@@ -688,6 +746,7 @@ function createRingResources({
     const lightingModel = new GrassLightingModel(bladeGradient, {
       mode: backlight,
       backlightColor: greens.backlight,
+      bladeNormalView,
     });
     material.setupLightingModel = () => lightingModel;
   }
@@ -763,6 +822,10 @@ function createRingResources({
  *   is what decides whether a patch of lawn shades as a sheet or as a canopy,
  *   so they are dialled together. Neither moves the culling sphere: the pull
  *   normalizes a heading and the fan is yaw inside the crown's own frame.
+ * @param {{near: number, far: number}} [options.canopy] How far a blade's
+ *   shading normal is pulled toward the ground's, close up and far off. It is
+ *   the shading normal alone: transmission keeps the blade's own facing, or a
+ *   lawn pulled flat stops being backlit. `?canopy=0` is the control.
  * @param {Function} [options.keepAt] Optional world-space mask,
  *   `(worldXZ) => booleanNode`, returning false where no blade may stand. Used
  *   by `/bed` to cut the lawn out of the planting; `/field` passes none.
@@ -777,7 +840,9 @@ export function createGPUDrivenGrass({
   backlight = GRASS_BACKLIGHT.blade,
   bend = { min: LAWN.minBend, max: LAWN.maxBend },
   posture = { clumpPull: LAWN.clumpPull, tillerFan: LAWN.tillerFan },
+  canopy = { near: LAWN.canopyNormalNear, far: LAWN.canopyNormalFar },
   greens = LAWN_COLORS,
+  heightCorrelation = 1,
   size = {
     minHeight: LAWN.minHeight,
     maxHeight: LAWN.maxHeight,
@@ -807,6 +872,16 @@ export function createGPUDrivenGrass({
   }
   if (!(posture.tillerFan >= 0)) {
     throw new RangeError('A negative tiller fan is a mirrored blade.');
+  }
+  // The pull is a mix weight toward the ground's normal: 0 is the blade's own
+  // facing and 1 has no blade left in it, which lights a ring as the plane it
+  // stands on. `CANOPY_PULL_MAX` is where that stops being grass.
+  const pulledTooFar = (pull) => !(pull >= 0 && pull <= CANOPY_PULL_MAX);
+  if (pulledTooFar(canopy.near) || pulledTooFar(canopy.far)) {
+    throw new RangeError(
+      `A canopy normal pull is a mix weight in [0, ${CANOPY_PULL_MAX}], from ` +
+        "the blade's own facing toward the ground's.",
+    );
   }
   const backlightMode = normalizeBacklight(backlight);
   const cameraWorld = uniform(new THREE.Vector3());
@@ -856,6 +931,8 @@ export function createGPUDrivenGrass({
       backlight: backlightMode,
       bend,
       posture,
+      canopy,
+      heightCorrelation,
       greens,
       size,
     }),

@@ -6,7 +6,10 @@ import {
   bladeCullRadiusFactor,
 } from '../src/app/grass-webgpu/blade-arc.js';
 import { readFieldOptions } from '../src/app/field-runtime.js';
+import { GRASS_RINGS } from '../src/app/grass-webgpu/grid.js';
 import {
+  CANOPY_PULL_FLOOR,
+  CANOPY_PULL_MAX,
   CLUMP_PULL_MARGIN,
   GRASS004_ALBEDO_MEAN,
   LAWN,
@@ -191,11 +194,32 @@ test('thickening only ever widens, and only to the cap', () => {
   );
 });
 
-test('the blade is modelled at the width real turf grass is', () => {
-  // The point of minBladePixels: stability is bought on screen, so the model
-  // no longer has to be drawn oversized to survive walking distance.
+test('the blade is modelled near life size, and never back to a spike', () => {
+  // The point of `minBladePixels`: stability is bought on screen, so the model
+  // no longer has to be drawn oversized to survive walking distance. This used
+  // to hold `maxWidth` to the 5 mm at the top of real turf grass's 2-4 mm.
+  //
+  // It is 6.5 mm, and the bound moved with a measurement rather than with the
+  // value: between about 2 m and the distance `maxThicken` caps the widening
+  // at, screen width is pinned at `minBladePixels` whatever the blade is
+  // modelled at, but past that cap coverage is proportional to this number
+  // again. On the adapter at 1280x720, 3.1-5.0 mm against 4.0-6.5 mm is 7.0
+  // points of bare ground at 6-8 m, 8.5 at 8-12 m and 7.3 at 12-16 m -- and
+  // 0.8 at 2-3 m, where the pinning still holds and the wider model is
+  // invisible, which is the half of the old argument that survives.
   assert.ok(LAWN.minWidth >= 0.002, 'thinner than turf grass gets');
-  assert.ok(LAWN.maxWidth <= 0.005, 'wider than turf grass gets');
+  assert.ok(
+    LAWN.maxWidth <= 0.008,
+    `a ${(LAWN.maxWidth * 1000).toFixed(1)} mm blade is back in the 8-14 mm ` +
+      'this shipped with, which is what made the lawn read as fat spikes -- ' +
+      'no coverage measurement buys that back',
+  );
+  // The oversizing is a device, not the model. Keep it inside twice life size
+  // so it stays something a later change can hand back to the far field.
+  assert.ok(
+    LAWN.maxWidth <= 2 * 0.004,
+    'past twice the widest real blade this is no longer a modelled blade',
+  );
 });
 
 test('a clump only ever shortens its crowns', () => {
@@ -351,6 +375,146 @@ test('the posture dials cannot ask for a heading with no direction', () => {
   }
   assert.equal(posture('?clumppull=0').clumpPull, 0, 'zero is independent');
   assert.equal(posture('?tillerfan=0').tillerFan, 0, 'zero is a parallel tuft');
+});
+
+/**
+ * The shading normal the vertex stage builds, in a frame where the ground is
+ * up, the blade leans along +Z and splays across +X. Written the way the
+ * shader writes it: the blade's own facing, mixed toward the ground's.
+ */
+function canopyMix({ bend, along, half, pull }) {
+  const lean = bend * along;
+  const splay = half * 2 * LAWN.normalSpread;
+  const blade = [
+    Math.sin(splay),
+    -Math.sin(lean) * Math.cos(splay),
+    Math.cos(lean) * Math.cos(splay),
+  ];
+  const ground = [0, 1, 0];
+  return Math.hypot(
+    ...blade.map((axis, index) => axis * (1 - pull) + ground[index] * pull),
+  );
+}
+
+/** The shortest that mix gets anywhere in a lawn built at these dial settings. */
+function shortestCanopyMix({ maxBend, maxPull }) {
+  let shortest = Infinity;
+  for (const along of range(0, 1, 256)) {
+    // The blade tapers, so its splay -- the one thing holding the normal off
+    // the ground's axis -- runs out exactly at the tip.
+    const half = bladeHalfWidth(along);
+    for (const bend of range(0, maxBend, 128)) {
+      for (const pull of range(0, maxPull, 64)) {
+        shortest = Math.min(shortest, canopyMix({ bend, along, half, pull }));
+      }
+    }
+  }
+  return shortest;
+}
+
+test('the canopy pull aggregates the blades without dissolving them', () => {
+  // A blade is 3 mm wide and a pixel covers several of them within a few
+  // metres, so past that its own literal facing is a lie the size of a clump:
+  // the ones facing the sun go bright and their neighbours go dark, and the
+  // lawn reads as slabs. The pull is toward what those unresolved blades
+  // average to, which is the ground they stand on -- so it has to grow with
+  // distance, and it has to leave some blade in it at the far end.
+  assert.ok(
+    LAWN.canopyNormalNear >= 0 && LAWN.canopyNormalFar > LAWN.canopyNormalNear,
+    'the pull has to grow with distance, or it is not aggregating anything',
+  );
+  assert.ok(
+    LAWN.canopyNormalFar <= CANOPY_PULL_MAX,
+    `a far pull of ${LAWN.canopyNormalFar} leaves ` +
+      `${(1 - LAWN.canopyNormalFar).toFixed(2)} of the blade in its own ` +
+      'shading, which is a lit plane with grass-shaped geometry in front',
+  );
+
+  // Both ends of the ramp sit inside a ring rather than on a boundary. A ramp
+  // that ended where a ring does would step the lawn's shading exactly where
+  // its density contract promises no step.
+  assert.ok(
+    LAWN.canopyNormalFrom > 0 && LAWN.canopyNormalTo > LAWN.canopyNormalFrom,
+    'an ordered ramp, or `smoothstep` reads it backwards',
+  );
+  for (const metres of [LAWN.canopyNormalFrom, LAWN.canopyNormalTo]) {
+    const boundaries = GRASS_RINGS.map((ring) => ring.outer);
+    assert.ok(
+      boundaries.every((edge) => Math.abs(edge - metres) > 1),
+      `the ramp ends at ${metres} m, on a ring boundary`,
+    );
+  }
+});
+
+test('the canopy mix can never cancel a blade to nothing', () => {
+  // `mix(bladeNormal, groundNormal, pull)` shortens as the two disagree, and a
+  // blade folded past horizontal faces away from the sky: at a pull near a
+  // half the two cancel and `normalize()` has no answer. The vertex stage
+  // falls back to the blade's own normal below `CANOPY_PULL_FLOOR`.
+  const shipped = shortestCanopyMix({
+    maxBend: LAWN.maxBend,
+    maxPull: CANOPY_PULL_MAX,
+  });
+  assert.ok(
+    shipped > 0.1,
+    `the shipped bend range mixes down to ${shipped.toFixed(3)}, which is ` +
+      'close enough to cancelling that the fallback is load-bearing in a ' +
+      'lawn nobody dialled',
+  );
+
+  // It is load-bearing at the ends of the dials, and exactly there. A blade
+  // leaning a right angle faces straight down; its tip has tapered to no splay
+  // left to hold the normal off the ground's axis; and half of nothing plus
+  // half of the sky is nothing. Asserted at the point rather than swept,
+  // because the cancellation *is* a single point and a lattice of samples
+  // steps over it -- which is the same reason it is worth a floor in the
+  // shader rather than an argument that it cannot happen.
+  const cancelled = canopyMix({
+    bend: Math.PI / 2,
+    along: 1,
+    half: 0,
+    pull: 0.5,
+  });
+  assert.ok(
+    cancelled < CANOPY_PULL_FLOOR,
+    `a blade folded flat away from the sky and pulled half way back to it ` +
+      `leaves ${cancelled.toExponential(2)} of a direction, which is nothing ` +
+      'to normalize',
+  );
+  assert.ok(
+    LAWN.maxBend * 8 > Math.PI / 2,
+    `\`?bendmax=8\` reaches ${(LAWN.maxBend * 8).toFixed(2)} radians, so the ` +
+      'dials can ask for that blade',
+  );
+  assert.ok(
+    LAWN.canopyNormalNear <= 0.5 && LAWN.canopyNormalFar >= 0.5,
+    'and the pull crosses a half between the near and far ends, so some ' +
+      'distance in the ramp asks for it too',
+  );
+  assert.ok(
+    CANOPY_PULL_FLOOR > 0 && CANOPY_PULL_FLOOR < shipped,
+    'the floor has to be reachable by that blade and by no shipped one',
+  );
+});
+
+test('the canopy dial reaches its cap and stops there', () => {
+  const canopyOf = (search) => readFieldOptions(search, 1).canopy;
+  assert.equal(canopyOf(''), 1, 'the default is the preset pair, unscaled');
+  assert.equal(canopyOf('?canopy=0'), 0, 'zero is the blade-facing control');
+
+  // The dial multiplies the preset pair, and the mix weight it produces has to
+  // land inside the range `createGPUDrivenGrass` accepts however far it is
+  // wound. It has to reach the cap, too, or the cap is not the dial's ceiling.
+  const far = (search) => LAWN.canopyNormalFar * canopyOf(search);
+  assert.ok(
+    far('?canopy=99') >= CANOPY_PULL_MAX,
+    'the dial cannot reach the pull the guard allows, so its ceiling is a ' +
+      'number nobody chose',
+  );
+  assert.ok(
+    Math.min(far('?canopy=99'), CANOPY_PULL_MAX) === CANOPY_PULL_MAX,
+    'past the cap the runtime clamps rather than throwing at the guard',
+  );
 });
 
 test('clumps are a lawn scale, not a meadow one', () => {

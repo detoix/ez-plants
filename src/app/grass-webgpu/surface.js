@@ -1,12 +1,20 @@
 import * as THREE from 'three/webgpu';
 
-import { LAWN, LAWN_COLORS } from './preset.js';
 import {
+  GRASS_BACKLIGHT,
+  GrassLightingModel,
+  normalizeBacklight,
+} from './blade-lighting.js';
+import { GRASS004_ALBEDO_MEAN, LAWN, LAWN_COLORS } from './preset.js';
+import {
+  LAWN_FLOW_SAMPLE_LEVEL,
+  LAWN_FLOW_WORLD_SIZE,
   LAWN_HEALTH_SAMPLE_LEVEL,
   LAWN_HEALTH_WORLD_SIZE,
   LAWN_MACRO_SAMPLE_LEVEL,
   LAWN_MACRO_WORLD_SIZE,
   LAWN_PBR_ASSET,
+  LAWN_PBR_FLATTEN_LEVEL,
   LAWN_PBR_SECONDARY_UV_SCALE,
   LAWN_PBR_WORLD_SIZE,
   LAWN_UNDERLAY,
@@ -16,9 +24,12 @@ import {
 
 const {
   Fn,
+  atan,
   cameraPosition,
+  color,
   float,
   mix,
+  select,
   normalMap,
   positionWorld,
   smoothstep,
@@ -31,6 +42,14 @@ const {
 const SECONDARY_UV_OFFSET = new THREE.Vector2(0.37, 0.19);
 const MACRO_UV_OFFSET = new THREE.Vector2(0.23, 0.61);
 const HEALTH_UV_OFFSET = new THREE.Vector2(0.71, 0.13);
+const FLOW_UV_OFFSET = new THREE.Vector2(0.41, 0.83);
+/** Where the flow field's second component is read, in tiles from the first.
+ *
+ *  A direction needs two numbers and one sample gives one usable channel: a
+ *  photograph's red and blue are both dark wherever it is shadowed, so a
+ *  vector built from them runs along the diagonal everywhere. Two reads of the
+ *  same channel a good way apart are independent instead. */
+const FLOW_SECOND_OFFSET = new THREE.Vector2(0.29, 0.57);
 
 /**
  * What a fully dry patch multiplies its colour by.
@@ -42,6 +61,18 @@ const HEALTH_UV_OFFSET = new THREE.Vector2(0.71, 0.13);
  * chlorophyll, not a wash of yellow paint over the top.
  */
 const DRY_TINT = new THREE.Vector3(1.34, 1.06, 0.62);
+
+/** Floor on the local mean the flattening divides by.
+ *
+ *  A photograph has texels near black -- shadow between blades, mostly -- and
+ *  a ratio against one of those is a white speck standing in a lawn. */
+const GROUND_FLATTEN_FLOOR = 0.03;
+
+/** Cap on that ratio, for the same reason from the other side. */
+const GROUND_FLATTEN_CEILING = 3;
+
+/** Shortest flow vector that still names a direction. */
+const FLOW_FLOOR = 1e-4;
 
 function configureLawnTexture(texture, { colorSpace, anisotropy, name }) {
   texture.name = name;
@@ -88,9 +119,40 @@ export async function createLawnSurface({
   underlay,
   textures,
   greens = LAWN_COLORS,
+  flatten = LAWN.groundFlatten,
+  macroTint = 1,
+  proxy = 1,
+  groundAO = LAWN.groundCanopyAO,
+  grainStrength = LAWN.canopyGrain,
+  variation = 1,
+  backlight = GRASS_BACKLIGHT.blade,
 } = {}) {
   if (!renderer || typeof renderer.getMaxAnisotropy !== 'function') {
     throw new TypeError('The lawn surface needs an initialized renderer.');
+  }
+  if (!(grainStrength >= 0 && grainStrength <= 1)) {
+    throw new RangeError(
+      "The canopy grain is how far the far field's normal leans with the " +
+        'lawn, in [0, 1]. At 1 it lies on its side.',
+    );
+  }
+  if (!(groundAO > 0 && groundAO <= 1)) {
+    throw new RangeError(
+      'Ground canopy occlusion is what the ground keeps of an open field, in ' +
+        '(0, 1]. At 0 the lawn stands on black.',
+    );
+  }
+  if (!(proxy >= 0 && proxy <= 1)) {
+    throw new RangeError(
+      'The canopy proxy is a mix weight in [0, 1], from the ground as it is ' +
+        'photographed to the grass a distant pixel averages to.',
+    );
+  }
+  if (!(flatten >= 0 && flatten <= 1)) {
+    throw new RangeError(
+      'Flattening the ground is a mix weight in [0, 1], from the photograph ' +
+        'as it was shot to the photograph with its own patches divided out.',
+    );
   }
 
   const loaded = textures ?? (await loadLawnPBRTextures());
@@ -155,10 +217,56 @@ export async function createLawnSurface({
     return smoothstep(float(0.045), float(0.32), healthGreen);
   });
 
+  /**
+   * Which way the lawn runs here: a smooth world-space unit direction.
+   *
+   * A lawn is not a field of independently-pointed blades. Growth, mowing,
+   * prevailing wind and drainage all leave a grain that runs over tens of
+   * metres, and it is the reason a real lawn changes brightness as you walk
+   * round it rather than staying one flat green. `LAWN.flowPull` is how much
+   * of a crown's facing this dictates, against its own hash and its clump's.
+   *
+   * Two reads of the same channel, well apart, because a direction needs two
+   * independent numbers -- see `FLOW_SECOND_OFFSET`. Normalized with a floor:
+   * the two can both land on the middle of their range, and a lawn has to run
+   * *somewhere*.
+   */
+  const flowAt = Fn(([worldXZ]) => {
+    const base = vec2(worldXZ.x, worldXZ.y.negate())
+      .div(LAWN_FLOW_WORLD_SIZE)
+      .add(FLOW_UV_OFFSET);
+    const read = (uv) =>
+      smoothstep(
+        float(0.045),
+        float(0.32),
+        textureLevel(albedoRoughnessTexture, uv, float(LAWN_FLOW_SAMPLE_LEVEL))
+          .g,
+      ).sub(0.5);
+    const raw = vec2(read(base), read(base.add(FLOW_SECOND_OFFSET))).toVar(
+      'lawnFlowRaw',
+    );
+    const length = raw.length().toVar('lawnFlowLength');
+    return select(
+      length.greaterThan(float(FLOW_FLOOR)),
+      raw.div(length.max(float(FLOW_FLOOR))),
+      vec2(1, 0),
+    );
+  });
+
   const tintFrom = Fn(([macro]) =>
-    vec3(mix(0.9, 1.06, macro), mix(0.94, 1.05, macro), mix(0.88, 0.99, macro)),
+    mix(
+      vec3(1, 1, 1),
+      vec3(
+        mix(0.9, 1.06, macro),
+        mix(0.94, 1.05, macro),
+        mix(0.88, 0.99, macro),
+      ),
+      float(macroTint),
+    ),
   );
-  const densityFrom = Fn(([macro]) => mix(0.78, 1, macro));
+  const densityFrom = Fn(([macro]) =>
+    mix(float(1 - LAWN.densitySpread * variation), float(1), macro),
+  );
 
   // How dry a place is, from its health. One function, called by the blades
   // and by the ground they stand in: that shared call is the whole point of
@@ -187,6 +295,52 @@ export async function createLawnSurface({
     return mix(primary, secondary, macro.mul(0.46).add(0.27));
   });
 
+  // The same two samples at a mip level whose texel covers 35 cm: the local
+  // level the pair is varying around, at the scale the photograph's own
+  // blotches live on. Blended the same way, or the ratio below would be a
+  // sample of one lawn over the mean of a differently-weighted one.
+  const pbrMeanAt = Fn(([worldXZ, macro]) => {
+    const primary = textureLevel(
+      albedoRoughnessTexture,
+      primaryUVAt(worldXZ),
+      float(LAWN_PBR_FLATTEN_LEVEL),
+    );
+    const secondary = textureLevel(
+      albedoRoughnessTexture,
+      secondaryUVAt(worldXZ),
+      float(LAWN_PBR_FLATTEN_LEVEL),
+    );
+    return mix(primary, secondary, macro.mul(0.46).add(0.27));
+  });
+
+  /**
+   * Grass004 with its own patches divided out, at `strength`.
+   *
+   * The asset is a photograph of a lawn, and it brings that lawn's metre-scale
+   * light and dark patches with it. They are the most visible thing in the
+   * ground close to the camera -- soft blotches that no blade, clump, dry patch
+   * or macro sample here agrees with, because they belong to a different lawn.
+   * They also fight the variation this one asserts: `macroAt` and `healthAt`
+   * decide where this lawn is lighter, and then the photograph says somewhere
+   * else.
+   *
+   * Dividing the sample by its own local mean keeps every frequency finer than
+   * that mean -- the blade-scale detail the asset is actually here for -- and
+   * flattens everything coarser to one level, which `tintFrom` and `dryTintFrom`
+   * are then free to vary on this lawn's terms. Multiplying the ratio back by
+   * the asset's global mean puts the absolute level where it was, so this
+   * changes the ground's structure and not its brightness.
+   *
+   * The divisor is floored and the ratio capped: a photograph has texels near
+   * black, and a ratio against one of those is a white speck in a lawn.
+   */
+  const flattenPBR = Fn(([sample, localMean, strength]) => {
+    const ratio = sample
+      .div(localMean.max(float(GROUND_FLATTEN_FLOOR)))
+      .clamp(0, GROUND_FLATTEN_CEILING);
+    return mix(sample, ratio.mul(color(GRASS004_ALBEDO_MEAN)), strength);
+  });
+
   const solidMaterial = new THREE.MeshStandardMaterial({
     color: greens.ground,
     roughness: 1,
@@ -201,6 +355,10 @@ export async function createLawnSurface({
   const worldXZ = positionWorld.xz;
   const macro = macroAt(worldXZ).toVar('lawnSurfaceMacro');
   const pbr = pbrAt(worldXZ, macro).toVar('lawnPbrSample');
+  const pbrMean = pbrMeanAt(worldXZ, macro).toVar('lawnPbrLocalMean');
+  const ground = flattenPBR(pbr.rgb, pbrMean.rgb, float(flatten)).toVar(
+    'lawnGroundAlbedo',
+  );
   const textureBlend = macro.mul(0.46).add(0.27);
   const primaryNormal = textureNode(normalTexture, primaryUVAt(worldXZ))
     .rgb.mul(2)
@@ -218,20 +376,104 @@ export async function createLawnSurface({
     .mul(0.5)
     .add(0.5);
   const horizontalDistance = cameraPosition.xz.sub(worldXZ).length();
-  const normalStrength = smoothstep(8, 24, horizontalDistance)
-    .oneMinus()
-    .mul(0.58);
+  // How much of this fragment is grass nobody can resolve rather than ground
+  // somebody can see into. See `canopyProxyFrom`: a pixel at 8 m covers 0.6 of
+  // a blade and one at 16 m covers 2.7, so past there a pixel is an average of
+  // grass; and bare ground measures over 99% past 24 m, so out there this
+  // material is the entire lawn. Below the near end this is zero and the
+  // ground is the ground.
+  const canopyProxy = smoothstep(
+    float(LAWN.canopyProxyFrom),
+    float(LAWN.canopyProxyTo),
+    horizontalDistance,
+  )
+    .mul(float(proxy))
+    .toVar('lawnCanopyProxy');
+  // The normal map fades on the same ramp rather than on one of its own. It
+  // used to fade over 8-24 m by itself, which is the same distances for the
+  // same reason -- sub-pixel micro-relief that aliases -- so leaving both in
+  // would be two overlapping fades arguing about one thing.
+  const normalStrength = canopyProxy.oneMinus().mul(0.58);
+  // The canopy the proxy stands in for is not level. See `LAWN.canopyGrain`:
+  // a lawn runs one way over tens of metres, and a canopy leaning with the
+  // grain returns light differently from one leaning against it. The blades'
+  // own normals are deliberately aggregated towards the ground -- that is what
+  // `canopyNormalNear`/`Far` do -- so this is the only place left in the lawn
+  // where an orientation can still be seen, and the only place it is not
+  // immediately cancelled.
+  //
+  // A blade leaning one way turns its lit face the other, which is why the
+  // lean is subtracted: `bladeNormal` in `grass.js` is
+  // `forward * cos(lean) - groundNormal * sin(lean)`, so the face the eye sees
+  // tips away from the direction the blade bends.
+  // A strength of zero builds no node: no flow sample, no tilt, and the same
+  // shader this generated before the grain existed.
+  const canopyNormal =
+    grainStrength > 0
+      ? (() => {
+          const grain = flowAt(worldXZ).mul(
+            float(grainStrength).mul(canopyProxy),
+          );
+          return vec3(grain.x.negate(), 1, grain.y.negate()).normalize();
+        })()
+      : null;
   const health = healthAt(worldXZ).toVar('lawnSurfaceHealth');
   // The hue correction. Grass004 is a photograph of a lawn at hue 72, which is
   // olive beside the 105 the blades are drawn at, and it is the ground seen
   // through every gap between them. This carries its mean onto the palette's
   // hue at unchanged luminance: a hue fix, not a brightness one.
-  lawnMaterial.colorNode = pbr.rgb
-    .mul(vec3(...greens.groundTint))
+  // What a pixel of unresolved grass averages to: the blade's own ramp, read
+  // towards the tip because the root half of a blade stands in its neighbours
+  // and a distant pixel never sees it. It is the albedo only -- the sun, the
+  // shadow and the canopy normal below do the rest, exactly as they do for the
+  // blades in front of it.
+  const canopyAlbedo = mix(
+    color(greens.bottom),
+    color(greens.top),
+    float(LAWN.canopyProxyTip),
+  ).mul(float(LAWN.canopyProxyOcclusion));
+  // Both ends of the mix then take this lawn's own variation, so the ground
+  // and the canopy it turns into are lighter, darker and drier in the same
+  // places -- and in the same places the blades are, which read the same two
+  // signals.
+  // The ground is under a canopy, and until now it was lit as though it were
+  // not. See `groundCanopyAO`: the blades cast no shadow by design, so nothing
+  // told the terrain that a few centimetres of grass stand between it and the
+  // sky. It is applied to the ground end of the mix only -- the canopy end
+  // carries its own `canopyProxyOcclusion`, which is the same physics one
+  // layer up, and multiplying both would occlude the far field twice.
+  lawnMaterial.colorNode = mix(
+    ground.mul(vec3(...greens.groundTint)).mul(float(groundAO)),
+    canopyAlbedo,
+    canopyProxy,
+  )
     .mul(tintFrom(macro))
     .mul(dryTintFrom(dryAt(health).mul(LAWN.groundDryStrength)));
-  lawnMaterial.roughnessNode = pbr.a.mul(0.22).add(0.76);
-  lawnMaterial.normalNode = normalMap(packedNormal, vec2(normalStrength));
+  // Towards the blades' own roughness as it stops being ground.
+  lawnMaterial.roughnessNode = mix(
+    pbr.a.mul(0.22).add(0.76),
+    float(LAWN.bladeRoughness),
+    canopyProxy,
+  );
+  // The texture's relief where the ground is resolvable, the canopy's lean
+  // where it is not. `normalMap` returns the geometric normal at zero strength,
+  // so the two do not fight: the map fades out exactly as the lean fades in.
+  const surfaceNormal = normalMap(packedNormal, vec2(normalStrength));
+  lawnMaterial.normalNode = canopyNormal
+    ? mix(surfaceNormal, canopyNormal, canopyProxy).normalize()
+    : surfaceNormal;
+
+  // The far field transmits, because out there the far field *is* the grass.
+  // Weighted by the proxy, so the ground at your feet does not. `?backlight=off`
+  // takes it out alongside the blades' own term, since a lawn that transmits at
+  // 30 m and not at 3 is not a control.
+  if (normalizeBacklight(backlight) !== GRASS_BACKLIGHT.off) {
+    const canopyLighting = new GrassLightingModel(canopyProxy, {
+      mode: GRASS_BACKLIGHT.canopy,
+      backlightColor: greens.backlight,
+    });
+    lawnMaterial.setupLightingModel = () => canopyLighting;
+  }
 
   let mode = normalizeLawnUnderlay(underlay);
   let disposed = false;
@@ -246,6 +488,7 @@ export async function createLawnSurface({
     normalTexture,
     macroAt,
     healthAt,
+    flowAt,
     tintFrom,
     densityFrom,
     dryAt,

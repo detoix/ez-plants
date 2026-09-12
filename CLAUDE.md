@@ -21,6 +21,19 @@ it at the call site.
 
 CPU tests do not measure any of those GPU costs.
 
+`scripts/measure-lawn-coverage.mjs` measures the one that matters most and is
+invisible to them: how much bare ground the lawn leaves at each distance. It
+drives `/field` headless on the real adapter, paints the `solid` underlay
+control emissive blue and counts the pixels no blade covers, by screen row.
+Re-run it when blade height, blade width, tillering or ring density move; the
+numbers behind `minHeight`/`maxHeight` came from a sweep nobody kept and could
+not be reproduced when the width was later questioned. It needs
+`npx playwright install chromium` -- Playwright's default headless shell has no
+GPU process and therefore no WebGPU at all. The shipped lawn measures 40% bare
+at 3-4 m, 65% at 6-8 m, 95% at 16-24 m and **over 99% past 24 m**: the far ring
+draws blades that cover nothing, so whatever the far field looks like is what
+the underlay looks like.
+
 ## Field architecture
 
 The field uses one Three.js/WebGPU runtime. Its camera-centred lawn lives under
@@ -44,8 +57,9 @@ per-instance state (`setLODOverrideAt`), so branches and organs cross an LOD
 boundary together without a per-instance JavaScript callback. Query dials are `count`,
 `day`, `prototypes`, `budget`, `lod`, `wind`, `shadows`, `pixelratio`,
 `terrain`, and `underlay`, plus the lawn's `tillers`, `bendmin`, `bendmax`,
-`clumppull`, `tillerfan`, `lawnhue`, `bladeheight` and `bladewidth`. The last
-two are multipliers on the blade's modelled size, not lengths.
+`clumppull`, `tillerfan`, `lawnhue`, `canopy`, `proxy`, `flatten`, `macro`,
+`groundao`, `grain`, `variation`, `bladeheight` and `bladewidth`. The last two
+are multipliers on the blade's modelled size, not lengths.
 
 The lawn palette is drawn around `LAWN_TARGET_HUE`, and the number is measured
 rather than chosen. Turfgrass research scores lawn colour with the Dark Green
@@ -53,9 +67,13 @@ Colour Index, whose hue transform is `(H - 60) / 60` -- 60 degrees is a lawn's
 yellow end, 120 its deep-green end. A reference photograph of a healthy lawn
 sits at 99 at every depth; this page rendered at **75**, because the blade
 greens were authored at 87-91, the Grass004 underlay is 72, and the warm sun
-`#fff0cd` takes another 5-7 off on the way through. The target is **105**, not
-99, because the albedo has to overshoot what the image is aimed at -- so it
-moves if the sun's colour does. `lawnColorsFor()` rotates every green by one
+`#fff0cd` takes another 5-7 off on the way through. The target is **107**, not
+99, because the albedo has to overshoot what the image is aimed at, and how far
+is swept rather than derived: rendered mean hue is linear in the number, and
+107 lands 99. It moves if the sun's colour does -- and if what fills the gaps
+between blades does, which is why it went *up* by two when the canopy proxy
+landed rather than down. 105 was never landing 99: it landed 97.7 near and
+84.7 at the horizon, for a mean over depth of about 90. `lawnColorsFor()` rotates every green by one
 delta and solves each back to its original linear luminance, and the underlay,
 being a photograph, gets a per-channel `groundTint` instead of a colour.
 `?lawnhue=86.7` restores the authored palette exactly.
@@ -66,13 +84,43 @@ the A/B control for the light transmitted through them.
 That term is gated on the blade's own normal, not on the camera's heading. It
 was `pow(dot(-light, view), 4)` alone, which under a directional sun is one
 number for the whole lawn: turning the head lit or unlit every exposed tip
-together, as a sheet. `-dot(normalView, lightDirection)` asks instead whether
+together, as a sheet. `-dot(bladeNormal, lightDirection)` asks instead whether
 the light reaches the face of *this* blade that the eye cannot see, with
 `backscatterAbsorb` carrying Beer-Lambert over the slant and `backscatterView`
 leaving the old lobe 0.4 of the term. So the old advice -- that both pages
 open looking away from their sun and an A/B there proves nothing -- no longer
 holds: the transmission is non-zero in the default framing now, and that it
 *stays* roughly put as you turn is the thing to check.
+
+That normal is handed to `GrassLightingModel` rather than read off
+`normalView`, because `normalView` is no longer the blade's facing. The
+blades' *shading* normal is mixed toward the ground's -- `canopyNormalNear`
+close up, `canopyNormalFar` far off, ramped between 4 m and 28 m -- because a
+3 mm blade past a few metres is narrower than a pixel, and shading each by its
+literal facing turns the clumps that happen to face the sun into bright slabs
+beside dark ones. `?canopy=0` is the A/B; `?canopy=` scales the pair.
+
+The ground between the blades is occluded to `groundCanopyAO`, which *is*
+`rootOcclusion`: the ground sits at the height of a blade's base, under the
+same neighbours, so it takes the same light or every blade meets the ground at
+a step in brightness. Nothing was doing this, because the blades cast no
+shadow. It cut metre-scale patchiness at 1-4 m by 45%, which is the near-field
+fault the texture was being blamed for. `?groundao=1` is the A/B.
+
+The far field transmits too, on a *view* lobe rather than a normal gate: a
+canopy you cannot resolve has every normal at once, so the only thing deciding
+how much backlit grass reaches the eye is where the eye is. Into the sun the
+far band goes +20.3% against +4.6% without it, and away from the sun it is
+unchanged. Three calibrations move whenever any of this moves -- the palette
+hue, `canopyProxyOcclusion` and the coverage curve -- so re-sweep them
+together rather than one at a time.
+
+The interaction is the trap, and it is why the two are one change: a normal
+tipped up towards the sky has no back face for a high sun to be behind, so
+gating transmission on the pulled normal deletes that term exactly where the
+pull is strongest. The mix can also cancel outright -- a blade folded flat
+away from the sky, at a pull near a half -- which is what `CANOPY_PULL_FLOOR`
+and the fallback to the blade's own normal are for.
 
 How much neighbouring blades agree is the other half of the same symptom.
 `LAWN.clumpPull` shipped at 1.2, where a 45 cm clump outvoted each crown's own

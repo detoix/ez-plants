@@ -6,6 +6,7 @@ import { createWebGPUWalkControls } from './grass-webgpu/controls.js';
 import { createGPUDrivenGrass } from './grass-webgpu/grass.js';
 import { GRASS_RINGS } from './grass-webgpu/grid.js';
 import {
+  CANOPY_PULL_MAX,
   CLUMP_PULL_MARGIN,
   LAWN,
   LAWN_TARGET_HUE,
@@ -79,6 +80,44 @@ export function readFieldOptions(search = '', devicePixelRatio = 1) {
     // vector, so the dial steps over that band rather than clamping into it.
     clumpPull: awayFromOne(number('clumppull', LAWN.clumpPull, 0, 4)),
     tillerFan: number('tillerfan', LAWN.tillerFan, 0, 3),
+    // How much of the Grass004 photograph's own metre-scale patchiness is
+    // divided out of the ground. The asset is a photograph of a lawn and it
+    // brings that lawn's light and dark blotches with it, which is the most
+    // visible thing in the ground close to the camera and disagrees with every
+    // signal this lawn has of its own. `?flatten=0` is the photograph as shot.
+    flatten: number('flatten', LAWN.groundFlatten, 0, 1),
+    macroTint: number('macro', 1, 0, 2),
+    // How far the underlay turns into the grass it is standing in for, with
+    // distance. Past 24 m the lawn is over 99% underlay -- the far ring still
+    // draws blades and they cover nothing -- so out there this is the whole
+    // lawn. `?proxy=0` is the ground as it was photographed, at every distance.
+    proxy: number('proxy', 1, 0, 1),
+    // What the ground between the blades keeps of the light an open field
+    // gets. The blades cast no shadow, so without this the ground under a
+    // canopy is lit as though nothing stood above it. `?groundao=1` is the
+    // A/B; it is `LAWN.rootOcclusion` because the ground and a blade's base
+    // are at the same height under the same neighbours.
+    groundAO: number('groundao', LAWN.groundCanopyAO, 0.05, 1),
+    // How far the far field's canopy normal leans with the lawn's grain. It is
+    // on the underlay rather than the crowns because the crowns' normals are
+    // aggregated towards the ground on purpose, and a grain put there cancels
+    // against that -- measured, see `LAWN.canopyGrain`. `?grain=0` is the A/B.
+    grain: number('grain', LAWN.canopyGrain, 0, 1),
+    // How much of the lawn's own variation it asserts: the density swing
+    // between poor and rich ground, and how much of a crown's height its patch
+    // decides rather than its own hash. `?variation=0` is a lawn that varies
+    // only by the narrow amount it shipped with.
+    variation: number('variation', 1, 0, 2),
+    // How far the blades' shading normal is pulled toward the ground's, as a
+    // multiple of the preset's near/far pair. A blade is 3 mm wide and a pixel
+    // covers several of them within a few metres, so shading each by its own
+    // literal facing makes the clumps that happen to face the sun bright slabs
+    // beside dark ones; pulling the normal toward the ground's is what those
+    // unresolved blades actually average to. `?canopy=0` is the control: every
+    // blade shaded by its own facing, as the page shipped. The transmission
+    // term is not on this dial -- it keeps the blade's own normal whatever
+    // this says, or the lawn stops being backlit as it is pulled flat.
+    canopy: number('canopy', 1, 0, 1.6),
     // `blade` gates transmission on the blade's own normal, `view` is the
     // shipped view-only lobe and `off` removes it. The middle one is the
     // control that matters: `off` can only say whether the term exists.
@@ -392,6 +431,13 @@ export async function startField({ adapter }) {
       renderer,
       underlay: options.underlay,
       greens,
+      flatten: options.flatten,
+      macroTint: options.macroTint,
+      proxy: options.proxy,
+      groundAO: options.groundAO,
+      grainStrength: options.grain,
+      variation: options.variation,
+      backlight: options.backlight,
     });
     stage = createScene({
       terrainAmplitude: options.terrain,
@@ -419,7 +465,15 @@ export async function startField({ adapter }) {
         clumpPull: options.clumpPull,
         tillerFan: options.tillerFan,
       },
+      // The pull is a mix weight, so the dial's ceiling is the weight's: at 1
+      // the blade's own facing is gone and the ring shades as the ground it
+      // stands on.
+      canopy: {
+        near: Math.min(LAWN.canopyNormalNear * options.canopy, CANOPY_PULL_MAX),
+        far: Math.min(LAWN.canopyNormalFar * options.canopy, CANOPY_PULL_MAX),
+      },
       greens,
+      heightCorrelation: options.variation,
       size: {
         minHeight: LAWN.minHeight * options.bladeHeight,
         maxHeight: LAWN.maxHeight * options.bladeHeight,

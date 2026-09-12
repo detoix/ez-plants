@@ -43,13 +43,28 @@ export const LAWN = Object.freeze({
    *  this shipped with. */
   minHeight: 0.055,
   maxHeight: 0.105,
-  /** Metres across at the base. Real turf grass is 2-4 mm, and these are it.
+  /** Metres across at the base. Real turf grass is 2-4 mm; these are above it.
    *
    *  They used to be 8-14 -- three to four times life size -- because a 3 mm
    *  blade is thinner than a pixel at walking distance and aliases into noise.
    *  That bought stability with silhouette, and it is what made the lawn read
    *  as fat spikes. `minBladePixels` buys the same stability on screen
-   *  instead, so the blade can be the width it actually is. */
+   *  instead, so the blade no longer has to be drawn oversized to survive
+   *  distance.
+   *
+   *  It is still drawn 1.3x life size, and that is a measurement rather than a
+   *  leftover. Between about 2 m and the distance `maxThicken` caps the
+   *  widening at, a blade's screen width is pinned at `minBladePixels`
+   *  whatever it is modelled at, so width buys nothing there. Past the cap the
+   *  pinning is over and coverage goes back to being proportional to this
+   *  number -- and the cap itself moves out with it. Measured on the adapter
+   *  at 1280x720 with `?underlay=solid`, going from 3.1-5.0 mm to 4.0-6.5 mm
+   *  closed bare ground by 7.0 points at 6-8 m, 8.5 at 8-12 m and 7.3 at
+   *  12-16 m, against 0.8 at 2-3 m where the pinning still holds.
+   *
+   *  So this is a coverage device aimed at one band, and it should come back
+   *  down to life size when the far field stops being bought with blade
+   *  geometry. `?bladewidth=0.77` is the 3.1-5.0 mm the page shipped with. */
   minWidth: 0.004,
   maxWidth: 0.0065,
   /** Exponent of the blade's width falloff: `(1 - y) ** taper`.
@@ -215,6 +230,29 @@ export const LAWN = Object.freeze({
    *  bottom-to-top colour gradient, which is why it is 0.55 and not the 0.45
    *  a blade in isolation would want. */
   rootOcclusion: 0.55,
+  /** What the ground between the blades keeps of the light an open field gets.
+   *
+   *  It is `rootOcclusion`, and that is a derivation rather than a coincidence.
+   *  A blade's base is darkened because it stands in a few centimetres of its
+   *  neighbours and sees very little sky; the ground is at *the same height as
+   *  that base*, under the same neighbours, so it receives the same light. Let
+   *  the two differ and every blade meets the ground at a step in brightness.
+   *
+   *  Nothing was doing this. The blades are `castShadow = false` on purpose --
+   *  a few hundred thousand shadow-casting slivers is not a trade this page
+   *  makes -- so the ground beneath them was lit as an open field in full sun
+   *  while being looked at through a canopy. `assets/grass004/README.md` says
+   *  AO was left out of the asset because "the dense real blade layer already
+   *  supplies the relevant large-scale occlusion"; it does not, because it
+   *  casts nothing. This is that occlusion, asserted.
+   *
+   *  The honest caveat: the ground you can *see* is the ground in the gaps,
+   *  and a gap is by definition more open than the average. If the sun were at
+   *  the camera that would matter and this would be too dark; it is not, so a
+   *  gap open to the eye says little about a gap open to the sun.
+   *
+   *  `?groundao=1` turns it off. */
+  groundCanopyAO: 0.55,
   /** Fraction of a blade's length the root occlusion fades out over.
    *
    *  Measured up the blade, not up the world, so a short blade is shaded like
@@ -307,6 +345,106 @@ export const LAWN = Object.freeze({
    *  two fight: the blade glows brightest at the point the other term just
    *  darkened. `test/field-webgpu-blade-bounds.test.js` holds them apart. */
   backscatterTip: 0.45,
+  /** How far the lawn's density swings between its poorest and richest ground.
+   *
+   *  `densityFrom` was `mix(0.78, 1, macro)` -- a 22% swing, which is real but
+   *  below the threshold where a lawn stops reading as one flat green. The
+   *  report this work follows is blunt about it: the macro and health signals
+   *  are the right foundation and "their range is currently too restricted".
+   *
+   *  **It stays at 0.22, and the reason is structural.** Widening it can only
+   *  widen *downwards*: retention is `density / candidateDensity` clamped to
+   *  1, and every ring's target density already equals its candidate lattice
+   *  at its inner edge, so there is no headroom above. Richer ground cannot
+   *  get denser than the lattice; poorer ground only gets thinner. So every
+   *  unit of extra swing is a unit of removed grass, and the gaps it opens are
+   *  correctly dark now that the ground is occluded -- measured at a spread of
+   *  0.76, the lawn read as thin and olive rather than varied, and lateral
+   *  variation fell 27-35% rather than rising.
+   *
+   *  Adding variation here therefore needs a finer candidate lattice first,
+   *  which is memory: the near ring is 412,164 slots at 2.5 cm, and halving
+   *  the pitch quadruples it. `?variation=` widens it for anyone who wants to
+   *  see that, and 2 is the thin olive lawn described above. */
+  densitySpread: 0.22,
+  /** How much of a crown's height its patch decides, against its own hash.
+   *
+   *  Height was drawn from one hash per crown and correlated with nothing, so
+   *  a dry patch was short-of-water grass at exactly the height of the lush
+   *  grass beside it, and only its colour said otherwise. Vigour is the whole
+   *  point of the macro and health signals: ground that holds water grows
+   *  taller as well as greener.
+   *
+   *  Not 1, because a patch is not a haircut -- the crown's own hash keeps the
+   *  spread that stops a dense stand reading as one mown surface. At 0.45 a
+   *  crown is a bit over half its own and the rest its patch's.
+   *
+   *  Bounded above by the same `maxHeight` as before, so the culling sphere is
+   *  untouched, and it costs nothing: one `mix` on a value placement already
+   *  draws, no storage, no draw, no vertex work.
+   *
+   *  **It is kept on physics, not on a measurement, and that should be said
+   *  plainly.** Lateral luminance variation moved -6%, -5% and -8% at one, two
+   *  and four metres, which is no improvement on the metric available. What
+   *  the metric cannot see is the thing it fixes: a dry patch is a patch where
+   *  the grass is *short as well as straw-coloured*, and before this the only
+   *  thing marking one was its colour. A better test than variance would put a
+   *  dry patch in frame and measure its blade heights against the lush ground
+   *  beside it; that is the test to run before raising this. */
+  heightCorrelation: 0.45,
+  /** How much light the far-field canopy passes towards the eye, and how
+   *  tightly that lobe is aimed.
+   *
+   *  The blades transmit -- `backscatter` and the rest of that group -- and
+   *  until this existed the underlay did not, so the lawn's backlighting
+   *  stopped at the distance the proxy took over. That was correct while the
+   *  underlay was ground, because ground does not transmit; it stopped being
+   *  correct the moment the underlay started standing in for grass.
+   *
+   *  Weaker than the blades' 0.7 on purpose. A blade the sun is behind
+   *  transmits almost all of what gets through it; a canopy is a mixture of
+   *  blades at every angle, only some of which are backlit from where you
+   *  stand, so the aggregate is a fraction of the single-blade case.
+   *
+   *  Gated on the view and not on a normal, which is the opposite of the
+   *  blades' term and is the point -- see `GRASS_BACKLIGHT.canopy`. */
+  canopyBacklight: 0.35,
+  canopyBacklightPower: 3,
+  /** How far the far field's canopy normal leans with the lawn's grain.
+   *
+   *  A lawn has a grain -- growth, mowing, prevailing wind -- that runs over
+   *  tens of metres, and a canopy leaning one way returns light differently
+   *  from one leaning the other. That is most of why a real lawn changes as
+   *  you walk round it rather than staying one flat green, and the far field
+   *  here had none of it: the proxy stands in for grass but is lit as a level
+   *  plane.
+   *
+   *  It belongs to the *underlay's* normal and not to the crowns, and that is
+   *  measured rather than assumed. Pulling each crown's own yaw towards the
+   *  grain was tried first and it made the lawn flatter, not richer: lateral
+   *  variation fell 21% at a metre and 50% at four. The reason is that
+   *  `canopyNormalNear`/`Far` exist to suppress exactly the orientation-driven
+   *  brightness differences a grain creates -- a patch that happens to face the
+   *  sun going bright beside one that does not -- so the two cancel. With the
+   *  canopy pull switched off the same grain added 1-9%, which is the same
+   *  finding from the other side. The blades aggregate; the canopy they
+   *  aggregate *into* is what carries a direction.
+   *
+   *  It is **off by default**, because three measurements could not show it
+   *  doing anything good. In the canopy normal it moved lateral variation by
+   *  +3%, +1% and -3% at one, two and four metres -- nothing. Turning the
+   *  camera through three headings, the far field's luminance range went from
+   *  0.037 to 0.022, a *41% smaller* response, which is the opposite of the
+   *  point; that test is confounded, since turning also looks at different
+   *  ground, but a confounded test that comes out backwards is not evidence
+   *  for shipping it either.
+   *
+   *  So the code, the field and the dial are here and the default is 0, which
+   *  builds no node at all and leaves the shader exactly as it was. `?grain=`
+   *  turns it on for anyone who wants to take the question further -- the
+   *  honest next step is a sun sweep over fixed ground rather than a camera
+   *  sweep over moving ground. */
+  canopyGrain: 0,
   /** Radians the shading normal splays out at a blade's edge.
    *
    *  A blade is two vertices wide, so it is flat, and shading it by its true
@@ -316,12 +454,123 @@ export const LAWN = Object.freeze({
    *  This is a lighting fiction over flat geometry, and it is the cheapest
    *  thing in the lawn that reads as roundness. */
   normalSpread: 0.8,
+  /** How far a blade's *shading* normal is pulled toward the ground's: close
+   *  up, and far off.
+   *
+   *  A blade is 3 mm wide. Past a few metres a pixel covers several of them,
+   *  and shading each by its own literal facing is then the same lie across a
+   *  patch that the flat two-vertex strip is across a blade -- the one
+   *  `normalSpread` exists to fix. A clump that happens to present its faces
+   *  to the sun goes bright and the clump beside it goes dark, and the lawn
+   *  reads as slabs rather than as one canopy. Pulling the normal toward the
+   *  ground's is what a thousand unresolved facings actually average to: the
+   *  surface they all stand on. AMD's 2024 procedural grass keeps a quarter of
+   *  the blade normal for the same reason.
+   *
+   *  It is the *shading* normal only. The transmission term keeps the blade's
+   *  own -- see `GrassLightingModel`, which asks whether the sun is behind
+   *  *this* blade, and a normal tipped up towards the sky answers no for the
+   *  whole lawn at once under a high sun. That is the trap in this change: it
+   *  is one line to write and it silently deletes the term the blades were
+   *  just given.
+   *
+   *  `?canopy=0` on `/field` is the A/B: every blade shaded by its own
+   *  literal facing, as shipped. */
+  canopyNormalNear: 0.3,
+  canopyNormalFar: 0.6,
+  /** Metres the pull ramps from `canopyNormalNear` to `canopyNormalFar` over.
+   *
+   *  Both ends sit inside a ring rather than on a ring boundary -- 4 m is
+   *  inside the 8 m near ring and 28 m inside the far one -- because a ramp
+   *  that ended where a ring does would change the lawn's shading exactly
+   *  where its density contract promises no step. */
+  canopyNormalFrom: 4,
+  canopyNormalTo: 28,
   /** Half-width, in metres, of the square patch grass is grown on. See
    *  `createLawnPatch`: this is the draw-distance dial, because density is per
    *  unit area. Sized to cover the planting -- the default garden is about 50 m
    *  across -- and the camera starts a few metres outside it, so the opening
    *  frame is grass rather than the bare strip in front of it. */
   radius: 34,
+  /** How much of the Grass004 photograph's own patchiness is divided out.
+   *
+   *  The asset is a photograph of a lawn, and it carries that lawn's metre-
+   *  scale light and dark blotches. Close to the camera they are the most
+   *  visible thing in the ground: soft patches no blade, clump or dry area
+   *  here agrees with, because they belong to a different lawn -- and they
+   *  fight the variation this one asserts, since `macroAt` and `healthAt`
+   *  decide where this lawn is lighter and the photograph then says somewhere
+   *  else. 1 divides them out and leaves every finer frequency, which is the
+   *  blade-scale detail the asset is here for. `?flatten=0` is the A/B. */
+  groundFlatten: 1,
+  /** Where the underlay stops being ground seen between blades and starts
+   *  being the blades themselves, in metres.
+   *
+   *  Two measurements meet here, and the pair is the whole justification:
+   *
+   *  - **8 m is where a blade stops being resolvable.** One screen pixel there
+   *    covers about 0.6 of a blade; by 16 m it covers 2.7. Past that a pixel
+   *    is an average of grass rather than a look at one blade, and what it
+   *    should average to is grass, not the ground behind it.
+   *  - **26 m is where there is nothing else left.** Bare ground measures 41%
+   *    at 3-4 m, 69% at 8-12 m, 95% at 16-24 m and over 99% past 24 m
+   *    (`scripts/measure-lawn-coverage.mjs`). The far ring still draws blades
+   *    out to 52 m and they cover nothing, so beyond here the lawn *is* the
+   *    underlay and it had better look like a lawn.
+   *
+   *  Below the near end nothing changes: a gap at 2 m is centimetres across,
+   *  you can see into it, and what belongs in it is ground. This does not fix
+   *  what the ground looks like close up -- that is a separate fault and this
+   *  is not aimed at it.
+   *
+   *  Re-measure with the script when blade height, width, tillering or ring
+   *  density move; both numbers come from the curve, not from taste.
+   *  `?proxy=0` is the A/B. */
+  canopyProxyFrom: 8,
+  canopyProxyTo: 26,
+  /** Where the far-field canopy colour sits on the blade's own root-to-tip
+   *  ramp. Towards the tip, because a blade stands in its neighbours and the
+   *  part of it a distant pixel averages is the part that is not buried. */
+  canopyProxyTip: 0.65,
+  /** What the far field keeps of the light a flat plane of the same albedo
+   *  would return.
+   *
+   *  A canopy is darker than a plane painted its colour: light that gets in
+   *  between the blades mostly does not get back out, which is the same reason
+   *  `rootOcclusion` darkens the bottom of every blade. The proxy has no
+   *  blades to trap anything, so without this it returns everything and the
+   *  distance lights up.
+   *
+   *  The number is set against photographs rather than by eye, and it is the
+   *  only one here calibrated against something outside this repository. Real
+   *  grass does brighten with distance -- haze -- but by a bounded amount:
+   *  three usable CC-BY photographs measure **+20%, +37% and +50%** from their
+   *  nearest ground to their farthest, mean +36. This page measured +51%
+   *  before the proxy and +70% after it, outside that range in both cases.
+   *
+   *  Note this is not compensating for missing haze: there is no fog in this
+   *  scene at all, so a hazier render would be brighter still, not darker. The
+   *  far field was simply returning light a canopy would have kept.
+   *
+   *  It was swept twice. The first sweep landed 0.60, for +42%. Then
+   *  `canopyBacklight` gave the far field a view lobe, so part of its
+   *  brightness began arriving from the direction it should -- and the flat
+   *  diffuse level it needed underneath dropped accordingly. The second sweep:
+   *  0.60 gives +60%, 0.50 gives +50%, **0.42 gives +41%**. That the number
+   *  moved when a directional term was added is the expected shape of the
+   *  thing, not a sign either sweep was wrong: a constant standing in for a
+   *  model shrinks as the model arrives.
+   *
+   *  Re-measure it the same way if the sun, the palette or the proxy's ramp
+   *  move. It is the only number here calibrated against something outside
+   *  this repository. */
+  canopyProxyOcclusion: 0.42,
+  /** Roughness of a blade, and of the far field once it stands for blades.
+   *
+   *  One number because the two have to agree: the moment the underlay is
+   *  standing in for grass, a difference between them is a change of material
+   *  along a line on the ground at the distance the proxy fades in. */
+  bladeRoughness: 0.92,
   shadows: true,
 });
 
@@ -335,6 +584,30 @@ export const LAWN = Object.freeze({
  * disagreeing by a float is a NaN blade nobody can find.
  */
 export const CLUMP_PULL_MARGIN = 0.1;
+
+/**
+ * Shortest canopy-pulled normal that is still a direction.
+ *
+ * `mix(bladeNormal, groundNormal, pull)` shortens as the two disagree, and a
+ * blade folded past horizontal by `?bendmax=` can face almost exactly away
+ * from the sky -- at which point a pull near a half cancels it to nothing and
+ * `normalize()` has no answer. The vertex stage falls back to the blade's own
+ * normal below this length rather than normalizing a zero vector.
+ * `test/field-webgpu-blade-bounds.test.js` shows the shipped bend range never
+ * comes near it.
+ */
+export const CANOPY_PULL_FLOOR = 1e-3;
+
+/**
+ * Most of a blade's own facing the canopy pull may take.
+ *
+ * The pull is a mix weight toward the ground's normal, so at 1 there is no
+ * blade left in the shading normal at all and the ring lights as the plane it
+ * stands on -- a lit lawn-coloured surface with grass-shaped geometry in front
+ * of it. The `?canopy=` dial clamps here and `createGPUDrivenGrass` rejects
+ * anything past it, so the two cannot disagree about where that is.
+ */
+export const CANOPY_PULL_MAX = 0.9;
 
 /**
  * The greens as they were first authored, before any hue correction.
@@ -375,11 +648,45 @@ export const GRASS004_ALBEDO_MEAN = '#606c30';
  * `#fff0cd` -- a warm light, which costs another 5 to 7 degrees on the way
  * through. Nothing was as yellow as the result.
  *
- * So the albedo has to overshoot the target it is aiming the *image* at: 105
- * here lands the render at 99. Change the sun's colour and this number moves
- * with it. `?lawnhue=86.7` on `/field` is roughly the palette as it was.
+ * So the albedo has to overshoot the target it is aiming the *image* at, and
+ * how far is measured rather than derived. Rendered mean hue over six depth
+ * bands is a straight line in this number: 103 lands 97.6, 105 lands 99.7,
+ * 107 lands 101.5. 104.4 is the one that lands 99.
+ *
+ * **It moves whenever anything changes what a pixel of lawn is made of**, and
+ * it has now done so twice in one day, in both directions:
+ *
+ * - It was 105, and the canopy proxy pushed it *up* to 107 -- the opposite of
+ *   what the overshoot argument predicts. 105 was never landing 99: it landed
+ *   99 near the camera and 85 at the horizon, because past 20 m the lawn was
+ *   almost entirely the hue-72 underlay. The proxy put the far field back on
+ *   the palette, which was most of what the overshoot was reaching for.
+ * - Then `groundCanopyAO` pushed it back *down* to 104.4, because darkening
+ *   the ground between the blades leaves the blades -- which are already on
+ *   the palette -- carrying more of every pixel.
+ *
+ * The lesson is the dependency, not the number: this is a property of the
+ * rendered image, so it has to be re-swept after any change to the underlay,
+ * the occlusion, the sun's colour or the blades' coverage. Two dials show
+ * that at a glance -- `?proxy=0` drops the rendered mean to about 90 and
+ * `?groundao=1` lifts it about two degrees. `?lawnhue=86.7` is roughly the
+ * palette as it was authored.
+ *
+ * A practical trap when re-sweeping: the palette is stored as 8-bit hex, so
+ * the luminance the rotation solves back to carries about 0.002 of
+ * quantization noise -- which is exactly the tolerance
+ * `test/field-webgpu-blade-bounds.test.js` holds it to. The drift across
+ * neighbouring values is erratic rather than smooth (0.0015 at 103.6, 0.0023
+ * at 104.0, 0.0017 at 104.4), so an occasional value fails that test by luck
+ * and not because the hue is wrong. Step over it rather than widening the
+ * tolerance, which is there to catch a real repaint.
+ *
+ * One thing it does not fix: the render dips two to three degrees between 4
+ * and 16 m relative to either side, at every hue on the sweep. That is the
+ * band where blades are still resolvable and thinning fastest, and it is a
+ * separate fault.
  */
-export const LAWN_TARGET_HUE = 105;
+export const LAWN_TARGET_HUE = 104.4;
 
 /** The hue the palette was authored around -- the blade tip, at 86.7. Every
  *  other colour is rotated by the same delta rather than snapped to the

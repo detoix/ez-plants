@@ -5,6 +5,15 @@ export const LAWN_UNDERLAY = Object.freeze({
 
 export const LAWN_PBR_WORLD_SIZE = 1.4;
 export const LAWN_PBR_SECONDARY_UV_SCALE = 0.931;
+/** Mip level whose texel covers the scale the photograph's own patches live on.
+ *
+ *  The asset is 1024 texels over 1.4 m, so level 8 is one texel every 35 cm --
+ *  the size of the soft light and dark blotches in the source photograph.
+ *  Dividing the sample by itself at that level keeps everything finer, which is
+ *  the blade-scale detail the asset is here for, and removes everything
+ *  coarser, which is another lawn's patches laid under this one's. */
+export const LAWN_PBR_FLATTEN_LEVEL = 8;
+
 export const LAWN_MACRO_WORLD_SIZE = 31.7;
 export const LAWN_MACRO_SAMPLE_LEVEL = 5;
 
@@ -22,6 +31,15 @@ export const LAWN_MACRO_SAMPLE_LEVEL = 5;
  * supplies. The offset is non-harmonic with the macro one so the two signals
  * do not line up and double a patch's contrast.
  */
+/** World tile the lawn's flow field is read on, in metres.
+ *
+ *  Between the macro tile and the health tile, and non-harmonic with both, so
+ *  the three signals disagree about scale and about nothing else. A lawn's
+ *  grain runs in patches you can see several of at once, which is tens of
+ *  metres, not the metres a clump runs to. */
+export const LAWN_FLOW_WORLD_SIZE = 34;
+export const LAWN_FLOW_SAMPLE_LEVEL = LAWN_MACRO_SAMPLE_LEVEL;
+
 export const LAWN_HEALTH_WORLD_SIZE = 161.3;
 export const LAWN_HEALTH_SAMPLE_LEVEL = LAWN_MACRO_SAMPLE_LEVEL;
 
