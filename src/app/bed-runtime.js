@@ -6,6 +6,7 @@ import { createBedProps } from './bed-props.js';
 import {
   BED_DEFAULT_AGE,
   BED_DEFAULT_DAY,
+  BED_LAWN_TARGET_HUE,
   BED_MAX_AGE,
   clampAge,
   clampDay,
@@ -15,10 +16,14 @@ import {
 import { createBedLawnMask } from './bed-lawn-mask.js';
 import { normalizeBacklight } from './grass-webgpu/blade-lighting.js';
 import { createGPUDrivenGrass } from './grass-webgpu/grass.js';
+import { lawnColorsFor } from './grass-webgpu/preset.js';
 import { createLawnSurface } from './grass-webgpu/surface.js';
 import { createWebGPUHeightTexture } from './grass-webgpu/terrain.js';
 
 const SAMPLE_COUNT = 90;
+
+/** This page's own palette. See `BED_LAWN_TARGET_HUE` for why it is its own. */
+const BED_LAWN_COLORS = lawnColorsFor(BED_LAWN_TARGET_HUE);
 
 /**
  * The bed sits on level ground.
@@ -207,7 +212,11 @@ export async function startBed({ adapter }) {
     camera.updateMatrixWorld(true);
 
     if (loadingText) loadingText.textContent = 'Ładuję trawnik CC0…';
-    surface = await createLawnSurface({ renderer, underlay: 'lawn' });
+    surface = await createLawnSurface({
+      renderer,
+      underlay: 'lawn',
+      greens: BED_LAWN_COLORS,
+    });
     stage = createScene({ shadows: options.shadows, surface });
 
     if (loadingText) loadingText.textContent = 'Sieję trawę…';
@@ -220,6 +229,7 @@ export async function startBed({ adapter }) {
       surface,
       shadows: options.shadows,
       backlight: options.backlight,
+      greens: BED_LAWN_COLORS,
       // Without this the blades are placed from a world-space hash that knows
       // nothing about the planting, and grow straight up through the mulch and
       // the cobbles.

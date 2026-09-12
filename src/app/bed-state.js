@@ -9,6 +9,33 @@
  */
 
 /**
+ * The hue this page's lawn palette is drawn around, in degrees.
+ *
+ * `LAWN_TARGET_HUE` is not a property of the palette. It is the palette that
+ * lands the *rendered image* at the 99 a healthy lawn photographs at, which
+ * makes it a property of the lights the lawn stands under -- its own comment
+ * lists the sun's colour among the things that move it. Two pages with
+ * different lights therefore need two numbers, and this one read the field's
+ * by omission.
+ *
+ * That was harmless while both pages had authored warm suns a degree apart.
+ * It stopped being harmless when `/field` began taking its lights from its
+ * atmosphere: the field's target fell 12.4 degrees to match, and this bed --
+ * still lit by `#fff2d6` and a near-neutral hemisphere -- followed it down
+ * from a measured 94.5 to 84.6, a yellow-olive lawn under the 60-120 band
+ * turfgrass research calls healthy.
+ *
+ * 104.4 is what this page rendered with before that, restored rather than
+ * recalibrated. The bed has never been swept against the photographs the way
+ * the field has, and 94.5 is where it actually sits; sweeping it changes how
+ * this page looks and belongs with a decision rather than with a bug fix.
+ *
+ * It lives here, beside the other numbers this page owns, so that
+ * `test/bed-state.test.js` can hold it apart from the field's.
+ */
+export const BED_LAWN_TARGET_HUE = 104.4;
+
+/**
  * Marks on the day slider.
  *
  * Not a menu -- the slider is continuous. These are the dates worth stopping

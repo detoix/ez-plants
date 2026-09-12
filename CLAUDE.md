@@ -258,9 +258,20 @@ hue.
 colour, the matching fog, and no atmosphere baked at all. `?skyexposure=` and
 `?skyms=` are the two dials on the sky itself.
 
-`/bed` keeps its own flat `#c3d3d8`. It shares the runtime and the lawn with
-`/field` and nothing else, and a designed planting under a physical sky is a
-framing decision rather than a port.
+`/bed` keeps its own flat `#c3d3d8` and its own authored lights. It shares the
+runtime and the lawn with `/field` and nothing else, and a designed planting
+under a physical sky is a framing decision rather than a port.
+
+It also keeps `BED_LAWN_TARGET_HUE`, and that one is not optional.
+`LAWN_TARGET_HUE` is the palette that lands the *rendered image* at 99, which
+makes it a property of the lights rather than of the palette -- so it cannot be
+shared by two pages whose lights differ. The bed read the field's by omission,
+which was harmless while both had authored warm suns a degree apart and stopped
+being harmless the moment the field's lights became its atmosphere's: the
+field's number fell 12.4 degrees and dragged the bed's lawn from a measured
+94.5 to 84.6. The bed is pinned at the 104.4 it rendered with, restored rather
+than recalibrated -- it has never been swept against the photographs, and 94.5
+is simply where it sits. `test/bed-state.test.js` holds the two apart.
 
 ## The bed
 
