@@ -180,12 +180,31 @@ test('the clump word keeps a heading finer than the eye and a patch to a byte', 
     'a byte of heading steps more than a degree, which a clump makes visible',
   );
 
-  // Shortening is a fraction of a 4-8 cm blade and health is fed straight into
-  // a smoothstep. Neither can spend more than a byte usefully.
-  const shortenError = ((1 - LAWN.clumpShortest) / UNORM8_MAX) * LAWN.maxHeight;
+  // Shortening is a fraction of a blade and health is fed straight into a
+  // smoothstep. Neither can spend more than a byte usefully.
+  //
+  // The quantity the byte sets is the *fraction*, not the millimetres. This
+  // asserted the millimetres against a constant written for the 4-8 cm blade
+  // the page shipped with, so growing the blade to 5.5-10.5 cm failed it --
+  // reporting a packing fault when the packing had not changed and the blade
+  // had. What a byte has to be fine enough for is the eye, and the eye's limit
+  // here is a pixel.
+  const shortenStep = (1 - LAWN.clumpShortest) / UNORM8_MAX;
   assert.ok(
-    shortenError <= 0.000_08,
-    `a byte of clump shortening moves a tip by ${(shortenError * 1000).toFixed(3)} mm`,
+    shortenStep <= 0.001,
+    `a byte splits the clump range into steps of ${(shortenStep * 100).toFixed(3)}% ` +
+      'of a blade, which is a step in length a patch of crowns shares',
+  );
+  // A pixel covers `2 * tan(fov / 2) / rows` metres per metre of distance:
+  // 1.67 mm at a metre, for the field's 62-degree camera in a 720-row buffer.
+  // A metre is about as close as a blade tip is ever rendered, so a step this
+  // far under a pixel there is under one everywhere.
+  const PIXEL_AT_ONE_METRE = 0.00167;
+  const shortenTip = shortenStep * LAWN.maxHeight;
+  assert.ok(
+    shortenTip <= PIXEL_AT_ONE_METRE / 10,
+    `a byte of clump shortening moves a tip by ${(shortenTip * 1000).toFixed(3)} mm, ` +
+      `which is ${(shortenTip / PIXEL_AT_ONE_METRE).toFixed(2)} of a pixel at a metre`,
   );
   for (const value of [0, 0.137, 0.5, 0.918, 1]) {
     assert.ok(Math.abs(unormRoundTrip(value, UNORM8_MAX) - value) <= 1 / 510);
