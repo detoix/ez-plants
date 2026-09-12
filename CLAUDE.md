@@ -34,6 +34,12 @@ at 3-4 m, 65% at 6-8 m, 95% at 16-24 m and **over 99% past 24 m**: the far ring
 draws blades that cover nothing, so whatever the far field looks like is what
 the underlay looks like.
 
+`scripts/measure-sky.mjs` is its counterpart for the atmosphere, and it exists
+for the same reason: the sky's three lookup tables are written by compute
+passes, so `npm test` cannot see a single pixel of them. It drives `/field`
+headless, points the camera along named directions and reads the pixel back.
+Re-run it whenever `SKY_EXPOSURE`, the sun, the medium or the tone mapper move.
+
 ## Field architecture
 
 The field uses one Three.js/WebGPU runtime. Its camera-centred lawn lives under
@@ -144,6 +150,83 @@ early return is removed, because `perSide` is 0 and `gridExtent` goes negative.
 boundary for known plant shader behavior. It ports leaf wind and authored
 back-face normals to TSL while the backend still rejects unknown GLSL hooks.
 Do not strip plant effects in the application to make a material pass.
+
+## The sky
+
+`/field` used to be a `#b8c9b5` clear colour with linear fog the same colour.
+It is now a physical atmosphere: Rayleigh, Mie and an ozone layer, solved into
+three lookup tables by three compute passes at startup and never touched again.
+
+`src/app/sky/atmosphere.js` is the dependency-free scalar contract and
+`src/app/sky/sky-nodes.js` is its TSL twin, in exactly the relationship
+`bedKeepsLawnAt` has to `bed-lawn-mask.js`. Every constant and every table
+mapping is written in the scalar module, which `node --test` can read, and
+transcribed into TSL. When the two disagree the scalar side is right.
+
+The tables are `transmittance` 256x64, `multiScatter` 32x32 and `skyView`
+256x144 -- 424 KiB of RGBA16F between them. The 48-step raymarch runs 36,864
+times at startup and never again: the sun does not move and a metre of eye
+height is nothing against a hundred kilometres of air, so the third table is as
+valid on the last frame as on the first. The steady-state cost of the whole sky
+is **one bilinear fetch per background pixel and one per fogged fragment**.
+Measured against `?sky=flat` at 1280x720 with the default 400 plants, that is
+26.8 ms a frame against 27.5-28.2 -- about a millisecond, nearly all of it the
+fog fetch on every blade. Boot is unchanged inside noise: the three bakes
+disappear next to nine species of CPU plant geometry. `?sunelevation=` and
+`?sunazimuth=` rebake only that third table.
+
+Five things are load-bearing:
+
+- **The sun is one direction, not two.** `SHIPPED_SUN_OFFSET` is the
+  `(24, 34, 17)` the page always had, now read as 49.1 degrees of elevation and
+  54.7 of azimuth, and the directional light and the atmosphere are both aimed
+  from it. A sun disk that is not where the shadows say it is looks wrong in a
+  way nobody can name. The offset's *length* is kept, because the shadow
+  camera's near and far were sized against it.
+- **`SKY_EXPOSURE` is measured, not chosen, and it is the only judgement call
+  in the sky.** The atmosphere is solved with the sun's irradiance set to 1, so
+  this one number decides the whole image. It is **7.1**: the value at which
+  the fully fogged band past 125 m keeps the luminance it had under the flat
+  background, 0.6077 against the control's 0.6080. Holding that band still is
+  what protects the lawn, whose hue is calibrated *over depth* -- re-exposing
+  the far field would move it. Measured, the lawn's rendered hue is unchanged
+  to one decimal out to 52 m; past 125 m the ground is haze rather than lawn
+  and it goes 102.5 -> 139.8, because the haze is now the sky's colour at the
+  same luminance rather than `#b8c9b5`'s.
+- **The haze is not aerial perspective and does not pretend to be.** Clear air
+  extinguishes two parts in a thousand over 100 m, so the 44-125 m band this
+  page shipped with was never Rayleigh: it stood in for humidity and aerosol
+  the model has no business resolving at this scale. The *shape* is therefore
+  untouched, a linear ramp between the same two distances, and only the colour
+  changes -- to the sky each fragment is actually standing in front of. That is
+  why the background could not simply be replaced on its own: a blue sky over a
+  green horizon haze reads as a bug.
+- **Multiple scattering is not a uniform dimming.** `?skyms=0` is the control.
+  The zenith loses 39% of its luminance, the horizon across the sun 34%, the
+  horizon into the sun 19%, the far haze 28%. The zenith loses most because it
+  has the least single scattering to begin with. Without it a clear horizon
+  reads as dusk at noon.
+- **The table mappings are the failure nobody sees.** A write mapping and a
+  read mapping that disagree by half a texel still render a smooth, plausible,
+  wrong sky, with no error anywhere. All three round-trips are held in
+  `test/field-sky.test.js`, along with the table filled through one mapping and
+  read back through the sampler it is sampled with.
+
+What is deliberately *not* coupled: the directional light keeps `#fff0cd` at
+3.2 and the hemisphere light its authored colours. The atmosphere's own answer
+for the sun at this elevation is `(0.92, 0.83, 0.70)`, a little cooler than the
+authored warm -- but `LAWN_TARGET_HUE` says in as many words that it moves if
+the sun's colour does, so adopting it is a separate change with a sweep
+attached. That is why `?sunelevation=4` gives a real sunset sky and real long
+shadows over a lawn still lit as though it were noon.
+
+`?sky=flat` is the A/B, and it reaches the exact page that shipped: the clear
+colour, the matching fog, and no atmosphere baked at all. `?skyexposure=` and
+`?skyms=` are the two dials on the sky itself.
+
+`/bed` keeps its own flat `#c3d3d8`. It shares the runtime and the lawn with
+`/field` and nothing else, and a designed planting under a physical sky is a
+framing decision rather than a port.
 
 ## The bed
 
@@ -284,7 +367,8 @@ the plant `wind` query, which must retain the requested plant behavior.
 
 `npm test` runs `node --test`. These tests protect CPU contracts: deterministic
 scatter and bed planting, terrain agreement, storage layout, snapping, density,
-material gates, field-stat aggregation, and resource disposal. They do not execute WebGPU
+material gates, field-stat aggregation, the sky's scalar twin and its three
+table mappings, and resource disposal. They do not execute WebGPU
 compute shaders or indirect draws. A production build checks bundling, not GPU
 shader execution; final verification still needs a hardware-WebGPU browser.
 

@@ -22,8 +22,38 @@ import {
   createWebGPUTerrainGeometry,
   webGPUBackdropHeight,
 } from './grass-webgpu/terrain.js';
+import { SKY_LUT, sunAnglesOf, sunDirectionFrom } from './sky/atmosphere.js';
+import { createFieldSky } from './sky/sky-nodes.js';
 
 const SAMPLE_COUNT = 120;
+
+/**
+ * Where the sun has always stood on this page, now written as the two angles
+ * the sky needs rather than as an offset.
+ *
+ * It is one number in two places otherwise: the directional light aims the
+ * shading and the atmosphere aims the scattering, and a sky whose sun disk is
+ * not where the shadows say it is looks wrong in a way nobody can name. The
+ * distance is kept because the shadow camera's near/far were sized for it.
+ */
+const SHIPPED_SUN_OFFSET = [24, 34, 17];
+const SUN_DISTANCE = Math.hypot(...SHIPPED_SUN_OFFSET);
+const SUN_ANGLES = sunAnglesOf(SHIPPED_SUN_OFFSET);
+
+/**
+ * What the sky's radiance is multiplied by on its way to the tone mapper.
+ *
+ * The atmosphere is solved with the sun's irradiance set to 1, so this number
+ * is the sun in render units and it decides the whole image. It is measured,
+ * not chosen: `scripts/measure-sky.mjs` reads the rendered horizon back off
+ * the real adapter, and this is the value at which the horizon keeps the
+ * luminance the flat `#b8c9b5` background and its matching fog had. Holding
+ * the horizon still is the conservative choice, because the horizon is what
+ * the far field dissolves into -- the lawn's measured hue is calibrated over
+ * depth, and re-exposing the far band would move it. Everything above the
+ * horizon then lands where the physics puts it relative to that.
+ */
+const SKY_EXPOSURE = 7.1;
 
 export function readFieldOptions(search = '', devicePixelRatio = 1) {
   const params = new URLSearchParams(search);
@@ -137,6 +167,27 @@ export function readFieldOptions(search = '', devicePixelRatio = 1) {
     bladeWidth: number('bladewidth', 1, 0.3, 4),
     shadows: params.get('shadows') !== 'off',
     underlay: normalizeLawnUnderlay(params.get('underlay')),
+    // `?sky=flat` is the A/B: the `#b8c9b5` clear colour and the matching
+    // linear fog this page shipped with, with no atmosphere baked at all.
+    sky: params.get('sky') === 'flat' ? 'flat' : 'atmosphere',
+    // The sun in render units, and the one judgement call in the sky. See
+    // `SKY_EXPOSURE`; `scripts/measure-sky.mjs` is how it was set.
+    skyExposure: number('skyexposure', SKY_EXPOSURE, 0.5, 60),
+    // How much of the light that has bounced more than once the sky keeps.
+    // `?skyms=0` is single scattering alone, and it is not a uniform dimming:
+    // measured off the render, the zenith loses 39% of its luminance, the
+    // horizon across the sun 34%, the horizon into the sun 19%, and the far
+    // haze band 28%. The zenith loses most because it has the least single
+    // scattering to begin with -- a short path up through thin air -- so the
+    // control is a sky with a deeper, colder top and a flatter gradient.
+    skyMultiScatter: number('skyms', 1, 0, 3),
+    // The sun, for the atmosphere and the directional light together. The
+    // defaults are the shipped offset expressed as angles, so leaving them
+    // alone leaves every shadow and every measured lawn colour where it was.
+    // Moving them moves both, which is the point -- and moves the lawn's hue
+    // calibration with them, which is the cost.
+    sunElevation: number('sunelevation', SUN_ANGLES.elevation, -10, 89),
+    sunAzimuth: number('sunazimuth', SUN_ANGLES.azimuth, -360, 360),
     pixelRatio: number(
       'pixelratio',
       Math.min(devicePixelRatio || 1, 2),
@@ -172,7 +223,19 @@ function formatSurface(surface) {
   return `${asset} · ${maps} maps · ${(encodedBytes / 1024).toFixed(0)} KiB transfer · ${(gpuBytes / 1024 / 1024).toFixed(1)} MiB GPU · ${anisotropy}×`;
 }
 
-function createHUD(renderer, adapter, surface) {
+function formatSky(sky, options) {
+  if (!sky) return 'flat #b8c9b5 · no atmosphere';
+  const tables = [SKY_LUT.transmittance, SKY_LUT.multiScatter, SKY_LUT.skyView]
+    .map((table) => `${table.width}×${table.height}`)
+    .join(' · ');
+  return (
+    `sun ${options.sunElevation.toFixed(1)}° el / ${options.sunAzimuth.toFixed(1)}° az · ` +
+    `${tables} · ${(sky.stats.bytes / 1024).toFixed(0)} KiB · ` +
+    `exposure ${options.skyExposure} · ms ${options.skyMultiScatter}`
+  );
+}
+
+function createHUD(renderer, adapter, surface, sky, options) {
   const values = new Map(
     [...document.querySelectorAll('[data-stat]')].map((node) => [
       node.dataset.stat,
@@ -189,6 +252,7 @@ function createHUD(renderer, adapter, surface) {
   };
   set('gpu', adapterName(adapter) || 'WebGPU adapter');
   set('surface-tile', formatSurface(surface));
+  set('sky', formatSky(sky, options));
 
   return {
     update(delta, grassStats, plantStats) {
@@ -257,16 +321,34 @@ function createHUD(renderer, adapter, surface) {
   };
 }
 
-function createScene({ terrainAmplitude, shadows, surface }) {
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color('#b8c9b5');
-  scene.fog = new THREE.Fog('#b8c9b5', 44, 125);
+/** The haze band the page shipped with. Only its colour changes under a sky. */
+const HAZE = { near: 44, far: 125 };
 
+function createScene({ terrainAmplitude, shadows, surface, sky, sunOffset }) {
+  const scene = new THREE.Scene();
+  if (sky) {
+    scene.backgroundNode = sky.backgroundNode;
+    // The haze keeps the range and the ramp it shipped with and loses only its
+    // colour, to the sky each fragment is actually standing in front of. See
+    // `fogNodeFor`: 100 m of clear air extinguishes two parts in a thousand,
+    // so this band was never scattering and pretending otherwise would be a
+    // worse lie than the flat colour was.
+    scene.fogNode = sky.fogNodeFor(HAZE);
+  } else {
+    scene.background = new THREE.Color('#b8c9b5');
+    scene.fog = new THREE.Fog('#b8c9b5', HAZE.near, HAZE.far);
+  }
+
+  // Not derived from the sky. The lawn's hue is calibrated against this exact
+  // sun -- see `LAWN_TARGET_HUE`, which says in as many words that it moves if
+  // the sun's colour does -- and the atmosphere's own answer at this elevation
+  // is (0.92, 0.83, 0.70), a little cooler than the authored `#fff0cd`.
+  // Adopting it is a separate change with a sweep attached to it.
   const skyLight = new THREE.HemisphereLight('#e8f4e3', '#26331e', 1.7);
   scene.add(skyLight);
 
   const sun = new THREE.DirectionalLight('#fff0cd', 3.2);
-  sun.position.set(24, 34, 17);
+  sun.position.set(...sunOffset);
   sun.castShadow = shadows;
   sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.camera.left = -38;
@@ -304,6 +386,7 @@ function createScene({ terrainAmplitude, shadows, surface }) {
   return {
     scene,
     sun,
+    sky,
     terrain,
     backdrop,
     surface,
@@ -370,6 +453,7 @@ export async function startField({ adapter }) {
 
   let heightMap;
   let surface;
+  let sky;
   let stage;
   let grass;
   let plantPlot;
@@ -389,6 +473,7 @@ export async function startField({ adapter }) {
     }
     underlayControl?.dispose();
     controls?.dispose();
+    sky?.dispose();
     if (plantPlot) stage?.scene.remove(plantPlot.group);
     plantPlot?.dispose();
     grass?.dispose();
@@ -439,10 +524,35 @@ export async function startField({ adapter }) {
       variation: options.variation,
       backlight: options.backlight,
     });
+    if (options.sky === 'atmosphere') {
+      if (loadingText)
+        loadingText.textContent = 'Baking the atmosphere lookup tables…';
+      sky = createFieldSky({
+        renderer,
+        sunElevation: options.sunElevation,
+        sunAzimuth: options.sunAzimuth,
+        exposure: options.skyExposure,
+        multiScatter: options.skyMultiScatter,
+        eyeHeightKm: 0.0017,
+      });
+      // Three compute dispatches, then nothing: the sun does not move and a
+      // metre of eye height is nothing against a hundred kilometres of air, so
+      // the sky-view table is as valid on the last frame as on the first.
+      await sky.bake();
+    }
+    // One direction for the shading and the scattering both. The length is the
+    // shipped offset's, because the shadow camera's near and far were sized
+    // against it.
+    const sunOffset = sunDirectionFrom(
+      options.sunElevation,
+      options.sunAzimuth,
+    ).map((component) => component * SUN_DISTANCE);
     stage = createScene({
       terrainAmplitude: options.terrain,
       shadows: options.shadows,
       surface,
+      sky,
+      sunOffset,
     });
 
     if (loadingText)
@@ -524,8 +634,8 @@ export async function startField({ adapter }) {
     });
     controls.setOnEngaged(() => hint?.setAttribute('hidden', ''));
 
-    const hud = createHUD(renderer, adapter, surface);
-    const sunOffset = stage.sun.position.clone();
+    const hud = createHUD(renderer, adapter, surface, sky, options);
+    const sunTrack = stage.sun.position.clone();
     const clock = new THREE.Clock();
     let firstFrame = true;
     let lastReadback = 0;
@@ -551,7 +661,7 @@ export async function startField({ adapter }) {
         groundAt(camera.position.x, camera.position.z),
         camera.position.z,
       );
-      stage.sun.position.copy(stage.sun.target.position).add(sunOffset);
+      stage.sun.position.copy(stage.sun.target.position).add(sunTrack);
       stage.sun.target.updateMatrixWorld();
       stage.sun.updateMatrixWorld();
 
@@ -583,6 +693,7 @@ export async function startField({ adapter }) {
       renderer,
       camera,
       grass,
+      sky,
       plants: plantPlot,
       plantFields: plantPlot.fields.map((entry) => entry.field),
       surface,
