@@ -26,7 +26,14 @@ import {
   transmittanceParams,
   transmittanceUV,
 } from '../src/app/sky/atmosphere.js';
-import { readFieldOptions } from '../src/app/field-runtime.js';
+import {
+  AUTHORED_SKY,
+  AUTHORED_SUN,
+  SKY_ANCHOR,
+  SUN_ANCHOR,
+  readFieldOptions,
+  relativeLuminance,
+} from '../src/app/field-runtime.js';
 
 /**
  * `atmosphere.js` is the scalar twin of the sky's TSL, in the relationship
@@ -372,4 +379,74 @@ test('the sky exposure is clamped rather than allowed to black the page out', ()
     readFieldOptions('?skyexposure=nonsense').skyExposure,
     readFieldOptions('').skyExposure,
   );
+});
+
+// --- the lights the sky drives ---------------------------------------------
+
+test('the light anchors still describe the lights they were measured from', () => {
+  // `SUN_ANCHOR` and `SKY_ANCHOR` exist to reproduce these two luminances
+  // exactly, at the shipped sun, from a probe taken on the GPU. Nothing on the
+  // CPU can re-run that probe, so what is held here is the other half: the
+  // authored values the anchors were divided out of. Change `#fff0cd`, 3.2,
+  // `#e8f4e3` or 1.7 and this fails, which is the intended way to find out
+  // that the anchors need re-measuring rather than discovering it in the hue.
+  const toLinear = (channel) =>
+    channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  const irradiance = (hex, intensity) =>
+    [1, 3, 5]
+      .map((at) => toLinear(parseInt(hex.slice(at, at + 2), 16) / 255))
+      .map((channel) => channel * intensity);
+
+  const sun = irradiance(AUTHORED_SUN.color, AUTHORED_SUN.intensity);
+  const sky = irradiance(AUTHORED_SKY.color, AUTHORED_SKY.intensity);
+
+  assert.ok(
+    Math.abs(relativeLuminance(sun) - AUTHORED_SUN.luminance) < 1e-3,
+    `the authored sun now measures ${relativeLuminance(sun).toFixed(4)}, not ` +
+      `the ${AUTHORED_SUN.luminance} the anchor was divided out of`,
+  );
+  assert.ok(
+    Math.abs(relativeLuminance(sky) - AUTHORED_SKY.luminance) < 1e-3,
+    `the authored sky now measures ${relativeLuminance(sky).toFixed(4)}, not ` +
+      `the ${AUTHORED_SKY.luminance} the anchor was divided out of`,
+  );
+
+  // The recorded probe, so the anchors and the luminances stay one statement
+  // rather than two numbers that happen to sit near each other.
+  assert.ok(Math.abs(SUN_ANCHOR * 0.8407 - AUTHORED_SUN.luminance) < 5e-3);
+  assert.ok(Math.abs(SKY_ANCHOR * 0.06205 - AUTHORED_SKY.luminance) < 5e-3);
+});
+
+test('the sun stays warmer than the sky it shares an atmosphere with', () => {
+  // The reason the lights are worth deriving at all: at every elevation the
+  // direct beam is red-leaning and the hemisphere is blue-leaning, because one
+  // has had its blue scattered out and the other *is* the blue that was
+  // scattered out. An implementation that got this backwards would still
+  // produce a plausible-looking sky.
+  const lut = buildTransmittanceLUT();
+  for (const elevation of [60, 40, 20, 8]) {
+    const sun = sunDirectionFrom(elevation, 0);
+    const beam = sunRadianceAtGround(sun, lut);
+    assert.ok(
+      beam[0] / beam[2] > 1,
+      `the beam is not red-leaning at ${elevation} degrees`,
+    );
+    const zenith = skyRadiance({
+      direction: [0, 1, 0],
+      sunDirection: sun,
+      transmittanceLut: lut,
+    });
+    assert.ok(
+      zenith[2] / zenith[0] > 1,
+      `the sky is not blue-leaning at ${elevation} degrees`,
+    );
+  }
+});
+
+test('the lighting A/B is reachable and defaults to on', () => {
+  assert.equal(readFieldOptions('').skyLights, true);
+  assert.equal(readFieldOptions('?skylights=off').skyLights, false);
+  // Anything that is not the word `off` leaves the sky driving the lights, the
+  // same way `?sky=` does, so a typo is a look and not a silent revert.
+  assert.equal(readFieldOptions('?skylights=0').skyLights, true);
 });

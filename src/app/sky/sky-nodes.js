@@ -19,6 +19,7 @@ const {
   positionWorld,
   rangeFogFactor,
   select,
+  storage,
   textureLevel,
   textureStore,
   uniform,
@@ -27,6 +28,18 @@ const {
   vec3,
   vec4,
 } = THREE.TSL;
+
+/**
+ * How finely the lighting probe samples the hemisphere, per axis. 32 x 32
+ * cosine-weighted directions, once, reading the table the sky itself renders
+ * from -- so the lights cannot drift from the sky above them.
+ */
+const PROBE_AXIS = 32;
+
+/** `renderer._attributes` outlives the buffer otherwise, as the lawn found. */
+function releaseStorageBuffer(renderer, attribute) {
+  renderer._attributes?.delete(attribute);
+}
 
 /**
  * The TSL twin of `atmosphere.js`.
@@ -551,6 +564,63 @@ export function createFieldSky({
     ).toWriteOnly();
   })().compute(SKY_LUT.skyView.width * SKY_LUT.skyView.height, [64]);
 
+  // -- pass 4: what the sky lights the ground with -------------------------
+
+  /**
+   * A lighting probe, read off the finished sky rather than modelled a second
+   * time on the CPU.
+   *
+   * The scalar twin could compute this -- it has every term -- but doing so
+   * costs 450 ms of startup building its own copies of the two tables the GPU
+   * has already built, and leaves two implementations of the same integral to
+   * drift apart. Sampling the sky-view table instead makes the lights
+   * *derived from the sky*, not merely consistent with it: change the medium,
+   * the sun or the exposure and they move together by construction.
+   *
+   * One invocation, 1,024 cosine-weighted directions, once per sun. The
+   * cosine weighting is in the sampling rather than the sum, so the hemisphere
+   * integral is a plain mean times pi.
+   */
+  const probeAttribute = new THREE.StorageBufferAttribute(2, 4, Float32Array);
+  probeAttribute.name = 'Sky lighting probe';
+  const probeStorage = storage(probeAttribute, 'vec4', probeAttribute.count);
+
+  const lightingPass = Fn(() => {
+    // Direct sun, transmitted down the whole column to the eye.
+    probeStorage
+      .element(0)
+      .assign(
+        vec4(
+          sunTransmittance(eyeRadius, sunDirection.y.clamp(-1, 1)).mul(SOLAR),
+          1,
+        ),
+      );
+
+    // Diffuse sky, cosine-weighted over the upper hemisphere.
+    const total = vec3(0).toVar('probeTotal');
+    Loop(PROBE_AXIS, PROBE_AXIS, ({ i, j }) => {
+      const u1 = i.toFloat().add(0.5).div(PROBE_AXIS).toVar('probeU1');
+      const u2 = j.toFloat().add(0.5).div(PROBE_AXIS).toVar('probeU2');
+      const sinTheta = u1.sqrt().toVar('probeSin');
+      const cosTheta = u1.oneMinus().max(0).sqrt().toVar('probeCos');
+      const phi = u2.mul(2 * Math.PI).toVar('probePhi');
+      const mu = cosTheta;
+      // The table is indexed by the azimuth away from the sun, and the probe's
+      // own azimuth is measured from the sun's, so phi *is* that angle.
+      total.addAssign(
+        textureLevel(skyViewLUT, skyViewUV(mu, phi.cos()), 0).rgb,
+      );
+    });
+    probeStorage
+      .element(1)
+      .assign(vec4(total.mul(Math.PI / (PROBE_AXIS * PROBE_AXIS)), 1));
+  })().compute(1, [1]);
+
+  const probeReadback = new THREE.ReadbackBuffer(
+    8 * Float32Array.BYTES_PER_ELEMENT,
+  );
+  probeReadback.name = 'Sky lighting probe readback';
+
   // --- reading it back -----------------------------------------------------
 
   /**
@@ -639,6 +709,42 @@ export function createFieldSky({
     );
   };
 
+  /**
+   * Runs the probe and reads it back.
+   *
+   * `sun` is the direct beam's irradiance on a surface facing it and `sky` is
+   * the hemisphere's irradiance on a surface facing up, both in the same model
+   * units the sky is rendered in: the sun's irradiance above the atmosphere is
+   * 1, so both are fractions of it and both already carry `skyExposure`'s
+   * sibling, the raw scattering, but not `skyExposure` itself. The caller
+   * decides what a render unit is.
+   */
+  async function readProbe() {
+    await renderer.computeAsync(lightingPass);
+    try {
+      const result = await renderer.getArrayBufferAsync(
+        probeAttribute,
+        probeReadback,
+        0,
+        8 * Float32Array.BYTES_PER_ELEMENT,
+      );
+      const values = new Float32Array(result.buffer);
+      const probe = {
+        sun: [values[0], values[1], values[2]],
+        sky: [values[4], values[5], values[6]],
+      };
+      result.release();
+      return probe;
+    } catch (error) {
+      // r185 marks a reusable ReadbackBuffer mapped before awaiting mapAsync,
+      // as the lawn's visible-count readback records. Release that state, then
+      // let the caller fall back to the authored lights rather than losing the
+      // page over a probe.
+      if (probeReadback._mapped) probeReadback.release();
+      throw error;
+    }
+  }
+
   let baked = false;
 
   return {
@@ -649,7 +755,10 @@ export function createFieldSky({
     skyExposure,
     multiScatterScale,
 
-    /** Bakes all three tables. The first two never need it again. */
+    /**
+     * Bakes all three tables and the lighting probe, and returns what the sky
+     * lights the ground with. The first two tables never need it again.
+     */
     async bake() {
       if (!baked) {
         await renderer.computeAsync(transmittancePass);
@@ -657,14 +766,16 @@ export function createFieldSky({
         baked = true;
       }
       await renderer.computeAsync(skyViewPass);
+      return readProbe();
     },
 
-    /** Points the sun somewhere else and rebakes the one table that cares. */
+    /** Points the sun somewhere else and rebakes the two things that care. */
     async setSun(elevationDegrees, azimuthDegrees) {
       sunDirection.value.set(
         ...sunDirectionFrom(elevationDegrees, azimuthDegrees),
       );
       await renderer.computeAsync(skyViewPass);
+      return readProbe();
     },
 
     stats: {
@@ -681,6 +792,8 @@ export function createFieldSky({
       transmittanceLUT.dispose();
       multiScatterLUT.dispose();
       skyViewLUT.dispose();
+      probeReadback.dispose();
+      releaseStorageBuffer(renderer, probeAttribute);
     },
   };
 }

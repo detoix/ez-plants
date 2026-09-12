@@ -275,12 +275,17 @@ test('the hue correction moves hue and nothing else', () => {
     return (((sextant * 60) % 360) + 360) % 360;
   };
 
-  // The target overshoots the 99 it aims the *image* at, because the sun is
-  // `#fff0cd` and a warm light costs 5 to 7 degrees on the way through.
+  // The target still overshoots the 99 it aims the *image* at, but by much
+  // less than it used to. It was 104.4 while the sun was authored warm at
+  // `#fff0cd` and the ambient authored near-neutral; both now come from the
+  // atmosphere, which costs the image far less yellow, and 92 is what lands
+  // 99. The floor is the authored hue itself: a target at or below 86.7 would
+  // mean the palette needs no correction at all, which would make
+  // `lawnColorsFor` dead weight rather than a calibration.
   assert.ok(
-    LAWN_TARGET_HUE > 99,
-    `a target of ${LAWN_TARGET_HUE} does not overshoot the 99 the render is ` +
-      'aimed at, and the warm sun takes the difference back out',
+    LAWN_TARGET_HUE > 86.7,
+    `a target of ${LAWN_TARGET_HUE} no longer overshoots the authored 86.7, ` +
+      'so the rotation is doing nothing and should be removed rather than kept',
   );
   assert.ok(
     LAWN_TARGET_HUE <= 120,

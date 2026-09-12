@@ -55,6 +55,84 @@ const SUN_ANGLES = sunAnglesOf(SHIPPED_SUN_OFFSET);
  */
 const SKY_EXPOSURE = 7.1;
 
+/**
+ * The lights this page was authored with, and the two numbers that let the
+ * atmosphere take them over without re-exposing the image.
+ *
+ * The sky's lighting probe reports the sun's beam and the hemisphere's
+ * irradiance in the model's own units, where the sun above the atmosphere is
+ * 1. Handing those to the lights directly would be the physically coherent
+ * thing and it is not what happens here, because the page is not physically
+ * balanced to begin with: measured off the probe, a real sun at this elevation
+ * delivers 10.2 times the irradiance of its own sky onto flat ground, and
+ * these two lights deliver 1.34. Adopting the real ratio deepens every shadow
+ * by a factor of seven and moves the lawn's backlight, canopy and occlusion
+ * calibrations along with its hue. That is a separate change.
+ *
+ * So each light is anchored instead: its **colour** comes from the atmosphere
+ * at whatever elevation the sun is at, and its **luminance** is scaled so that
+ * at the shipped 49.1 degrees it reproduces exactly what was authored. The
+ * anchors are that scale, measured off the probe --
+ *
+ *   sun   authored (3.2000, 2.7884, 1.9536), luminance 2.8156
+ *         probe    (0.9230, 0.8304, 0.7004), luminance 0.84070
+ *   sky   authored (1.3718, 1.5379, 1.3059), luminance 1.4859
+ *         probe    (0.0314, 0.0646, 0.1270), luminance 0.06205
+ *
+ * -- so the sun's warmth and the sky's blue are now the air's rather than an
+ * author's, the ratio between them stays where it was, and `?sunelevation=`
+ * dims and reddens both the way the sky above them does.
+ *
+ * `test/field-sky.test.js` holds the two authored luminances, so changing
+ * `#fff0cd` or 3.2 fails there and points back at this comment rather than
+ * silently re-anchoring the page.
+ */
+export const AUTHORED_SUN = {
+  color: '#fff0cd',
+  intensity: 3.2,
+  luminance: 2.8156,
+};
+export const AUTHORED_SKY = {
+  color: '#e8f4e3',
+  ground: '#26331e',
+  intensity: 1.7,
+  luminance: 1.4859,
+};
+export const SUN_ANCHOR = 3.3491;
+export const SKY_ANCHOR = 23.947;
+
+/** Relative luminance of a linear RGB triple. */
+export function relativeLuminance([red, green, blue]) {
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+}
+
+/**
+ * Points the two lights at what the sky says, anchored.
+ *
+ * Both carry their magnitude in the colour and keep `intensity` at 1, because
+ * three gives a hemisphere light one intensity for two colours and the ground
+ * bounce has to scale with the sky rather than against it. The ground keeps
+ * its authored hue -- it is the lawn, and the lawn's colour is authored -- and
+ * only its brightness follows the sky down.
+ */
+function applySkyLighting({ sun, skyLight, probe }) {
+  const sunColor = probe.sun.map((channel) => channel * SUN_ANCHOR);
+  const skyColor = probe.sky.map((channel) => channel * SKY_ANCHOR);
+  const groundScale =
+    relativeLuminance(skyColor) / Math.max(1e-6, AUTHORED_SKY.luminance);
+
+  sun.intensity = 1;
+  sun.color.setRGB(...sunColor, THREE.LinearSRGBColorSpace);
+
+  skyLight.intensity = 1;
+  skyLight.color.setRGB(...skyColor, THREE.LinearSRGBColorSpace);
+  skyLight.groundColor
+    .set(AUTHORED_SKY.ground)
+    .multiplyScalar(AUTHORED_SKY.intensity * groundScale);
+
+  return { sunColor, skyColor };
+}
+
 export function readFieldOptions(search = '', devicePixelRatio = 1) {
   const params = new URLSearchParams(search);
   const number = (key, fallback, minimum, maximum) => {
@@ -170,6 +248,11 @@ export function readFieldOptions(search = '', devicePixelRatio = 1) {
     // `?sky=flat` is the A/B: the `#b8c9b5` clear colour and the matching
     // linear fog this page shipped with, with no atmosphere baked at all.
     sky: params.get('sky') === 'flat' ? 'flat' : 'atmosphere',
+    // Whether the two lights take their colour from the atmosphere. This is
+    // the A/B that isolates the lighting from the sky: `?skylights=off` keeps
+    // the authored `#fff0cd` sun and neutral hemisphere under a physical sky,
+    // which is the page as the sky first landed on it.
+    skyLights: params.get('skylights') !== 'off',
     // The sun in render units, and the one judgement call in the sky. See
     // `SKY_EXPOSURE`; `scripts/measure-sky.mjs` is how it was set.
     skyExposure: number('skyexposure', SKY_EXPOSURE, 0.5, 60),
@@ -235,7 +318,33 @@ function formatSky(sky, options) {
   );
 }
 
-function createHUD(renderer, adapter, surface, sky, options) {
+function formatSkyLights(lighting, options) {
+  if (!lighting) {
+    return options.sky === 'flat'
+      ? 'authored · no atmosphere'
+      : 'authored · sky not driving them';
+  }
+  const hex = (linear) =>
+    '#' +
+    linear
+      .map((channel) => {
+        const value = Math.max(0, Math.min(1, channel / Math.max(...linear)));
+        const encoded =
+          value <= 0.0031308
+            ? value * 12.92
+            : 1.055 * value ** (1 / 2.4) - 0.055;
+        return Math.round(encoded * 255)
+          .toString(16)
+          .padStart(2, '0');
+      })
+      .join('');
+  return (
+    `sun ${hex(lighting.sunColor)} ×${relativeLuminance(lighting.sunColor).toFixed(2)} · ` +
+    `sky ${hex(lighting.skyColor)} ×${relativeLuminance(lighting.skyColor).toFixed(2)}`
+  );
+}
+
+function createHUD(renderer, adapter, surface, sky, lighting, options) {
   const values = new Map(
     [...document.querySelectorAll('[data-stat]')].map((node) => [
       node.dataset.stat,
@@ -253,6 +362,7 @@ function createHUD(renderer, adapter, surface, sky, options) {
   set('gpu', adapterName(adapter) || 'WebGPU adapter');
   set('surface-tile', formatSurface(surface));
   set('sky', formatSky(sky, options));
+  set('sky-lights', formatSkyLights(lighting, options));
 
   return {
     update(delta, grassStats, plantStats) {
@@ -339,15 +449,20 @@ function createScene({ terrainAmplitude, shadows, surface, sky, sunOffset }) {
     scene.fog = new THREE.Fog('#b8c9b5', HAZE.near, HAZE.far);
   }
 
-  // Not derived from the sky. The lawn's hue is calibrated against this exact
-  // sun -- see `LAWN_TARGET_HUE`, which says in as many words that it moves if
-  // the sun's colour does -- and the atmosphere's own answer at this elevation
-  // is (0.92, 0.83, 0.70), a little cooler than the authored `#fff0cd`.
-  // Adopting it is a separate change with a sweep attached to it.
-  const skyLight = new THREE.HemisphereLight('#e8f4e3', '#26331e', 1.7);
+  // The authored pair. Under an atmosphere `applySkyLighting` takes their
+  // colours over and anchors their luminance to exactly these values; under
+  // `?sky=flat` or `?skylights=off` they stay as they are.
+  const skyLight = new THREE.HemisphereLight(
+    AUTHORED_SKY.color,
+    AUTHORED_SKY.ground,
+    AUTHORED_SKY.intensity,
+  );
   scene.add(skyLight);
 
-  const sun = new THREE.DirectionalLight('#fff0cd', 3.2);
+  const sun = new THREE.DirectionalLight(
+    AUTHORED_SUN.color,
+    AUTHORED_SUN.intensity,
+  );
   sun.position.set(...sunOffset);
   sun.castShadow = shadows;
   sun.shadow.mapSize.set(2048, 2048);
@@ -386,6 +501,7 @@ function createScene({ terrainAmplitude, shadows, surface, sky, sunOffset }) {
   return {
     scene,
     sun,
+    skyLight,
     sky,
     terrain,
     backdrop,
@@ -454,6 +570,8 @@ export async function startField({ adapter }) {
   let heightMap;
   let surface;
   let sky;
+  let probe;
+  let lighting;
   let stage;
   let grass;
   let plantPlot;
@@ -535,10 +653,21 @@ export async function startField({ adapter }) {
         multiScatter: options.skyMultiScatter,
         eyeHeightKm: 0.0017,
       });
-      // Three compute dispatches, then nothing: the sun does not move and a
-      // metre of eye height is nothing against a hundred kilometres of air, so
-      // the sky-view table is as valid on the last frame as on the first.
-      await sky.bake();
+      // Three compute dispatches and a probe, then nothing: the sun does not
+      // move and a metre of eye height is nothing against a hundred kilometres
+      // of air, so the sky-view table is as valid on the last frame as on the
+      // first.
+      try {
+        probe = await sky.bake();
+      } catch (error) {
+        // A probe is a readback, and a readback is the one part of this that
+        // can fail on a working adapter. Losing it costs the page its
+        // atmosphere-derived lights, not its sky.
+        console.warn(
+          'Sky lighting probe failed; keeping authored lights.',
+          error,
+        );
+      }
     }
     // One direction for the shading and the scattering both. The length is the
     // shipped offset's, because the shadow camera's near and far were sized
@@ -554,6 +683,13 @@ export async function startField({ adapter }) {
       sky,
       sunOffset,
     });
+    if (probe && options.skyLights) {
+      lighting = applySkyLighting({
+        sun: stage.sun,
+        skyLight: stage.skyLight,
+        probe,
+      });
+    }
 
     if (loadingText)
       loadingText.textContent = 'Allocating persistent grass grids…';
@@ -634,7 +770,7 @@ export async function startField({ adapter }) {
     });
     controls.setOnEngaged(() => hint?.setAttribute('hidden', ''));
 
-    const hud = createHUD(renderer, adapter, surface, sky, options);
+    const hud = createHUD(renderer, adapter, surface, sky, lighting, options);
     const sunTrack = stage.sun.position.clone();
     const clock = new THREE.Clock();
     let firstFrame = true;

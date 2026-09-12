@@ -40,6 +40,14 @@ passes, so `npm test` cannot see a single pixel of them. It drives `/field`
 headless, points the camera along named directions and reads the pixel back.
 Re-run it whenever `SKY_EXPOSURE`, the sun, the medium or the tone mapper move.
 
+`scripts/measure-lawn-hue.mjs` is the third. `LAWN_TARGET_HUE` is a property of
+the rendered image rather than of the palette, so it has to be re-swept after
+any change to the underlay, the occlusion, the lights or the blades' coverage
+-- and until now that sweep was done by hand and kept in a commit message,
+which is exactly how the blade-height numbers were lost. It reports hue,
+saturation and luminance over six depth bands and the drift between the nearest
+and the farthest.
+
 ## Field architecture
 
 The field uses one Three.js/WebGPU runtime. Its camera-centred lawn lives under
@@ -73,13 +81,17 @@ Colour Index, whose hue transform is `(H - 60) / 60` -- 60 degrees is a lawn's
 yellow end, 120 its deep-green end. A reference photograph of a healthy lawn
 sits at 99 at every depth; this page rendered at **75**, because the blade
 greens were authored at 87-91, the Grass004 underlay is 72, and the warm sun
-`#fff0cd` takes another 5-7 off on the way through. The target is **107**, not
-99, because the albedo has to overshoot what the image is aimed at, and how far
-is swept rather than derived: rendered mean hue is linear in the number, and
-107 lands 99. It moves if the sun's colour does -- and if what fills the gaps
-between blades does, which is why it went *up* by two when the canopy proxy
-landed rather than down. 105 was never landing 99: it landed 97.7 near and
-84.7 at the horizon, for a mean over depth of about 90. `lawnColorsFor()` rotates every green by one
+`#fff0cd` takes another 5-7 off on the way through. The target is **92**, not 99,
+because the albedo has to overshoot what the image is aimed at, and how far is
+swept rather than derived: rendered mean hue is linear in the number, at 0.93
+degrees of image per degree of palette, and 92 lands 99.
+`scripts/measure-lawn-hue.mjs` is that sweep -- run it, do not re-derive it.
+It moves if the sun's colour does, and the sun's colour is no longer authored:
+it was 104.4 under `#fff0cd` and a neutral ambient, and driving both lights
+from the atmosphere carried the image up 12.2 degrees at unchanged luminance,
+so the palette came down the same distance. The overshoot over the authored
+86.7 went from 17.7 degrees to 5.3 -- **most of what the palette was
+compensating for was the lighting, not the underlay**. `lawnColorsFor()` rotates every green by one
 delta and solves each back to its original linear luminance, and the underlay,
 being a photograph, gets a per-channel `groundTint` instead of a colour.
 `?lawnhue=86.7` restores the authored palette exactly.
@@ -212,13 +224,35 @@ Five things are load-bearing:
   `test/field-sky.test.js`, along with the table filled through one mapping and
   read back through the sampler it is sampled with.
 
-What is deliberately *not* coupled: the directional light keeps `#fff0cd` at
-3.2 and the hemisphere light its authored colours. The atmosphere's own answer
-for the sun at this elevation is `(0.92, 0.83, 0.70)`, a little cooler than the
-authored warm -- but `LAWN_TARGET_HUE` says in as many words that it moves if
-the sun's colour does, so adopting it is a separate change with a sweep
-attached. That is why `?sunelevation=4` gives a real sunset sky and real long
-shadows over a lawn still lit as though it were noon.
+**The lights are the sky's, anchored rather than adopted.** A lighting probe
+runs as a fourth compute pass -- one invocation, 1,024 cosine-weighted
+directions sampling the sky-view table, read back once -- and reports the
+sun's beam and the hemisphere's irradiance. The scalar twin could compute both,
+and doing so costs 450 ms of startup rebuilding tables the GPU already has and
+leaves two copies of one integral to drift apart; reading the finished sky
+instead makes the lights *derived from* it.
+
+What is taken is the **colour**: the sun is `#fff3e2` where `#fff0cd` was, and
+the hemisphere `#88bdff` where a near-neutral `#e8f4e3` was, because skylight
+really is that blue. What is *not* taken is the balance. Measured off the
+probe, a real sun at this elevation delivers 10.2 times the irradiance of its
+own sky onto flat ground and these two lights deliver 1.34; adopting that
+deepens every shadow sevenfold and moves the backlight, canopy and occlusion
+calibrations as well as the hue. So each light's luminance is scaled by an
+anchor -- `SUN_ANCHOR` 3.3491, `SKY_ANCHOR` 23.947 -- that reproduces the
+authored value exactly at the shipped 49.1 degrees, and both then dim and
+redden with the sky as `?sunelevation=` moves. Making the balance physical too
+is the next change, and it is a bigger one.
+
+Two things came out of this that were not the point. `LAWN_TARGET_HUE` fell
+from 104.4 to 92, and the lawn's hue **drift** over depth went from +7.9
+degrees to +2.7 -- inside what the reference photographs hold, which it was not
+before. The authored warm sun was yellowing the near field harder than the far,
+and the palette had no way to see that.
+
+`?skylights=off` is the A/B: a physical sky over the authored lights, which is
+the page as the sky first landed on it. It is worth about 12 degrees of lawn
+hue.
 
 `?sky=flat` is the A/B, and it reaches the exact page that shipped: the clear
 colour, the matching fog, and no atmosphere baked at all. `?skyexposure=` and
@@ -368,7 +402,7 @@ the plant `wind` query, which must retain the requested plant behavior.
 `npm test` runs `node --test`. These tests protect CPU contracts: deterministic
 scatter and bed planting, terrain agreement, storage layout, snapping, density,
 material gates, field-stat aggregation, the sky's scalar twin and its three
-table mappings, and resource disposal. They do not execute WebGPU
+table mappings, the light anchors, and resource disposal. They do not execute WebGPU
 compute shaders or indirect draws. A production build checks bundling, not GPU
 shader execution; final verification still needs a hardware-WebGPU browser.
 

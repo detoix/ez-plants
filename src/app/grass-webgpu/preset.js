@@ -650,11 +650,12 @@ export const GRASS004_ALBEDO_MEAN = '#606c30';
  *
  * So the albedo has to overshoot the target it is aiming the *image* at, and
  * how far is measured rather than derived. Rendered mean hue over six depth
- * bands is a straight line in this number: 103 lands 97.6, 105 lands 99.7,
- * 107 lands 101.5. 104.4 is the one that lands 99.
+ * bands is a straight line in this number, at a slope of 0.93 degrees of
+ * image per degree of palette, and **92 is the one that lands 99**:
+ * 90 lands 97.3, 92 lands 99.0, 94 lands 101.0.
  *
  * **It moves whenever anything changes what a pixel of lawn is made of**, and
- * it has now done so twice in one day, in both directions:
+ * it has now done so three times, in both directions:
  *
  * - It was 105, and the canopy proxy pushed it *up* to 107 -- the opposite of
  *   what the overshoot argument predicts. 105 was never landing 99: it landed
@@ -664,13 +665,27 @@ export const GRASS004_ALBEDO_MEAN = '#606c30';
  * - Then `groundCanopyAO` pushed it back *down* to 104.4, because darkening
  *   the ground between the blades leaves the blades -- which are already on
  *   the palette -- carrying more of every pixel.
+ * - Then the lights stopped being authored. The atmosphere's own sun is
+ *   `#fff3e2` where `#fff0cd` was, and its own skylight is `#88bdff` where a
+ *   near-neutral `#e8f4e3` was -- skylight really is that blue -- and between
+ *   them they carried the rendered image up 12.2 degrees at unchanged
+ *   luminance, so the palette came down the same distance to **92**.
+ *
+ * That last one is worth more than its number. The overshoot over the
+ * authored hue was 17.7 degrees and is now 5.3: **most of what the palette was
+ * compensating for was the lighting being wrong, not the underlay.** An
+ * authored warm sun and a neutral ambient were yellowing every pixel, and the
+ * palette was being rotated green to cancel a cast that should never have been
+ * there. `?skylights=off` restores that pair and puts 12 of those degrees back.
  *
  * The lesson is the dependency, not the number: this is a property of the
  * rendered image, so it has to be re-swept after any change to the underlay,
- * the occlusion, the sun's colour or the blades' coverage. Two dials show
- * that at a glance -- `?proxy=0` drops the rendered mean to about 90 and
- * `?groundao=1` lifts it about two degrees. `?lawnhue=86.7` is roughly the
- * palette as it was authored.
+ * the occlusion, the lights or the blades' coverage. `scripts/measure-lawn-hue.mjs`
+ * is that sweep, and every number above came out of it. Two dials move it at a
+ * glance -- `?proxy=0` drops the rendered mean about 5 degrees and
+ * `?groundao=1` drops it about 1, the latter being the *opposite* of what this
+ * comment used to claim and the same direction as the `groundCanopyAO` note
+ * three paragraphs up. `?lawnhue=86.7` is the palette as it was authored.
  *
  * A practical trap when re-sweeping: the palette is stored as 8-bit hex, so
  * the luminance the rotation solves back to carries about 0.002 of
@@ -686,7 +701,7 @@ export const GRASS004_ALBEDO_MEAN = '#606c30';
  * band where blades are still resolvable and thinning fastest, and it is a
  * separate fault.
  */
-export const LAWN_TARGET_HUE = 104.4;
+export const LAWN_TARGET_HUE = 92;
 
 /** The hue the palette was authored around -- the blade tip, at 86.7. Every
  *  other colour is rotated by the same delta rather than snapped to the
