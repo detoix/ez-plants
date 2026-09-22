@@ -265,6 +265,12 @@ optional peer, reachable only through `src/lib/field/`, and the dependency arrow
 points **field → plant, never plant → field**. That is what keeps `three` the
 only dependency an extracted plant needs.
 
+`src/lib/webgpu/` is the same arrangement one layer down: it needs `three/tsl`
+to express a known effect as nodes, needs no instancing, and nothing in the
+plant or tree layer imports it. A WebGL consumer never pays for it, a consumer
+swaying one tree never takes `@detoix/instanced-mesh`, and `./field/webgpu`
+remains the only door that does.
+
 ### 9. Every LOD band has a triangle budget, and the numbers are EZ-Tree's
 
 Budget: **25,000 triangles at band 0, 10,000 at band 1, 5,000 at band 2**, drawn
@@ -829,6 +835,37 @@ tree.generateLODs([
 ```
 
 All LOD levels share one bark material and one leaf material, so `tree.update(time)` animates wind at every level. Calling `generate()` afterwards tears the LOD down and restores the single full-detail mesh pair (note that exporting a tree generated with `generateLODs()` to GLB will include every level).
+
+### Trees under a WebGPU renderer
+
+`tree.update(time)` drives the leaf wind through `LeafWind`, which reaches the
+shader by patching `onBeforeCompile` and splicing GLSL into the vertex stage.
+A `WebGPURenderer` has no such hook — it rebuilds each material from its
+properties — so a tree renders correctly and stands perfectly still. The clock
+keeps advancing; nothing reads it.
+
+Carry the motion across with the `webgpu` entry, after `generateLODs()`:
+
+```js
+import { createTreeLeafWind } from '@detoix/ez-plants/webgpu';
+
+const wind = createTreeLeafWind(); // one controller for the whole scene
+for (const tree of trees) wind.applyTo(tree);
+
+// once per frame, not once per tree
+wind.setTime(elapsedSeconds);
+```
+
+`applyTo` swaps the tree's leaf material for a node material carrying the wind
+as a TSL position node, and clears the GLSL hooks that no longer apply. Every
+LOD level shares one leaf material, so a single call covers all of them
+including the far billboard. Bark is untouched.
+
+This entry needs `three/tsl` but deliberately not `@detoix/instanced-mesh`:
+swaying one tree should not pull in the instancing package. It is a separate
+effect from the field backend's plant wind in `./field/webgpu`, which handles
+the instanced case — the two are matched by eye, not by contract, so tuning one
+does not change the other.
 
 If you have your own LOD or instancing system, `tree.createGeometry(detail)` returns raw `{ branches, leaves }` `BufferGeometry` pairs at any detail level without touching the tree's own meshes.
 

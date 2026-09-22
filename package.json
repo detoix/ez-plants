@@ -20,6 +20,10 @@
       "import": "./build/ez-plants.es.js",
       "require": "./build/ez-plants.umd.js"
     },
+    "./webgpu": {
+      "types": "./types/webgpu.d.ts",
+      "import": "./build/webgpu/index.js"
+    },
     "./react": {
       "types": "./build/react/index.d.ts",
       "import": "./build/react/index.js"
@@ -45,7 +49,7 @@
   "scripts": {
     "dev": "vite --config vite.app.config.js",
     "test": "node --test",
-    "build": "npm run build:lib && npm run build:react && npm run build:field && npm run build:app",
+    "build": "npm run build:lib && npm run build:react && npm run build:webgpu && npm run build:field && npm run build:app",
     "build:app": "vite build --config vite.app.config.js",
     "build:lib": "vite build --config vite.lib.config.js && tsc -p tsconfig.json",
     "build:watch": "vite build --config vite.lib.config.js --watch",
@@ -53,6 +57,7 @@
     "preview": "vite preview",
     "build:react": "vite build --config vite.react.config.js && tsc -p tsconfig.react.json",
     "build:field": "vite build --config vite.field.config.js",
+    "build:webgpu": "vite build --config vite.webgpu.config.js",
     "typecheck": "tsc -p tsconfig.react.json --noEmit",
     "plant:add": "node scripts/add-plant.mjs"
   },
